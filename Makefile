@@ -43,10 +43,16 @@ dist/jamotong.exe: $(APP_SRCS)
 	@mkdir -p dist
 	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32
 
+# 빌드 산출물 + 재배포 데이터(redist/: 한자 데이터·설치 스크립트·예제 자판)를 dist/에 모아
+# '설치 가능한 폴더'를 만든다. 소스 빌드 사용자는 이 폴더에서 install.bat 실행.
+stage: all win32 configapp
+	cp redist/* dist/
+	@echo "dist/ = installable folder (run install.bat as administrator)"
+
 clean:
 	rm -f $(TARGET) dist/jamotong32.dll dist/jamotong.exe dist/*_res*.o
 
-.PHONY: all win32 configapp clean
+.PHONY: all win32 configapp stage clean
 
 # ── 내부 개발 타깃 (비공개 저장소가 옆에 있으면 활성화) ──────────────────────────────
 -include ../jamotong-private/private.mk

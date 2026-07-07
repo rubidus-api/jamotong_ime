@@ -1,0 +1,20 @@
+# jamotong 통합 자판 정의 (.jmt) — 정적 1:1 리맵 예제 (Type = static)
+#
+# QWERTY 물리 키가 내는 문자를 다른 문자로 바꾸는 단순 자판(드보락·콜맥 등)에 씁니다.
+#   Map <키> = <출력>    그 키가 내는 문자 → 출력 문자 (대문자/기호는 각각 따로)
+# 아래는 형식 예시(일부 키만) — 실제로는 드보락 전체를 채워 쓰거나, 내장 en_dvorak을 쓰세요.
+
+Type = static
+Name = ex_static
+Abbrev = eSt
+
+Map q = '
+Map w = ,
+Map e = .
+Map r = p
+Map t = y
+Map y = f
+Map u = g
+Map i = c
+Map o = r
+Map p = l

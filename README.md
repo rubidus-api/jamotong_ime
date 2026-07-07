@@ -31,10 +31,13 @@ MinGW-w64 크로스 컴파일 (Linux에서):
 ```sh
 make            # dist/jamotong.dll (x64)
 make win32      # dist/jamotong32.dll (x86)
-make configapp  # dist/jamotong.exe (설정/자판 편집 앱)
-make zip        # 배포 패키지
-make automata-test config-test sanitize-test   # 네이티브 테스트 (ASan/UBSan 포함)
+make configapp  # dist/jamotong.exe (트레이 모니터링/설정 앱)
+make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립트) 를 dist/에 복사
+                #  → dist/ 가 곧 설치 폴더 (install.bat 를 관리자 권한으로 실행)
 ```
+
+`redist/`에는 실행에 필요한 재배포 데이터가 있다: 한자 독음 테이블(`hanja.txt`),
+훈음 표(`hanja_hunum.txt`), Unicode License 사본, 설치/삭제 스크립트, 예제 자판(`.jmt`).
 
 ## 문서
 
