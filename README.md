@@ -21,7 +21,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 ## 설치
 
-배포 zip을 풀고 `install.bat`를 **관리자 권한**으로 실행 → 로그아웃/재로그인 →
+**[Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 최신 zip을 내려받아**
+압축을 풀고 `install.bat`를 **관리자 권한**으로 실행 → 로그아웃/재로그인 →
 Win+Space로 "Jamotong IME" 선택. 자세한 내용은 `README-install.txt`.
 
 ## 빌드
