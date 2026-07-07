@@ -1,79 +1,72 @@
-========================================================================
- Jamotong IME  -  설치/등록 및 실기 검증 안내 (Install & Verification)
-========================================================================
+================================================================
+ Jamotong IME - Install & Verification Guide
+================================================================
 
-이 폴더는 자기완결(self-contained) 64비트 TSF 입력기입니다. 별도 런타임 DLL 없이
-Windows 10/11 (x64)에서 동작합니다.
+Jamotong is a Korean (Hangul) IME for Windows 11, implemented in
+pure C23 + WinAPI as a TSF (Text Services Framework) text service.
 
-폴더 구성:
-  jamotong.dll          입력기 본체 (TSF COM in-proc 서버, x64)
-  install.bat           등록 (관리자 권한)
-  uninstall.bat         등록 해제 (관리자 권한)
-  hanja.txt             한자 사전 (DLL과 같은 폴더에 있어야 함)
-  example.jmt          사용자 자판 예제 - 한글 세벌식형 (Type=hangul)
-  example-artsey.jmt   사용자 자판 예제 - 조합 자판 (Type=chord: 레이어/모디파이어/마우스/hold)
-  example-dvorak.jmt   사용자 자판 예제 - 정적 리맵 (Type=static)
+Homepage: https://github.com/rubidus-api/jamotong_ime
 
-------------------------------------------------------------------------
- 1. 등록 방법 (Registration)
-------------------------------------------------------------------------
- 1) 이 폴더 전체를 PC의 고정 위치로 복사 (예: C:\jamotong).
-    - install.bat이 DLL을 "현재 위치에서" 등록하므로, 등록 후에는 폴더를 옮기지 마세요.
-      옮기려면 먼저 uninstall.bat 실행 → 이동 → 다시 install.bat.
- 2) (다운로드로 받았다면) 파일 차단 해제:
-    - install.bat이 자동으로 Unblock 하지만, 안 되면 각 파일 속성 → "차단 해제" 체크.
- 3) install.bat 을 "관리자 권한으로 실행" (오른쪽 클릭 → 관리자 권한으로 실행).
-    - regsvr32 성공 대화상자("DllRegisterServer ... succeeded")가 뜨면 확인.
- 4) 로그아웃 후 다시 로그인 (또는 재부팅) — 언어바에 확실히 반영됩니다.
 
- 내부적으로: regsvr32 → DllRegisterServer 가 COM(CLSID) + TSF 프로필(한국어 0x0412)
- + 카테고리(키보드/디스플레이속성/IMMERSIVE/SYSTRAY)를 등록합니다.
+1. INSTALL
+----------------------------------------------------------------
+ 1) Extract the zip to a folder you will KEEP (the DLLs are
+    loaded from this folder; do not delete it after install).
+ 2) Right-click install.bat -> "Run as administrator".
+ 3) Sign out and back in (or reboot).
+ 4) Press Win+Space and select "Jamotong IME".
 
-------------------------------------------------------------------------
- 2. 사용 (전환)
-------------------------------------------------------------------------
- - 입력기 전환:      Win+Space (또는 Alt+Shift) 로 "Jamotong IME" 선택.
- - IME 내부 자판 순환: 오른쪽 Alt(한/영 키) 또는 Shift+Space.
-     순서: en_qwerty → en_dvorak → ko_2bul(2벌식) → ko_3bul(세벌식) → (사용자 *.jmt)
- - 현재 자판 이름은 언어바 버튼에 표시됩니다. 언어바 버튼 오른쪽 클릭 → "Settings..." 로 설정창.
- - 사용자 자판 추가: *.jmt 파일을 이 폴더(jamotong.dll 옆)에 두고 재로그인.
+ The installer registers:
+   - jamotong.dll   (64-bit TSF text service)
+   - jamotong32.dll (32-bit, for 32-bit applications)
+   + TSF profile (branding icon) and categories
+     (keyboard / display attribute / immersive / systray).
 
-------------------------------------------------------------------------
- 3. 실기 검증 체크리스트 (Verification)
-------------------------------------------------------------------------
- 메모장(Notepad)과 워드패드, 브라우저 주소창에서 각각 확인 권장.
 
- [ ] 등록/표시:  Win+Space 목록에 Jamotong IME 표시, 언어바에 자판 이름 표시.
- [ ] 조합 밑줄:  한글 입력 중 조합 글자에 밑줄(디스플레이 속성)이 보이는지.
- [ ] 2벌식:      ko_2bul 에서 "한글" 등 정상 입력, 받침/겹받침/도깨비불.
- [ ] 세벌식:     ko_3bul 에서 초성(오른손)/중성/종성(왼쪽) 및 겹받침·된소리(초성 거듭).
- [ ] 한자 변환:  한글 음절 입력 후 한자키 → 후보창, 숫자키 선택, 페이지 이동.
- [ ] 특수문자:   단일 자음(예: ㅁ) + 한자키 → 특수문자표. 후보에 U+코드 표시.
- [ ] 유니코드:   영문 상태에서 16진수(예: 203B) 입력 후 한자키 → 해당 문자(※)로 치환.
- [ ] 설정창:     언어바 우클릭 → Settings 열림, 고해상도(125%+)에서 레이아웃 정상.
- [ ] 사용자 한글(.jmt Type=hangul):  example.jmt 자판으로 조합/모아치기.
- [ ] 조합 자판(.jmt Type=chord):  example-artsey.jmt
-        - 글쇠 조합 → 문자, 백스페이스/스페이스/엔터(key ...).
-        - 원샷 모디파이어(mod shift), 원샷/토글 레이어(layer/tlayer).
-        - 마우스: move/click/wheel.
-        - hold: 모멘터리 레이어(누른 채 다른 키), 지속 모디파이어(hold ... = mod), tap-vs-hold.
-        - 좌/우 모디파이어, 키패드 vs 화살표, F13~24, 미디어/볼륨키, 락키.
- [ ] 정적 리맵(.jmt Type=static):  example-dvorak.jmt 로 물리 q→' 등.
- [ ] 모던 앱:    UWP/스토어 앱(설정 앱 검색창 등)에서도 입력되는지.
- [ ] 재진입:     조합 자판의 key/mod 액션(예: Ctrl+C)이 다시 먹히지 않고 정상 동작.
+2. BASIC USE
+----------------------------------------------------------------
+ - Switch IME:          Win+Space -> "Jamotong IME"
+ - Cycle layouts:       Right Alt, Hangul key, or Shift+Space
+                        (configurable in Settings)
+ - Settings window:     Ctrl+Alt+K  (or run jamotong.exe)
+ - Hanja conversion:    compose a syllable, press the Hanja key;
+                        or select text first, then press Hanja
+ - Special characters:  single consonant (e.g. Mieum) + Hanja key
+ - Unicode input:       Ctrl+Alt+U -> type hex -> Enter
+ - Tray monitor:        run jamotong.exe (left-click = settings,
+                        right-click = menu)
 
-------------------------------------------------------------------------
- 4. 문제 해결 (Troubleshooting)
-------------------------------------------------------------------------
- - regsvr32 실패:  DLL 차단 해제 확인 / 백신 격리 확인 / 관리자·64비트 regsvr32 확인.
- - 목록에 안 뜸:    로그아웃→재로그인 또는 재부팅. Win 언어 설정에 한국어가 있어야 함.
- - 32비트 앱에서 안 됨:  이 DLL은 x64 전용. 32비트 앱 지원은 32비트 빌드가 별도로 필요.
- - 한자 안 됨:      hanja.txt 가 jamotong.dll 과 같은 폴더에 있는지 확인.
- - 조합 자판 이상:  *.jmt 문법은 example-*.jmt 주석 참고. Key를 Chord보다 먼저 정의.
+ Data files (hanja.txt, hanja_hunum.txt) must stay next to the
+ DLLs. User settings: %APPDATA%\Jamotong\config.ini
 
-------------------------------------------------------------------------
- 5. 제거 (Uninstall)
-------------------------------------------------------------------------
- 1) 입력기를 기본(예: Microsoft 한글)으로 전환.
- 2) uninstall.bat 을 "관리자 권한으로 실행".
- 3) 로그아웃→재로그인. 이후 폴더 삭제 가능.
+
+3. VERIFY CHECKLIST
+----------------------------------------------------------------
+ [ ] Win+Space list shows "Jamotong IME" with its icon.
+ [ ] Typing "gksrmf" in Notepad produces Hangul syllables.
+ [ ] Composition preview chip appears at the caret.
+ [ ] Hanja key on a composed syllable opens the candidate list
+     (with meaning/reading shown).
+ [ ] Layout cycling works (Right Alt).
+ [ ] Legacy apps (old EDIT controls) receive text correctly.
+
+
+4. UNINSTALL
+----------------------------------------------------------------
+ 1) Switch to another IME first (e.g. Microsoft IME).
+ 2) Right-click uninstall.bat -> "Run as administrator".
+ 3) Sign out and back in.
+ 4) Delete this folder. User settings remain at
+    %APPDATA%\Jamotong (delete manually if desired).
+
+
+5. TROUBLESHOOTING
+----------------------------------------------------------------
+ - Registration failed: check that files are unblocked
+   (Properties -> Unblock) and antivirus did not quarantine
+   the DLLs, then run install.bat again.
+ - IME not listed after install: sign out/in again, or reboot.
+ - No hanja candidates: hanja.txt must be in the same folder
+   as jamotong.dll.
+
+ Licenses: see COPYRIGHT.md and UNICODE-LICENSE.txt.

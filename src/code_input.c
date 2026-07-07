@@ -48,7 +48,7 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
             SetTextColor(hdc, RGB(0, 0, 0));
             TextOutW(hdc, 10, 8, line, (int)wcslen(line));
             SetTextColor(hdc, RGB(128, 128, 128));
-            TextOutW(hdc, 10, CI_H - 24, L"hex 2~6\xC790\xB9AC \xB2E4\xC74C Enter", 17);   // "hex 2~6자리 다음 Enter"
+            TextOutW(hdc, 10, CI_H - 24, L"hex 2-6 digits, then Enter", 26);
 
             // 실시간 미리보기 (팝업 안에서 — 문서 range 편집 불필요)
             unsigned cp = CurCodepoint();

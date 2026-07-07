@@ -15,5 +15,5 @@
 #define JAMOTONG_VERSION \
     L"" JAMO_STR(JAMOTONG_VERSION_MAJOR) "." JAMO_STR(JAMOTONG_VERSION_MINOR) "." JAMO_STR(JAMOTONG_VERSION_PATCH)
 
-#define JAMOTONG_AUTHOR      L"Jamotong Project"
+#define JAMOTONG_AUTHOR      L"rubidus-api"
 #define JAMOTONG_HOMEPAGE    L"https://github.com/rubidus-api/jamotong_ime"

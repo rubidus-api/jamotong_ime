@@ -41,7 +41,7 @@ if exist "%~dp0jamotong.dll" (
 )
 
 REM ---- 2) Clean up legacy IMM32 leftovers (old builds only) --------
-REM  구버전(≤2026-07-06)이 설치했던 IMM32 .ime 잔재를 정리한다. 현행 버전은 설치하지 않음.
+REM  Cleans up IMM32 (.ime) leftovers installed by old builds. Current builds never install it.
 if exist "%~dp0jamotong.exe" (
   "%~dp0jamotong.exe" /uninstallime >nul 2>&1
 )

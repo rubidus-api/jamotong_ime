@@ -24,11 +24,11 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "jamotong"
+            VALUE "CompanyName", "rubidus-api"
             VALUE "FileDescription", "Jamotong Korean IME"
             VALUE "FileVersion", "0.10.0"
             VALUE "InternalName", "jamotong"
-            VALUE "LegalCopyright", "jamotong"
+            VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
             VALUE "OriginalFilename", "jamotong.ime"
             VALUE "ProductName", "Jamotong IME"
             VALUE "ProductVersion", "0.10.0"

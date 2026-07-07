@@ -40,7 +40,7 @@ static int g_dpi = 96;
 static HFONT g_uiFont = NULL;
 // 오너드로 버튼 3개 (자식 BUTTON 대신 부모 창이 직접 그리고 클릭 처리 — WM_COMMAND 라우팅 의존 제거)
 static RECT g_btnRect[3];
-static const wchar_t *g_btnLabel[3] = { L"다음 자판 (한영)", L"설정(Settings)", L"지우기" };
+static const wchar_t *g_btnLabel[3] = { L"Next layout", L"Settings", L"Clear" };
 
 #define ID_NEXT 1001
 #define ID_SETTINGS 1002
@@ -83,12 +83,12 @@ static bool IsModifierOrLock(UINT vk) {
 static void UpdateStatus(void) {
     LayoutConfig *L = Config_GetCurrentLayout(&g_config);
     wchar_t s[160];
-    wsprintfW(s, L"현재 자판: %s    (Right Alt / 한영 / Shift+Space / [다음 자판] 으로 전환)",
+    wsprintfW(s, L"Layout: %s    (switch: Right Alt / Hangul key / Shift+Space / [Next layout])",
               (L && L->name) ? L->name : L"?");
     SetWindowTextW(g_hStatus, s);
     // 창 제목에도 현재 자판명을 표시 — "다음 자판" 버튼이 동작하면 제목이 바뀌므로 클릭 도달 진단도 된다.
     wchar_t t[128];
-    wsprintfW(t, L"Jamotong 테스트 — [%s]", (L && L->name) ? L->name : L"?");
+    wsprintfW(t, L"Jamotong Input Test - [%s]", (L && L->name) ? L->name : L"?");
     if (g_hMain) SetWindowTextW(g_hMain, t);
 }
 
@@ -394,8 +394,8 @@ static void TrayPoll(bool force) {
     if (!icon) return;
     HICON old = g_nid.hIcon;
     g_nid.hIcon = icon;
-    swprintf(g_nid.szTip, 128, L"\xC790\xBAA8\xD1B5: %ls (%ls)",   // "자모통: 사용중/비활성 (자판)"
-             g_imeActive ? L"\xC0AC\xC6A9\xC911" : L"\xBE44\xD65C\xC131", g_trayAbbrev);
+    swprintf(g_nid.szTip, 128, L"Jamotong: %ls (%ls)",
+             g_imeActive ? L"active" : L"inactive", g_trayAbbrev);
     Shell_NotifyIconW(g_trayAdded ? NIM_MODIFY : NIM_ADD, &g_nid);
     g_trayAdded = true;
     if (old) DestroyIcon(old);
@@ -406,13 +406,13 @@ static void ShowEditorWindow(void);   // 아래 정의
 static void ShowAbout(HWND owner) {
     wchar_t msg[512];
     swprintf(msg, 512,
-        L"\xC790\xBAA8\xD1B5 (Jamotong IME)  %ls\n\n"
-        L"Windows\xC6A9 \xC21C\xC218 C23 + WinAPI \xD55C\xAE00 IME\n"
-        L"\xC81C\xC791: %ls\n"
-        L"\xD648\xD398\xC774\xC9C0: %ls\n\n"
-        L"\xD2B8\xB808\xC774 \xC544\xC774\xCF58 = \xD604\xC7AC \xC790\xD310 (\xD30C\xB791=\xC0AC\xC6A9\xC911, \xD68C\xC0C9=\xBE44\xD65C\xC131)",
+        L"Jamotong IME  %ls\n\n"
+        L"Korean IME for Windows in pure C23 + WinAPI (TSF).\n"
+        L"Author: %ls\n"
+        L"Homepage: %ls\n\n"
+        L"Tray icon = current layout (blue = active, gray = inactive)",
         JAMOTONG_VERSION, JAMOTONG_AUTHOR, JAMOTONG_HOMEPAGE);
-    MessageBoxW(owner, msg, L"\xC790\xBAA8\xD1B5 \xC815\xBCF4", MB_OK | MB_ICONINFORMATION);
+    MessageBoxW(owner, msg, L"About Jamotong IME", MB_OK | MB_ICONINFORMATION);
 }
 
 static LRESULT CALLBACK TrayWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -422,11 +422,11 @@ static LRESULT CALLBACK TrayWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SettingsUI_Show(&g_config);
             } else if (LOWORD(l) == WM_RBUTTONUP) {   // 우클릭 = 메뉴
                 HMENU menu = CreatePopupMenu();
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_SETTINGS, L"\xC124\xC815(&S)...");            // 설정
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_EDITOR,   L"\xC785\xB825 \xD14C\xC2A4\xD2B8(&T)"); // 입력 테스트
+                AppendMenuW(menu, MF_STRING, IDM_TRAY_SETTINGS, L"&Settings...");
+                AppendMenuW(menu, MF_STRING, IDM_TRAY_EDITOR,   L"Input &Test");
                 AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_ABOUT,    L"\xC815\xBCF4(&A)...");            // 정보
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT,     L"\xC885\xB8CC(&X)");               // 종료
+                AppendMenuW(menu, MF_STRING, IDM_TRAY_ABOUT,    L"&About...");
+                AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT,     L"E&xit");
                 POINT pt; GetCursorPos(&pt);
                 SetForegroundWindow(h);   // 메뉴 밖 클릭 시 자동 닫힘 보장 (MSDN 관례)
                 int cmd = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
@@ -470,7 +470,7 @@ static void ShowEditorWindow(void) {
         RegisterClassW(&wc); s_reg = true;
     }
 
-    g_hMain = CreateWindowW(L"JamotestMain", L"Jamotong \xC785\xB825 \xD14C\xC2A4\xD2B8",
+    g_hMain = CreateWindowW(L"JamotestMain", L"Jamotong Input Test",
                             WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                             760, 520, NULL, NULL, g_hInst, NULL);
     if (!g_hMain) return;
