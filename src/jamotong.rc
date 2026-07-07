@@ -12,8 +12,8 @@ END
 // 버전 리소스(RT_VERSION). ImmInstallIME는 IME의 버전 리소스를 읽으며, 없으면 등록이
 // ERROR_RESOURCE_TYPE_NOT_FOUND(1813)로 실패한다. (DLL/.ime 공용 — 둘 다 VFT_DLL)
 1 VERSIONINFO
- FILEVERSION 0,10,0,0
- PRODUCTVERSION 0,10,0,0
+ FILEVERSION 0,11,0,0
+ PRODUCTVERSION 0,11,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -26,12 +26,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "rubidus-api"
             VALUE "FileDescription", "Jamotong Korean IME"
-            VALUE "FileVersion", "0.10.0"
+            VALUE "FileVersion", "0.11.0"
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
             VALUE "OriginalFilename", "jamotong.ime"
             VALUE "ProductName", "Jamotong IME"
-            VALUE "ProductVersion", "0.10.0"
+            VALUE "ProductVersion", "0.11.0"
         END
     END
     BLOCK "VarFileInfo"
