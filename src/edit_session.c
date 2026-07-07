@@ -269,3 +269,81 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
     es->lpVtbl->Release((ITfEditSession*)es);
     return hr;
 }
+
+// ----------------------------------------------------
+// [RFC-0003] 선택(블록) 텍스트 읽기 세션 — 선택 후 한자키 변환용.
+//   선택 교체는 이후 InsertTextAtSelection(삽입)이 자동 수행하므로(타이핑 덮어쓰기와 동일 경로)
+//   커밋 전용 원칙과 호환. 여기서는 읽기 + 후보창 위치용 rect 캡처만 한다.
+// ----------------------------------------------------
+typedef struct {
+    ITfEditSessionVtbl *lpVtbl;
+    LONG refCount;
+    JamotongTextService *pService;
+    ITfContext *pContext;
+    wchar_t *outBuf;
+    int maxLen;
+} ReadSelSession;
+
+static HRESULT STDMETHODCALLTYPE RSel_QueryInterface(ITfEditSession *pThis, REFIID riid, void **ppvObject) {
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_ITfEditSession)) {
+        *ppvObject = pThis; pThis->lpVtbl->AddRef(pThis); return S_OK;
+    }
+    *ppvObject = NULL; return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE RSel_AddRef(ITfEditSession *pThis) {
+    return InterlockedIncrement(&((ReadSelSession*)pThis)->refCount);
+}
+static ULONG STDMETHODCALLTYPE RSel_Release(ITfEditSession *pThis) {
+    ReadSelSession *es = (ReadSelSession*)pThis;
+    ULONG res = InterlockedDecrement(&es->refCount);
+    if (res == 0) {
+        es->pService->lpVtblTIP->Release((ITfTextInputProcessor*)es->pService);
+        es->pContext->lpVtbl->Release(es->pContext);
+        HeapFree(GetProcessHeap(), 0, es);
+    }
+    return res;
+}
+static HRESULT STDMETHODCALLTYPE RSel_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    ReadSelSession *es = (ReadSelSession*)pThis;
+    JamotongTextService *svc = es->pService;
+    ITfContext *ctx = es->pContext;
+    es->outBuf[0] = L'\0';
+    svc->lastCaretValid = FALSE;
+
+    TF_SELECTION sel; ULONG fetched = 0;
+    if (FAILED(ctx->lpVtbl->GetSelection(ctx, ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched)) || fetched == 0)
+        return S_OK;
+
+    ULONG copied = 0;
+    sel.range->lpVtbl->GetText(sel.range, ec, 0, es->outBuf, (ULONG)es->maxLen, &copied);
+    es->outBuf[copied] = L'\0';   // 빈 선택(접힌 캐럿)이면 copied=0
+
+    if (copied > 0) {   // 후보창 위치 = 선택 range의 화면 rect (실패 시 호출자가 GUIThreadInfo 폴백)
+        ITfContextView *pView = NULL;
+        if (SUCCEEDED(ctx->lpVtbl->GetActiveView(ctx, &pView)) && pView) {
+            RECT rc; BOOL clipped = FALSE;
+            if (SUCCEEDED(pView->lpVtbl->GetTextExt(pView, ec, sel.range, &rc, &clipped))
+                && (rc.bottom - rc.top > 0)) {
+                svc->lastCaretRect = rc;
+                svc->lastCaretValid = TRUE;
+            }
+            pView->lpVtbl->Release(pView);
+        }
+    }
+    sel.range->lpVtbl->Release(sel.range);
+    return S_OK;
+}
+static ITfEditSessionVtbl ReadSelVtbl = { RSel_QueryInterface, RSel_AddRef, RSel_Release, RSel_DoEditSession };
+
+HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {
+    ReadSelSession *es = (ReadSelSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReadSelSession));
+    if (!es) return E_OUTOFMEMORY;
+    es->lpVtbl = &ReadSelVtbl; es->refCount = 1; es->pService = pService; es->pContext = pContext;
+    es->outBuf = outBuf; es->maxLen = maxLen;
+    outBuf[0] = L'\0';
+    pService->lpVtblTIP->AddRef((ITfTextInputProcessor*)pService); pContext->lpVtbl->AddRef(pContext);
+    HRESULT hrSession = S_OK;
+    HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READ, &hrSession);
+    es->lpVtbl->Release((ITfEditSession*)es);
+    return hr;
+}

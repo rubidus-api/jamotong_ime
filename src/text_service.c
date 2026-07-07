@@ -370,6 +370,21 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             searchStr[1] = L'\0';
             replaceLen = 0;   // 커밋전용: 조합중 음절은 문서에 없음 → 교체 아니라 삽입
         } else {
+            // [RFC-0003] 블록 선택 텍스트 변환 — 선택이 있으면 최우선.
+            //   선택 교체 = InsertTextAtSelection 삽입(타이핑 덮어쓰기와 동일 경로)이라
+            //   커밋 전용 원칙·CUAS 앱과 호환. 사전 미등재 선택이면 무동작(우아한 강등).
+            wchar_t selBuf[24] = {0};
+            RequestReadSelectionString(obj, pic, selBuf, 16);
+            if (selBuf[0]) {
+                wchar_t **selCands; int selCount;
+                if (HanjaDict_Find(selBuf, &selCands, &selCount)) {
+                    wcsncpy(searchStr, selBuf, 63); searchStr[63] = L'\0';   // 음절(1자)/단어 공용 사전
+                } else if (!selBuf[1] && SpecialChar_Find(selBuf[0], &selCands, &selCount)) {
+                    searchStr[0] = selBuf[0]; searchStr[1] = L'\0';          // 단일 문자: 특수문자 표 폴백
+                    special = true;
+                }
+                replaceLen = 0;   // 삽입 = 선택 자동 교체 (range 편집 불필요)
+            } else {
             wchar_t readBuf[32] = {0};
             if (SUCCEEDED(RequestReadSessionString(obj, pic, readBuf, 10))) {
                 int len = wcslen(readBuf);
@@ -395,7 +410,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         goto kd_done;
                     }
                 }
-                // 단어 단위 한자 변환
+                // 단어 단위 한자 변환 (커서 앞 텍스트 — 교체는 range 편집이라 네이티브 앱 한정)
                 for (int i = 0; i < len; i++) {
                     wchar_t **cands;
                     int count;
@@ -406,6 +421,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     }
                 }
             }
+            }   // [RFC-0003] 선택 없음 분기 끝
         }
 
         if (searchStr[0]) {
@@ -421,13 +437,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 g_CandCtx.pic = pic;
                 if (pic) pic->lpVtbl->AddRef(pic);
 
-                POINT pt;
+                RECT rcSel;   // 위치: 선택/캐럿 rect(방금 세션서 캡처) → GUIThreadInfo 폴백
                 int x = 100, y = 100;
-                if (GetCaretPos(&pt)) {
-                    HWND hWnd = GetFocus();
-                    if (hWnd) ClientToScreen(hWnd, &pt);
-                    x = pt.x; y = pt.y + 25;
-                }
+                if (GetCaretScreenRect(obj, &rcSel)) { x = rcSel.left; y = rcSel.bottom + 4; }
                 
                 CandidateUI_Show(x, y, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, &g_CandCtx);
                 if (pfEaten) *pfEaten = TRUE;
