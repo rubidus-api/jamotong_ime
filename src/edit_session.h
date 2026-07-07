@@ -16,3 +16,5 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
 //   성공 시 선택 range의 화면 rect를 svc->lastCaretRect에 캡처(후보창 위치용).
 //   ※ outBuf 용량은 최소 maxLen+1 (널 종단 기록).
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen);
+
+void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op

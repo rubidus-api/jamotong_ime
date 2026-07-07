@@ -64,6 +64,13 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     if (show) {
         RECT rc;
         if (GetCaretScreenRect(obj, &rc)) {
+            // CUAS 보정: 세션 내 GetTextExt가 실패해(lastCaretValid=FALSE) 시스템 캐럿 폴백을 썼고
+            // 방금 커밋 삽입이 있었다면, 캐럿이 아직 전진하기 전 좌표라 칩이 직전 글자를 덮는다.
+            // 전각 1글자 폭(≈줄높이)만큼 오른쪽으로 보정해 '다음 칸'에 표시한다.
+            if (!obj->lastCaretValid && res.commitChar) {
+                int adv = rc.bottom - rc.top;
+                rc.left += adv; rc.right += adv;
+            }
             wchar_t s[2] = { res.preeditChar, L'\0' };
             PreeditOverlay_Show(&rc, s, face, pvSize);
             return;
@@ -298,7 +305,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     JamotongTextService *obj = IMPL_TO_OBJ(KES, pThis);
     if (pfEaten) *pfEaten = FALSE;
     // 우리가 SendInput으로 넣은 합성 입력(코드 자판의 키/모디파이어 등)은 재처리하지 않고 통과
-    if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) return S_OK;
+    if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) { JamoDiag("KD  vk=%02X SYNTH-pass", (unsigned)wParam); return S_OK; }
+    JamoDiag("KD  vk=%02X state=%d", (unsigned)wParam, (int)obj->fsm.state);
 
     // 설정창 단축키 Ctrl+Alt+K (Win11 모던 설정엔 IME "옵션" 버튼이 없어 단축키로 연다).
     if (wParam == 'K' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
@@ -580,13 +588,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             if (lr.type != JAMO_NONE) {
                 FsmResult res = Fsm_ProcessKey(&obj->fsm, keyChar, layout->kbdVariant, hl);
                 if (pfEaten) *pfEaten = res.eaten;
-
+                JamoDiag("FSM key=%c commit=U+%04X preedit=U+%04X", (char)keyChar, (unsigned)res.commitChar, (unsigned)res.preeditChar);
                 if (res.commitChar || res.preeditChar) OutputResult(obj, pic, res, FALSE);
                 goto kd_done;
             } else if (!IsModifierOrLock(wParam) && obj->fsm.state != STATE_EMPTY) {
                 // 비자모 키: 조합만 확정하고, 원래 키는 실제 이벤트로 재전달 → 앱이 네이티브 처리.
                 // (편집세션 텍스트 삽입은 터미널(PuTTY 등)엔 안 통함. 방향키 이동·엔터·터미널 모두 지원.)
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
+                JamoDiag("FLUSH commit=U+%04X then resend vk=%02X", (unsigned)res.commitChar, (unsigned)wParam);
                 OutputResult(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
                 SendKeyThrough(wParam, lParam);
                 if (pfEaten) *pfEaten = TRUE;   // 원본 소비(재전달본이 대신 처리)

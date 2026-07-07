@@ -1,6 +1,26 @@
 #include "edit_session.h"
 #include <string.h>
 
+#ifdef JAMO_DIAG   // 임시 진단 로그 (-DJAMO_DIAG 빌드에서만): %TEMP%\jamotong-diag.log
+#include <stdio.h>
+#include <stdarg.h>
+void JamoDiag(const char *fmt, ...) {
+    wchar_t path[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, path);
+    if (!n || n > MAX_PATH - 24) return;
+    wcscat(path, L"jamotong-diag.log");
+    FILE *fp = _wfopen(path, L"a");
+    if (!fp) return;
+    va_list ap; va_start(ap, fmt);
+    vfprintf(fp, fmt, ap);
+    va_end(ap);
+    fputc('\n', fp);
+    fclose(fp);
+}
+#else
+void JamoDiag(const char *fmt, ...) { (void)fmt; }
+#endif
+
 typedef struct JamotongEditSession {
     ITfEditSessionVtbl *lpVtbl;
     LONG refCount;
@@ -85,7 +105,9 @@ static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditC
         ITfInsertAtSelection *pIns = NULL;
         if (SUCCEEDED(ctx->lpVtbl->QueryInterface(ctx, &IID_ITfInsertAtSelection, (void**)&pIns))) {
             ITfRange *r = NULL;
-            if (SUCCEEDED(pIns->lpVtbl->InsertTextAtSelection(pIns, ec, 0, es->data.committed, cLen, &r)) && r) {
+            HRESULT hrIns = pIns->lpVtbl->InsertTextAtSelection(pIns, ec, 0, es->data.committed, cLen, &r);
+            JamoDiag("INSERT U+%04X len=%d hr=0x%08lX r=%p", (unsigned)es->data.committed[0], cLen, (unsigned long)hrIns, (void*)r);
+            if (SUCCEEDED(hrIns) && r) {
                 MoveCaretToEnd(ctx, ec, r);   // 커서를 삽입 글자 뒤로 (역순 방지)
                 r->lpVtbl->Release(r);
             }
