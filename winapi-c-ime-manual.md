@@ -2,6 +2,8 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
+*Last updated: 2026-07-08 (v0.11.0 — added §12 "Field lessons after commit-only", expanded §10 gotchas)*
+
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
 including the trial-and-error record from the `jamotong` project and the final answers
@@ -32,6 +34,7 @@ Goal: to let you build another IME from the ground up using this document alone.
 9. [Extras: hanja, boundary keys, settings](#9-extras)
 10. [Gotchas](#10-gotchas)
 11. [Minimal IME checklist](#11-minimal-checklist)
+12. [★Field lessons after commit-only](#12-field-lessons-after-commit-only)
 
 ---
 
@@ -474,7 +477,7 @@ detection ("start a composition and watch it die"), which mangles the first keys
   IME (while the window is up, eat all keys and forward them to its handler).
 - Word-level conversion by reading already-typed text and replacing it is **range editing
   → native apps only.** (Alternative that works everywhere: **select the text first, then
-  press Hanja** — replacing a selection is the insertion path.)
+  press Hanja** — replacing a selection is the insertion path. See §12.5.)
 
 ### 9.2 Non-jamo boundary keys (space/enter/arrows)
 When a non-jamo key arrives mid-composition, **flush (commit) the current syllable** and
@@ -515,6 +518,18 @@ by everything — space, enter, arrows, terminals included.
   `.rc` needs windres codepage care (safest: keep resources ASCII).
 - **`RequestEditSession` is a synchronous callback**: document edits must happen inside
   that `ec` only.
+- **wide-scanf conversion specifiers**: per the C standard, `%[`/`%c`/`%s` in `swscanf`
+  target **narrow (char) buffers** unless prefixed with `l`. Only MSVCRT treats them as
+  wide (an MS quirk), so it happens to work on Windows — write `%l[`/`%lc`/`%ls`
+  explicitly (identical behavior on both CRTs, and portable).
+- **Window-class ownership**: register classes with the **DLL's hInstance** (registering
+  with the EXE instance mismatches owner and WndProc), and **`UnregisterClassW` on dynamic
+  unload** (MSDN: DLL classes are not auto-unregistered). Otherwise a reloaded DLL crashes
+  through a stale WndProc.
+- **`TF_IAS_NOQUERY` may not fill ppRange**: if you need replacement, get the selection
+  range with `TF_IAS_QUERYONLY`, then `ShiftStart`+`SetText` (avoids a NULL dereference).
+- **Lock coverage**: if `OnTestKeyDown` reads config/layout data, it needs **the same lock**
+  as OnKeyDown. If the settings thread frees layout resources mid-keystroke, that's a UAF.
 
 ---
 
@@ -536,6 +551,106 @@ Minimum parts for a commit-only Korean TSF IME:
 
 ---
 
+## 12. Field lessons after commit-only
+
+The story did not end with commit-only (§8). While adding preview, hanja and the tray
+icon, **CUAS bit us three more times**. Each lesson below is "problem → cause → final
+fix", all verified with on-device logging (v0.9–v0.11).
+
+### 12.1 Composition preview lives *outside* the document — a floating overlay
+- **Problem**: the price of commit-only is that the syllable being composed is invisible.
+- **Fix**: don't touch the document — **draw the composing syllable yourself in a small
+  translucent chip window at the caret** (the same industry-standard fallback as the
+  classic IMM32 "default composition window"). Zero document contact = zero CUAS constraints.
+- **Implementation notes**:
+  - Style: `WS_POPUP` + `WS_EX_LAYERED|NOACTIVATE|TOPMOST|TOOLWINDOW|TRANSPARENT` (click-through).
+  - Translucency via **uniform alpha** (`SetLayeredWindowAttributes`) + normal WM_PAINT.
+    Per-pixel alpha (`UpdateLayeredWindow`) makes GDI text vanish — GDI doesn't write alpha.
+  - Caret-rect fallback chain: `GetActiveView`→`GetTextExt` **inside the same edit session**
+    as the commit insert → on failure `GetGUIThreadInfo` (system caret; old EDIT controls
+    and PuTTY set it) → if both fail, just skip the preview.
+  - Create lazily on the input thread; hide on focus change, destroy on Deactivate.
+
+### 12.2 ★CUAS's GetTextExt "succeeds with a stale rect"
+- **Problem**: the chip overlaps the just-committed character, or trails the caret by
+  exactly one keystroke.
+- **Cause**: in CUAS apps the commit insertion is **asynchronous**. Calling `GetTextExt`
+  right after the insert — in the same session — **returns S_OK with the pre-insert
+  coordinates** (it's not a failure, so no fallback can catch it!). Native apps are
+  synchronous and return the advanced rect immediately.
+- **Final fix — staleness detection (accumulating compensation)**:
+  1. Remember the **raw rect** every time you draw the chip.
+  2. "A commit happened this event, **and** the rect equals the previous raw rect" =
+     stale → draw shifted right by one full-width advance (~line height), **accumulated**.
+  3. Reset the accumulator when the rect actually moves.
+  - Accumulation also covers fast typing (rect frozen across several keys); in native
+    apps the rect always moves, so the compensation **never fires** (no false positives).
+  - Pitfall: store the **raw** rect for comparison — storing the compensated one breaks
+    the next comparison.
+
+### 12.3 ★The vanishing-last-syllable incident — racing your own synthetic key
+- **Problem**: in CUAS apps the **last syllable of a word intermittently disappears**
+  (the 국 of 대한민국 one day, the 라 of 가나다라 the next). Content-independent,
+  timing-dependent.
+- **Diagnosis**: with logging in place, **every `InsertTextAtSelection` returned S_OK** —
+  IME→CUAS always succeeded. The loss always coincided with
+  "flush (insert last syllable) + `SendInput` boundary-key resend".
+- **Cause**: the synthetic boundary key (hardware queue) **races CUAS's result-character
+  delivery inside the app** — when the key wins, the pending result character is dropped.
+- **Final fix**: **space is a character.** When space arrives mid-composition, don't
+  resend it — insert **"syllable + space" in one edit session** (one delivery channel,
+  nothing left to race). Enter/arrows remain resent as real keys (they're control keys:
+  terminals, auto-indent, etc. need native handling).
+- **Lesson**: **never mix the two delivery channels (edit-session insert + SendInput) in
+  a single key event.** CUAS gives you no ordering guarantee between them.
+
+### 12.4 The tray input-indicator mode icon (MS IME's 한/A)
+- **Problem**: you implement `ITfLangBarItemButton`, AddItem succeeds — and nothing shows
+  in the tray.
+- **Cause**: **on Win8+ the input indicator ignores any language-bar item whose guidItem
+  is not `GUID_LBI_INPUTMODE`** (stated in the TF_LANGBARITEMINFO docs). Custom-GUID items
+  only appear in the legacy desktop language bar.
+  - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — not in MinGW headers;
+    define it yourself.
+- **The truth about right-click**: with `TF_LBI_STYLE_BTN_BUTTON`, **right-clicks also
+  arrive as `OnClick(TF_LBI_CLK_RIGHT)`** — the `InitMenu`/`ITfMenu` COM path is
+  BTN_MENU-only, and BTN_MENU opens the menu on left-click too (killing "left-click =
+  action"). For left-click action + right-click menu:
+  ```
+  OnClick(RIGHT, point):
+      CreatePopupMenu + InsertMenuItem            // build the menu yourself
+      clamp point.x to the monitor work area
+      cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
+                           point, owner=GetFocus())   // ★owner required, NONOTIFY required
+      dispatch cmd
+  ```
+- Icon guidelines (MS requirement): **black & white only** (white glyph with dark
+  outline / dark badge), 16px base with DPI scaling. Refresh via
+  `ITfLangBarItemSink::OnUpdate(TF_LBI_ICON)`.
+
+### 12.5 Hanja conversion on selected text — "replacement" without range editing
+- **Insight**: with an active selection, `InsertTextAtSelection` **replaces the
+  selection** — that is the same insertion path apps use for type-over, so
+  **it works in CUAS apps too**.
+- **Result**: the "select text → press Hanja" UX gives you **word-level hanja conversion
+  in every app**. (The classic read-before-caret + `ShiftStart` replacement stays
+  native-only — §8.2.)
+- Read the selection with `GetSelection`→`GetText` in a READ session. The candidate
+  window doesn't steal focus (NOACTIVATE), so the selection survives; cancelling touches
+  nothing, so the selection also survives.
+
+### 12.6 Diagnostics: logging beats guessing
+- The dead compositions (§8), the vanishing syllable (§12.3) and the lagging chip (§12.2)
+  were all solved by **file logging to %TEMP%**. Log: vk, FSM state, commit/preedit
+  chars, `INSERT` hr and range pointer, rects and their source.
+- **Warning**: an IME log records **everything the user types in every app**. Never ship
+  a diagnostic build; delete logs after testing; isolate logging behind `#ifdef` so
+  release builds compile it to a no-op.
+- **The stale-DLL trap, again**: when symptoms appear and vanish inexplicably, suspect
+  deployment before code (§10's file locking — it played ghost twice in this project).
+
+---
+
 ## Appendix: jamotong source map
 
 | Concept | File |
@@ -547,6 +662,10 @@ Minimum parts for a commit-only Korean TSF IME:
 | Hangul automaton | `src/fsm.c`, `src/layout.c`, `src/hangul_layout.c` |
 | Hanja dictionary, candidate window | `src/hanja_dict.c`, `src/candidate_ui.c` |
 | Settings UI, persistence | `src/settings_ui.c`, `src/config.c` |
+| Composition preview overlay (§12.1–12.2) | `src/preedit_overlay.c`, `OutputResult` in `text_service.c` |
+| Tray mode icon (§12.4) | `src/langbar.c` |
+| Codepoint input popup | `src/code_input.c` |
+| Tray monitor / settings app | `src/tray_app.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |
 
 

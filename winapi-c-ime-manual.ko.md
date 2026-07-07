@@ -2,6 +2,8 @@
 
 **한국어** | [English](winapi-c-ime-manual.md)
 
+*최종 갱신: 2026-07-08 (v0.11.0 — §12 "커밋 전용 이후의 실전 교훈" 추가, §10 함정 보강)*
+
 
 이 문서는 **순수 C(C23)와 Win32 API만으로**(C++·ATL·MFC·프레임워크 없이) Windows용
 한글 입력기(IME)를 처음부터 구현하는 방법을, 우리가 `jamotong` 프로젝트에서 실제로
@@ -30,6 +32,7 @@
 9. [부가 기능: 한자·경계키·설정](#9-부가-기능)
 10. [함정 모음(Gotchas)](#10-함정-모음)
 11. [최소 IME 체크리스트](#11-최소-체크리스트)
+12. [★커밋 전용 '이후'의 실전 교훈](#12-커밋-전용-이후의-실전-교훈)
 
 ---
 
@@ -432,6 +435,7 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 - 후보창은 포커스를 뺏지 않는 팝업으로 만들고, 키는 IME가 라우팅(후보창 뜨면 모든 키를 소비→
   후보창 핸들러로 전달).
 - 단어단위 변환(이미 친 텍스트를 읽어 교체)은 **range 편집이라 네이티브 앱 전용.**
+  (모든 앱에서 되는 대안: **먼저 선택하고 한자키** — 선택 교체는 삽입 경로다. §12.5)
 
 ### 9.2 비자모 경계키 (스페이스/엔터/방향키)
 조합 중 비자모 키가 오면 **현재 음절을 확정(flush)** 하고, 그 키는 **실제 키 이벤트로 재전달**
@@ -464,6 +468,16 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 - **유니코드/로케일**: 소스·문자열 전부 UTF-16(`wchar_t`, `-W` API). `.rc`에 한글 넣으려면
   windres 코드페이지 주의(안전하게 ASCII 또는 리소스 문자열 회피).
 - **`RequestEditSession`은 동기 콜백**: 문서 수정은 반드시 그 `ec` 안에서만.
+- **wide-scanf 변환 지정자**: C 표준에서 `swscanf`의 `%[`/`%c`/`%s`는 `l` 없이는 **narrow(char) 대상**이다.
+  MSVCRT만 MS 특유로 wide 취급해 Windows에선 우연히 돌아간다 — `%l[`/`%lc`/`%ls`로 명시하라
+  (양쪽 CRT에서 동일 동작·이식 가능).
+- **윈도 클래스 소유권**: 클래스는 반드시 **DLL의 hInstance**로 등록하고(EXE 인스턴스로 등록하면
+  WndProc과 소유자가 어긋남), **동적 언로드 시 `UnregisterClassW`** 하라(MSDN: DLL 클래스는 자동
+  해제 안 됨). 안 하면 재로드 후 낡은 WndProc을 가리키는 클래스로 크래시.
+- **`TF_IAS_NOQUERY`는 ppRange를 안 채울 수 있다**: 교체가 필요하면 `TF_IAS_QUERYONLY`로 선택
+  range를 얻어 `ShiftStart`+`SetText` 하라(NULL 역참조 방지).
+- **락 범위**: `OnTestKeyDown`도 config/레이아웃을 읽는다면 **똑같이 락**을 잡아라. 설정 스레드가
+  레이아웃 리소스를 해제하는 순간 키가 오면 UAF다.
 
 ---
 
@@ -485,6 +499,88 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 
 ---
 
+## 12. 커밋 전용 '이후'의 실전 교훈
+
+커밋 전용(§8)으로 이야기가 끝나지 않았다. 미리보기·한자·트레이 아이콘을 붙이는 과정에서
+**CUAS의 함정이 세 번 더** 나왔다. 각각 "문제 → 원인 → 최종 해법"으로 정리한다.
+(전부 v0.9~v0.11에서 실기 로그로 검증된 내용이다.)
+
+### 12.1 조합 미리보기는 '문서 밖'에서 — 플로팅 오버레이
+- **문제**: 커밋 전용의 대가로 조합 중 음절이 화면에 안 보인다.
+- **해법**: 문서를 건드리지 말고, **IME 소유의 반투명 칩 창을 캐럿 위치에 띄워 직접 그린다**
+  (고전 IMM32 "기본 조합창"과 같은 업계 표준 폴백 패턴). 문서 무접촉이라 CUAS 제약과 무관.
+- **구현 요점**:
+  - 스타일: `WS_POPUP` + `WS_EX_LAYERED|NOACTIVATE|TOPMOST|TOOLWINDOW|TRANSPARENT`(클릭 통과).
+  - 반투명은 **균일 알파**(`SetLayeredWindowAttributes`) + 일반 WM_PAINT로. 퍼픽셀 알파
+    (`UpdateLayeredWindow`)는 GDI 텍스트가 알파를 안 채워 글자가 사라진다.
+  - 캐럿 좌표 폴백 체인: 커밋 삽입과 **같은 편집 세션에서** `GetActiveView`→`GetTextExt` →
+    실패 시 `GetGUIThreadInfo`(시스템 캐럿; 옛 EDIT·PuTTY가 이걸 설정) → 둘 다 실패면 미리보기만 생략.
+  - 입력 스레드에서 lazy 생성, 포커스 이동·Deactivate에서 숨김/파괴.
+
+### 12.2 ★CUAS의 GetTextExt는 "성공하되 낡은 좌표"를 준다
+- **문제**: 칩이 직전 확정 글자 위에 겹치거나, 확정 후 **한 박자 늦게** 다음 칸으로 따라온다.
+- **원인**: CUAS 앱은 커밋 삽입이 **비동기**다. 같은 세션 안에서 삽입 '직후' `GetTextExt`를 불러도
+  **hr=S_OK로 성공하면서 삽입 반영 전의 옛 좌표**를 준다(실패가 아니라서 폴백으로도 못 잡는다!).
+  네이티브 앱은 동기라 즉시 전진한 좌표가 온다.
+- **최종 해법 — 낡음 탐지(누적 보정)**:
+  1. 칩을 그릴 때마다 **원시(raw) rect를 기억**한다.
+  2. "이번 이벤트에 **커밋이 있었는데** rect가 직전 원시값과 **동일**" = 낡은 좌표로 판정 →
+     전각 1글자 폭(≈줄높이)을 **누적** 보정해 그린다.
+  3. rect가 실제로 움직이면 누적을 리셋한다.
+  - 누적이라 빠른 타이핑(여러 키 동안 rect 정체)도 맞고, 네이티브에선 rect가 즉시 움직여
+    보정이 **한 번도 발동하지 않는다**(오발동 없음).
+  - 함정: 비교 기준은 반드시 **원시 rect**로 저장하라(보정된 값을 저장하면 다음 비교가 깨진다).
+
+### 12.3 ★어절 마지막 음절 증발 사건 — 합성 경계키와의 경합
+- **문제**: CUAS 앱에서 `대한민국`의 "국", `가나다라`의 "라"처럼 **어절 마지막 음절이 간헐적으로
+  소실**된다. 어느 날은 국, 어느 날은 라 — 내용과 무관, 타이밍 의존.
+- **진단**: 로그를 심어 보니 **모든 `InsertTextAtSelection`이 S_OK** — IME→CUAS는 매번 성공.
+  소실 지점은 항상 "flush(마지막 음절 삽입) + `SendInput` 경계키 재전달" 조합이었다.
+- **원인**: 합성 경계키(하드웨어 큐)와 CUAS의 결과 문자 전달(메시지)이 **앱 안에서 경합** —
+  경계키가 끼어들면 보류 중인 결과 문자가 버려진다.
+- **최종 해법**: **스페이스는 문자다.** 조합 중 스페이스가 오면 재전달하지 말고
+  **"음절+공백"을 한 번의 삽입으로** 처리하라(전달 채널이 하나가 되어 경합이 소멸).
+  엔터·방향키는 제어키라 재전달을 유지한다(터미널·자동 들여쓰기 등 앱 고유 처리 필요).
+- **교훈**: **한 키 이벤트에서 두 전달 채널(편집 세션 삽입 + SendInput)을 섞지 마라.**
+  CUAS에서는 그 둘의 순서가 보장되지 않는다.
+
+### 12.4 트레이 입력 표시기의 모드 아이콘 (MS IME의 한/A 같은 것)
+- **문제**: `ITfLangBarItemButton`을 만들어 AddItem 해도 트레이에 아무것도 안 뜬다.
+- **원인**: **Win8+는 랭바 아이템의 guidItem이 `GUID_LBI_INPUTMODE`가 아니면 무시한다**
+  (TF_LANGBARITEMINFO 문서에 명시). 커스텀 GUID 아이템은 레거시 데스크톱 언어바 전용.
+  - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — MinGW 헤더에 없어 직접 정의.
+- **우클릭의 진실**: `TF_LBI_STYLE_BTN_BUTTON`이면 **우클릭도 `OnClick(TF_LBI_CLK_RIGHT)`으로
+  온다** — `InitMenu`/`ITfMenu` COM 메뉴는 `BTN_MENU` 전용이고, BTN_MENU면 좌클릭도 메뉴가 떠서
+  "좌클릭=동작"이 불가능해진다. 좌클릭 동작+우클릭 메뉴를 원하면:
+  ```
+  OnClick(RIGHT, point):
+      CreatePopupMenu + InsertMenuItem            // 메뉴를 직접 구성
+      point.x를 모니터 work-area로 클램프
+      cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
+                           point, owner=GetFocus())   // ★owner 필수, NONOTIFY 필수
+      cmd에 따라 실행
+  ```
+- 아이콘 지침(MS 요구): **흑백 전용**(흰 글리프+검정 외곽/검정 배지), 기본 16px에 DPI 스케일.
+  아이콘 갱신은 `ITfLangBarItemSink::OnUpdate(TF_LBI_ICON)`.
+
+### 12.5 선택(블록) 텍스트 한자 변환 — range 편집 없이 '교체'하기
+- **통찰**: 선택이 활성인 상태의 `InsertTextAtSelection`은 **선택을 교체**한다 — 이는 앱이
+  '타이핑으로 선택 덮어쓰기'에 쓰는 **삽입 경로**라서 **CUAS에서도 동작**한다.
+- **결과**: "텍스트 선택 → 한자키" UX로 **단어 단위 한자 변환을 모든 앱에서** 할 수 있다.
+  (커서 앞을 읽어 `ShiftStart`로 교체하는 고전 방식은 네이티브 전용 — §8.2)
+- 선택 읽기는 READ 세션에서 `GetSelection`→`GetText`. 후보창은 포커스를 안 뺏으므로(NOACTIVATE)
+  선택이 유지되고, 취소 시 문서 무접촉이라 선택도 그대로다.
+
+### 12.6 진단 방법론 — 로깅이 추측을 이긴다
+- 조합 사망(§8)도, 음절 증발(§12.3)도, 칩 지연(§12.2)도 전부 **%TEMP% 파일 로그**로 풀렸다.
+  찍을 것: vk·FSM 상태·commit/preedit 문자·`INSERT`의 hr과 range 포인터·좌표 rect와 출처.
+- **경고**: IME 로그는 **사용자가 모든 앱에서 치는 내용**이 기록된다. 진단 빌드는 배포 금지,
+  로그는 테스트 후 즉시 삭제, 로깅 코드는 `#ifdef`로 격리해 릴리스에선 no-op으로.
+- **낡은 DLL 함정 재확인**: 증상이 불가해하게 나타났다 사라지면 코드보다 먼저 배포를 의심하라
+  (§10의 파일 잠금 — 이 프로젝트에서 두 번이나 유령 증상의 범인이었다).
+
+---
+
 ## 부록: jamotong 소스 매핑
 
 | 개념 | 파일 |
@@ -496,6 +592,10 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 | 한글 오토마타 | `src/fsm.c`, `src/layout.c`, `src/hangul_layout.c` |
 | 한자 사전·후보창 | `src/hanja_dict.c`, `src/candidate_ui.c` |
 | 설정 UI·저장 | `src/settings_ui.c`, `src/config.c` |
+| 조합 미리보기 오버레이 (§12.1~12.2) | `src/preedit_overlay.c`, `text_service.c`의 OutputResult |
+| 트레이 모드 아이콘 (§12.4) | `src/langbar.c` |
+| 코드포인트 입력 팝업 | `src/code_input.c` |
+| 트레이 모니터링/설정 앱 | `src/tray_app.c` |
 | (사망) IMM32 IME 시도 | `src/imm/` |
 
 
