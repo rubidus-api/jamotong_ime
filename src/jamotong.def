@@ -1,0 +1,7 @@
+; COM/TSF DLL 진입점을 장식(decoration) 없이 export.
+; 특히 32비트(__stdcall)에서 regsvr32가 DllRegisterServer 를 찾도록 필수.
+EXPORTS
+    DllRegisterServer
+    DllUnregisterServer
+    DllGetClassObject
+    DllCanUnloadNow

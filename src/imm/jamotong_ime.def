@@ -1,0 +1,18 @@
+; IMM32 IME 필수 export (장식 없는 이름 — 시스템이 GetProcAddress로 찾음).
+EXPORTS
+ImeInquire
+ImeConfigure
+ImeDestroy
+ImeEscape
+ImeSelect
+ImeSetActiveContext
+ImeProcessKey
+ImeToAsciiEx
+ImeSetCompositionString
+ImeConversionList
+ImeRegisterWord
+ImeUnregisterWord
+ImeGetRegisterWordStyle
+ImeEnumRegisterWord
+NotifyIME
+ImeGetImeMenuItems

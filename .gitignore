@@ -1,55 +1,50 @@
-# Prerequisites
-*.d
+# ── Local operating docs ───────────────────────────────────────────────
+# Working AI/operating state, kept local by default. Only the root-level files
+# below are ignored; durable, shareable docs (README.md, CHANGELOG.md,
+# DECISIONS.md, docs/) stay tracked. To version-control these instead, set
+# "Operating docs tracking: tracked" in INIT.md and delete this block.
+/AGENTS.md
+/CONTEXT.md
+/MEMORY.md
+/TODO.md
+/CHECKLIST.md
+/WORKLOG.md
+/SPEC.md
+/REQUIREMENTS.md
+/LESSONS.md
+/TESTS.md
+*.local.md
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# ── Private material and credentials ────────────────────────────────────
+# Containment beats guessing: keep ANYTHING sensitive inside one of these
+# ignored directories. Then the rest of the project can be fully git-tracked
+# without enumerating secret filenames. Do NOT add broad filename globs such as
+# *token* or *secret* or *.key — they also hide normal source (tokenizer.c,
+# Keynote .key files, etc.).
+*_private/
+*_internal/
+secrets/
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# Environment files are the one common in-place secret; commit a template instead.
+.env
+.env.*
+!.env.example
+!.env.sample
 
-# Precompiled Headers
-*.gch
-*.pch
+# ── Cold planning history and generated output ──────────────────────────
+docs/plans/active/*.md
+docs/plans/archive/*.md
+!docs/plans/active/README.md
+!docs/plans/archive/README.md
+build/
+resources/prep/
+resources/cache/
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# ── Common local noise ──────────────────────────────────────────────────
+.DS_Store
+*.tmp
+*.log
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-
-# debug information files
-*.dwo
+# ── Build output (전부 생성물 — 배포 데이터는 비공개 저장소에서 관리) ───────
+/dist/
+/jamotong-*.zip

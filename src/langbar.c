@@ -1,0 +1,325 @@
+#include "langbar.h"
+#include "jamotong.h"
+#include "settings_ui.h"
+#include "version.h"
+#include <stddef.h>
+
+#ifndef TF_LBI_ICON
+#define TF_LBI_ICON 0x00000004   // 이 MinGW msctf.h엔 없음 (표준값). 아이콘 갱신 통지 플래그.
+#endif
+
+// TSF ITfMenu (langbar right-click menu). This MinGW's msctf.h does not expose it under
+// CINTERFACE, so declare the minimal C vtable we need. ABI-matched to msctf.h: AddMenuItem
+// is the 4th slot after IUnknown.
+typedef struct ITfMenu ITfMenu;
+typedef struct ITfMenuVtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(ITfMenu*, REFIID, void**);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(ITfMenu*);
+    ULONG   (STDMETHODCALLTYPE *Release)(ITfMenu*);
+    HRESULT (STDMETHODCALLTYPE *AddMenuItem)(ITfMenu*, UINT, DWORD, HBITMAP, HBITMAP, const WCHAR*, ULONG, ITfMenu**);
+} ITfMenuVtbl;
+struct ITfMenu { const ITfMenuVtbl *lpVtbl; };
+
+// GUID for the LangBar Item: {F264627A-9494-4340-B0D1-2AE6BAE23193}
+static const GUID GUID_LBI_JAMOTONG = 
+{ 0xf264627a, 0x9494, 0x4340, { 0xb0, 0xd1, 0x2a, 0xe6, 0xba, 0xe2, 0x31, 0x93 } };
+
+const GUID IID_ITfLangBarItemButton = 
+{ 0x28c7f1d0, 0xde25, 0x11d2, { 0xaf, 0xdd, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 } };
+
+#define IMPL_LBI_BUTTON(ptr) ((JamotongLangBarItem*)((char*)(ptr) - offsetof(JamotongLangBarItem, lpVtblButton)))
+#define IMPL_LBI_SOURCE(ptr) ((JamotongLangBarItem*)((char*)(ptr) - offsetof(JamotongLangBarItem, lpVtblSource)))
+
+// ------------------------------------------------------------------
+// ITfLangBarItemButton
+// ------------------------------------------------------------------
+
+static HRESULT STDMETHODCALLTYPE LBI_QueryInterface(ITfLangBarItemButton *pThis, REFIID riid, void **ppvObject) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    if (IsEqualIID(riid, &IID_IUnknown) || 
+        IsEqualIID(riid, &IID_ITfLangBarItem) || 
+        IsEqualIID(riid, &IID_ITfLangBarItemButton)) {
+        *ppvObject = &obj->lpVtblButton;
+    } else if (IsEqualIID(riid, &IID_ITfSource)) {
+        *ppvObject = &obj->lpVtblSource;
+    } else {
+        *ppvObject = NULL;
+        return E_NOINTERFACE;
+    }
+    InterlockedIncrement(&obj->refCount);
+    return S_OK;
+}
+
+static ULONG STDMETHODCALLTYPE LBI_AddRef(ITfLangBarItemButton *pThis) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    return InterlockedIncrement(&obj->refCount);
+}
+
+static ULONG STDMETHODCALLTYPE LBI_Release(ITfLangBarItemButton *pThis) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    ULONG res = InterlockedDecrement(&obj->refCount);
+    if (res == 0) {
+        if (obj->pSink) obj->pSink->lpVtbl->Release(obj->pSink);
+        HeapFree(GetProcessHeap(), 0, obj);
+    }
+    return res;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetInfo(ITfLangBarItemButton *pThis, TF_LANGBARITEMINFO *pInfo) {
+    (void)pThis;
+    if (!pInfo) return E_INVALIDARG;
+    pInfo->clsidService = CLSID_JamotongIME;
+    pInfo->guidItem = GUID_LBI_JAMOTONG;
+    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;   // 트레이 표시 (아이콘은 GetIcon)
+    pInfo->ulSort = 0;
+    lstrcpyW(pInfo->szDescription, L"Jamotong Layout");
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetStatus(ITfLangBarItemButton *pThis, DWORD *pdwStatus) {
+    (void)pThis;
+    *pdwStatus = 0;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_Show(ITfLangBarItemButton *pThis, BOOL fShow) {
+    (void)pThis; (void)fShow;
+    return S_OK;   // 표시 요청 수락 (E_NOTIMPL을 돌려주면 셸 랭바 처리가 꼬일 수 있음)
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetTooltipString(ITfLangBarItemButton *pThis, BSTR *pbstrToolTip) {
+    (void)pThis;
+    if (!pbstrToolTip) return E_INVALIDARG;
+    *pbstrToolTip = SysAllocString(L"Jamotong IME");
+    return *pbstrToolTip ? S_OK : E_OUTOFMEMORY;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_OnClick(ITfLangBarItemButton *pThis, TfLBIClick click, POINT pt, const RECT *prcArea) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    (void)pt; (void)prcArea;
+    if (!obj->pService) return S_OK;   // Deactivate 후 셸이 잡고 있던 아이템 — 서비스 접근 금지(UAF 방어)
+
+    if (click == TF_LBI_CLK_LEFT) {
+        // 좌클릭: 레이아웃 순환
+        Config_RotateLayout(&obj->pService->config);
+        LangBar_Update(obj);
+        Jamotong_PublishStatus(&obj->pService->config);
+    } else if (click == TF_LBI_CLK_RIGHT) {
+        // 우클릭 메뉴는 InitMenu/OnMenuSelect에서 처리됨
+    }
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_InitMenu(ITfLangBarItemButton *pThis, void *pMenu) {
+    (void)pThis;
+    // 우클릭 메뉴에 "Settings..." 항목 추가 (id 1 → OnMenuSelect에서 SettingsUI_Show 호출).
+    // 버그 수정: 기존엔 AddMenuItem이 주석 처리돼 설정창을 여는 유일한 경로가 막혀 있었음.
+    // ITfMenu는 msctf.h(CINTERFACE)가 제공하므로 void* 파라미터를 캐스트해 사용한다.
+    ITfMenu *menu = (ITfMenu*)pMenu;
+    if (menu) {
+        menu->lpVtbl->AddMenuItem(menu, 1, 0, NULL, NULL, L"Settings...", 11, NULL);
+        menu->lpVtbl->AddMenuItem(menu, 2, 0, NULL, NULL, L"Next layout", 11, NULL);
+        menu->lpVtbl->AddMenuItem(menu, 3, 0, NULL, NULL, L"About Jamotong IME...", 21, NULL);
+    }
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, UINT wID) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    if (!obj->pService) return S_OK;   // Deactivate 후 — 서비스 접근 금지(UAF 방어)
+    if (wID == 1) {
+        SettingsUI_Show(&obj->pService->config);   // 설정창 (별도 스레드)
+    } else if (wID == 2) {
+        Config_RotateLayout(&obj->pService->config);   // 다음 자판
+        LangBar_Update(obj);
+        Jamotong_PublishStatus(&obj->pService->config);
+    } else if (wID == 3) {
+        MessageBoxW(NULL,
+            L"Jamotong IME  " JAMOTONG_VERSION L"\n\n"
+            L"Pure-C Korean/Hangul IME (Text Services Framework).\n"
+            L"Left-click the tray icon to cycle layouts;\n"
+            L"right-click for this menu.",
+            L"About Jamotong IME", MB_OK | MB_TOPMOST | MB_SETFOREGROUND | MB_ICONINFORMATION);
+    }
+    return S_OK;
+}
+
+// 현재 자판 식별자(abbrev, 2~4글자)를 파란 배지에 흰 글씨로 실시간 렌더한 언어바/트레이 아이콘.
+// - 글자를 2x2 격자로 배치해 작은 아이콘에서도 각 글자를 최대 크기로 → 3글자도 판독 가능.
+//   1글자=꽉 채움, 2글자=가로 2칸, 3글자=위 2·아래 1(가운데), 4글자=2x2.
+// - 글꼴은 '돋움'(Dotum): 작은 크기용 힌팅/내장비트맵이 좋은 시스템 한글 글꼴. 파일을 번들하지 않고
+//   GDI로 시스템 설치본을 '이름 참조'만 하므로 폰트 재배포 라이선스가 발생하지 않음(→ COPYRIGHT.md).
+// - 캔버스는 DPI 반영(SM_CXSMICON) 하되 최소 32px로 렌더 → 언어 전환창(24~32px)에서 선명, 트레이(16px)는
+//   셸이 축소. 호출자(셸)가 아이콘을 소유·파괴하므로 매 호출 새 HICON.
+static HICON CreateAbbrevIcon(const wchar_t *text) {
+    int len = (int)wcslen(text); if (len < 1) { text = L"?"; len = 1; }
+    if (len > 4) len = 4;   // 2x2 격자 = 최대 4글자
+    int sm = GetSystemMetrics(SM_CXSMICON);
+    int sz = (sm > 32) ? sm : 32;   // 전환창 선명도 위해 최소 32
+    int half = sz / 2;
+
+    // 글자별 셀(사각형)과 공통 글꼴 높이 결정 (셀 짧은 변에 맞춤).
+    RECT cell[4]; int fontH;
+    if (len == 1) {
+        SetRect(&cell[0], 0, 0, sz, sz);
+        fontH = (int)(sz * 0.82);
+    } else if (len == 2) {
+        SetRect(&cell[0], 0, 0, half, sz);
+        SetRect(&cell[1], half, 0, sz, sz);
+        fontH = (int)(half * 0.95);
+    } else if (len == 3) {
+        SetRect(&cell[0], 0, 0, half, half);           // 위-좌
+        SetRect(&cell[1], half, 0, sz, half);           // 위-우
+        SetRect(&cell[2], sz / 4, half, sz / 4 + half, sz); // 아래-가운데
+        fontH = (int)(half * 0.95);
+    } else {
+        SetRect(&cell[0], 0, 0, half, half);
+        SetRect(&cell[1], half, 0, sz, half);
+        SetRect(&cell[2], 0, half, half, sz);
+        SetRect(&cell[3], half, half, sz, sz);
+        fontH = (int)(half * 0.95);
+    }
+
+    HDC hdcScr = GetDC(NULL);
+    if (!hdcScr) return NULL;
+    HDC hdc = CreateCompatibleDC(hdcScr);
+    HBITMAP hbmColor = CreateCompatibleBitmap(hdcScr, sz, sz);
+    HBITMAP hbmMask  = CreateBitmap(sz, sz, 1, 1, NULL);
+    HICON hIcon = NULL;
+    if (hdc && hbmColor && hbmMask) {
+        HGDIOBJ oldBmp = SelectObject(hdc, hbmColor);
+        RECT full = { 0, 0, sz, sz };
+        HBRUSH bg = CreateSolidBrush(RGB(0, 92, 200));
+        FillRect(hdc, &full, bg);
+        DeleteObject(bg);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        // '돋움' 우선, 없으면 GDI가 유사 글꼴 대체. 굵게+안티에일리어스(32px 렌더→축소 시 매끈).
+        HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                               DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
+        HGDIOBJ oldFont = SelectObject(hdc, hf);
+        for (int i = 0; i < len; i++)
+            DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+        SelectObject(hdc, oldFont);
+        DeleteObject(hf);
+        SelectObject(hdc, oldBmp);
+        // 마스크 전부 불투명(0) → 색 비트맵 전체가 보임.
+        HDC hdcM = CreateCompatibleDC(hdcScr);
+        if (hdcM) {   // DC 고갈 시 NULL — 마스크 초기화 실패면 아이콘 생성 자체를 포기(미정의 마스크 방지)
+            HGDIOBJ oldM = SelectObject(hdcM, hbmMask);
+            PatBlt(hdcM, 0, 0, sz, sz, BLACKNESS);
+            SelectObject(hdcM, oldM);
+            DeleteDC(hdcM);
+            ICONINFO ii = { 0 };
+            ii.fIcon = TRUE;
+            ii.hbmColor = hbmColor;
+            ii.hbmMask = hbmMask;
+            hIcon = CreateIconIndirect(&ii);
+        }
+    }
+    if (hbmColor) DeleteObject(hbmColor);
+    if (hbmMask) DeleteObject(hbmMask);
+    if (hdc) DeleteDC(hdc);
+    ReleaseDC(NULL, hdcScr);
+    return hIcon;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetIcon(ITfLangBarItemButton *pThis, HICON *phIcon) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    if (!phIcon) return E_INVALIDARG;
+    if (!obj->pService) { *phIcon = NULL; return S_FALSE; }   // Deactivate 후 — UAF 방어
+    EnterCriticalSection(&g_configLock);
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->pService->config);
+    const wchar_t *ab = (layout && layout->abbrev[0]) ? layout->abbrev : L"?";
+    *phIcon = CreateAbbrevIcon(ab);   // 셸이 소유·파괴. 현재 자판 축약 표시.
+    LeaveCriticalSection(&g_configLock);
+    return *phIcon ? S_OK : S_FALSE;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetText(ITfLangBarItemButton *pThis, BSTR *pbstrText) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    if (!pbstrText) return E_INVALIDARG;
+    if (!obj->pService) { *pbstrText = SysAllocString(L"?"); return *pbstrText ? S_OK : E_OUTOFMEMORY; }
+    EnterCriticalSection(&g_configLock);   // 설정 적용이 name을 free하는 것과 직렬화 (UAF 방지)
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->pService->config);
+    *pbstrText = SysAllocString(layout && layout->name ? layout->name : L"?");
+    LeaveCriticalSection(&g_configLock);
+    return *pbstrText ? S_OK : E_OUTOFMEMORY;
+}
+
+static struct ITfLangBarItemButtonVtbl LangBarItemButtonVtbl = {
+    LBI_QueryInterface, LBI_AddRef, LBI_Release,
+    LBI_GetInfo, LBI_GetStatus, LBI_Show, LBI_GetTooltipString,
+    LBI_OnClick, LBI_InitMenu, LBI_OnMenuSelect, LBI_GetIcon, LBI_GetText
+};
+
+// ------------------------------------------------------------------
+// ITfSource
+// ------------------------------------------------------------------
+
+static HRESULT STDMETHODCALLTYPE LBS_QueryInterface(ITfSource *pThis, REFIID riid, void **ppvObject) {
+    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    return obj->lpVtblButton->QueryInterface((ITfLangBarItemButton*)obj, riid, ppvObject);
+}
+
+static ULONG STDMETHODCALLTYPE LBS_AddRef(ITfSource *pThis) {
+    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    return obj->lpVtblButton->AddRef((ITfLangBarItemButton*)obj);
+}
+
+static ULONG STDMETHODCALLTYPE LBS_Release(ITfSource *pThis) {
+    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    return obj->lpVtblButton->Release((ITfLangBarItemButton*)obj);
+}
+
+static HRESULT STDMETHODCALLTYPE LBS_AdviseSink(ITfSource *pThis, REFIID riid, IUnknown *punk, DWORD *pdwCookie) {
+    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    if (!punk || !pdwCookie) return E_INVALIDARG;
+    if (IsEqualIID(riid, &IID_ITfLangBarItemSink)) {
+        if (obj->pSink) return CONNECT_E_ADVISELIMIT;
+        if (SUCCEEDED(punk->lpVtbl->QueryInterface(punk, &IID_ITfLangBarItemSink, (void**)&obj->pSink))) {
+            obj->sinkCookie = 1;
+            *pdwCookie = obj->sinkCookie;
+            return S_OK;
+        }
+    }
+    return CONNECT_E_CANNOTCONNECT;
+}
+
+static HRESULT STDMETHODCALLTYPE LBS_UnadviseSink(ITfSource *pThis, DWORD dwCookie) {
+    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    if (dwCookie == obj->sinkCookie && obj->pSink) {
+        obj->pSink->lpVtbl->Release(obj->pSink);
+        obj->pSink = NULL;
+        obj->sinkCookie = 0;
+        return S_OK;
+    }
+    return CONNECT_E_NOCONNECTION;
+}
+
+static ITfSourceVtbl SourceVtbl = {
+    LBS_QueryInterface, LBS_AddRef, LBS_Release,
+    LBS_AdviseSink, LBS_UnadviseSink
+};
+
+// ------------------------------------------------------------------
+// Public Functions
+// ------------------------------------------------------------------
+
+JamotongLangBarItem* LangBar_Create(JamotongTextService *pService) {
+    JamotongLangBarItem *obj = (JamotongLangBarItem*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(JamotongLangBarItem));
+    if (obj) {
+        obj->lpVtblButton = &LangBarItemButtonVtbl;
+        obj->lpVtblSource = &SourceVtbl;
+        obj->refCount = 1;
+        obj->pService = pService;
+    }
+    return obj;
+}
+
+void LangBar_Update(JamotongLangBarItem *pItem) {
+    if (pItem && pItem->pSink) {
+        pItem->pSink->lpVtbl->OnUpdate(pItem->pSink, TF_LBI_TEXT | TF_LBI_ICON);   // 자판 바뀌면 아이콘도 갱신
+    }
+}
