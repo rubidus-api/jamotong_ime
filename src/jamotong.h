@@ -60,6 +60,7 @@ typedef struct JamotongTextService {
     // GetTextExt/캐럿이 한 키 늦게 전진한다 — 커밋이 있었는데 rect가 그대로면 낡은 것.
     RECT prevChipRect;
     BOOL prevChipValid;
+    int  chipPendingAdv;   // 낡은 rect가 여러 키 지속(빠른 타이핑)될 때의 누적 보정 폭(px)
 
     // Config & Engine State
     JamotongConfig config;

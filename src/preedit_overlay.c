@@ -1,4 +1,5 @@
 #include "preedit_overlay.h"
+#include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
 #include <string.h>
 
 extern HINSTANCE g_hInst;
@@ -102,7 +103,7 @@ void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t
             WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
             L"JamotongPreeditOverlay", L"", WS_POPUP,
             0, 0, 10, 10, NULL, NULL, g_hInst, NULL);
-        if (!g_hwnd) return;
+        if (!g_hwnd) { JamoDiag("OVERLAY CreateWindow FAIL err=%lu", GetLastError()); return; }
         SetLayeredWindowAttributes(g_hwnd, 0, 235, LWA_ALPHA);   // 약간 비치는 칩
     }
 
@@ -117,8 +118,10 @@ void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t
         ReleaseDC(g_hwnd, hdc);
     }
 
-    SetWindowPos(g_hwnd, HWND_TOPMOST, rcCaret->left, rcCaret->top, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    BOOL swp = SetWindowPos(g_hwnd, HWND_TOPMOST, rcCaret->left, rcCaret->top, w, h,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    JamoDiag("OVERLAY show '%lc' at (%ld,%ld) %dx%d swp=%d vis=%d",
+             text[0], rcCaret->left, rcCaret->top, w, h, (int)swp, (int)IsWindowVisible(g_hwnd));
     InvalidateRect(g_hwnd, NULL, TRUE);
 }
 

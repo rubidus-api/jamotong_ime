@@ -64,24 +64,30 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     if (show) {
         RECT rc;
         if (GetCaretScreenRect(obj, &rc)) {
-            // CUAS 낡은 좌표 보정: CUAS 앱은 커밋 삽입이 비동기라 GetTextExt/시스템 캐럿이
-            // '한 키 늦게' 전진한다(대하 시점엔 옛 칸, 대한에서야 새 칸). 그래서
-            // "커밋이 있었는데 rect가 직전 표시와 동일" = 낡은 좌표로 판정하고 전각 1글자
-            // 폭(≈줄높이)만큼 오른쪽 보정. 네이티브 앱은 rect가 즉시 전진해 보정이 안 걸린다.
+            // CUAS 낡은 좌표 보정(누적형): CUAS 앱은 커밋 삽입이 비동기라 rect가 늦게 전진한다.
+            // rect가 직전 원시값과 같으면 "정체" — 그 사이 발생한 커밋 수만큼 전각 폭을 누적 보정.
+            // rect가 실제로 움직이면 누적을 리셋. 네이티브 앱은 즉시 전진하므로 보정 미발동.
             RECT raw = rc;
-            if (res.commitChar && obj->prevChipValid &&
-                rc.left == obj->prevChipRect.left && rc.top == obj->prevChipRect.top) {
-                int adv = rc.bottom - rc.top;
-                rc.left += adv; rc.right += adv;
+            if (obj->prevChipValid &&
+                raw.left == obj->prevChipRect.left && raw.top == obj->prevChipRect.top) {
+                if (res.commitChar) obj->chipPendingAdv += (raw.bottom - raw.top);
+            } else {
+                obj->chipPendingAdv = 0;
             }
-            obj->prevChipRect = raw;   // 다음 비교는 '원시' 좌표 기준 (보정값 저장 금지)
+            rc.left += obj->chipPendingAdv; rc.right += obj->chipPendingAdv;
+            obj->prevChipRect = raw;   // 비교는 항상 '원시' 좌표 기준
             obj->prevChipValid = TRUE;
+            JamoDiag("CHIP raw=(%ld,%ld-%ld,%ld) adv=%d commit=%d src=%s",
+                     raw.left, raw.top, raw.right, raw.bottom, obj->chipPendingAdv,
+                     res.commitChar ? 1 : 0, obj->lastCaretValid ? "TextExt" : "GUITI");
             wchar_t s[2] = { res.preeditChar, L'\0' };
             PreeditOverlay_Show(&rc, s, face, pvSize);
             return;
         }
+        JamoDiag("CHIP no-rect (TextExt fail + GUIThreadInfo fail) -> hide");
     }
     obj->prevChipValid = FALSE;   // 표시 안 함 → 비교 기준 리셋
+    obj->chipPendingAdv = 0;
     PreeditOverlay_Hide();   // preedit 없음/옵션 꺼짐/좌표 불명 → 숨김
 }
 
@@ -599,7 +605,24 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 if (res.commitChar || res.preeditChar) OutputResult(obj, pic, res, FALSE);
                 goto kd_done;
             } else if (!IsModifierOrLock(wParam) && obj->fsm.state != STATE_EMPTY) {
-                // 비자모 키: 조합만 확정하고, 원래 키는 실제 이벤트로 재전달 → 앱이 네이티브 처리.
+                // [실험] 스페이스 경계: 확정 음절+공백을 '한 번의 삽입'으로 처리(재전달 없음).
+                //   CUAS(AkelPad)에서 합성 경계키와 결과문자 전달이 경합해 마지막 음절이
+                //   소실되는 현상 대응 — 삽입 경로 하나로 직렬화하면 경합 자체가 없다.
+                //   (공백은 '문자'라 터미널 포함 삽입으로 전달 가능. 엔터/방향키는 제어키라 기존 재전달 유지)
+                if (wParam == VK_SPACE) {
+                    EditSessionData esd = {0};
+                    wchar_t c = Fsm_Flush(&obj->fsm);
+                    int n = 0;
+                    if (c) esd.committed[n++] = c;
+                    esd.committed[n++] = L' ';
+                    JamoDiag("FLUSH+SPACE single-insert commit=U+%04X", (unsigned)c);
+                    RequestEditSessionData(obj, pic, &esd);
+                    obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
+                    PreeditOverlay_Hide();   // 조합 종료 → 미리보기 제거
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
+                // 그 외 비자모 키: 조합만 확정하고, 원래 키는 실제 이벤트로 재전달 → 앱이 네이티브 처리.
                 // (편집세션 텍스트 삽입은 터미널(PuTTY 등)엔 안 통함. 방향키 이동·엔터·터미널 모두 지원.)
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
                 JamoDiag("FLUSH commit=U+%04X then resend vk=%02X", (unsigned)res.commitChar, (unsigned)wParam);
