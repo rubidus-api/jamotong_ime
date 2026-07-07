@@ -1,0 +1,1 @@
+# jamotong_ime
