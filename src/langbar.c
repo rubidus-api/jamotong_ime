@@ -20,9 +20,11 @@ typedef struct ITfMenuVtbl {
 } ITfMenuVtbl;
 struct ITfMenu { const ITfMenuVtbl *lpVtbl; };
 
-// GUID for the LangBar Item: {F264627A-9494-4340-B0D1-2AE6BAE23193}
-static const GUID GUID_LBI_JAMOTONG = 
-{ 0xf264627a, 0x9494, 0x4340, { 0xb0, 0xd1, 0x2a, 0xe6, 0xba, 0xe2, 0x31, 0x93 } };
+// GUID_LBI_INPUTMODE {2C77A81E-41CC-4178-A3A7-5F8A987568E6} — Win8+에서 랭바 아이템의
+// guidItem이 이 값이어야만 트레이 '입력 표시기'가 아이템을 호스팅한다(다른 GUID는 무시됨).
+// MinGW ctfutb.h에 없어 직접 정의 (값 출처: Windows SDK 메타데이터/windows-rs, MIT).
+static const GUID GUID_LBI_INPUTMODE_J =
+{ 0x2c77a81e, 0x41cc, 0x4178, { 0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6 } };
 
 const GUID IID_ITfLangBarItemButton = 
 { 0x28c7f1d0, 0xde25, 0x11d2, { 0xaf, 0xdd, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 } };
@@ -69,7 +71,7 @@ static HRESULT STDMETHODCALLTYPE LBI_GetInfo(ITfLangBarItemButton *pThis, TF_LAN
     (void)pThis;
     if (!pInfo) return E_INVALIDARG;
     pInfo->clsidService = CLSID_JamotongIME;
-    pInfo->guidItem = GUID_LBI_JAMOTONG;
+    pInfo->guidItem = GUID_LBI_INPUTMODE_J;   // ★트레이 입력 표시기 호스팅의 필수 조건
     pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;   // 트레이 표시 (아이콘은 GetIcon)
     pInfo->ulSort = 0;
     lstrcpyW(pInfo->szDescription, L"Jamotong Layout");
@@ -94,6 +96,8 @@ static HRESULT STDMETHODCALLTYPE LBI_GetTooltipString(ITfLangBarItemButton *pThi
     return *pbstrToolTip ? S_OK : E_OUTOFMEMORY;
 }
 
+static void ExecMenuCmd(JamotongLangBarItem *obj, UINT wID);   // 아래 정의 (우클릭 팝업에서 사용)
+
 static HRESULT STDMETHODCALLTYPE LBI_OnClick(ITfLangBarItemButton *pThis, TfLBIClick click, POINT pt, const RECT *prcArea) {
     JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
     (void)pt; (void)prcArea;
@@ -105,7 +109,31 @@ static HRESULT STDMETHODCALLTYPE LBI_OnClick(ITfLangBarItemButton *pThis, TfLBIC
         LangBar_Update(obj);
         Jamotong_PublishStatus(&obj->pService->config);
     } else if (click == TF_LBI_CLK_RIGHT) {
-        // 우클릭 메뉴는 InitMenu/OnMenuSelect에서 처리됨
+        // 우클릭: 자체 컨텍스트 메뉴. BTN_BUTTON 스타일은 우클릭도 OnClick으로 오며
+        // InitMenu(ITfMenu)는 호출되지 않는다(BTN_MENU 전용) — Mozc와 동일 방식.
+        HMENU menu = CreatePopupMenu();
+        if (menu) {
+            AppendMenuW(menu, MF_STRING, 1, L"Settings...");
+            AppendMenuW(menu, MF_STRING, 2, L"Next layout");
+            AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(menu, MF_STRING, 3, L"About Jamotong IME...");
+            POINT p = pt;
+            HMONITOR mon = MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST);   // 가장자리 클램프
+            if (mon) {
+                MONITORINFO mi; mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(mon, &mi)) {
+                    if (p.x < mi.rcWork.left)  p.x = mi.rcWork.left;
+                    if (p.x > mi.rcWork.right) p.x = mi.rcWork.right;
+                }
+            }
+            HWND owner = GetFocus();                     // 메뉴는 owner 창 필요(표시기는 안 줌)
+            if (!owner) owner = GetForegroundWindow();
+            // TPM_NONOTIFY: owner 앱이 메뉴 상태를 건드리는 부작용 차단(Mozc가 IE10에서 겪은 이슈)
+            int cmd = (int)TrackPopupMenu(menu, TPM_NONOTIFY | TPM_RETURNCMD | TPM_LEFTBUTTON |
+                                          TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, 0, owner, NULL);
+            DestroyMenu(menu);
+            if (cmd > 0) ExecMenuCmd(obj, (UINT)cmd);
+        }
     }
     return S_OK;
 }
@@ -124,9 +152,9 @@ static HRESULT STDMETHODCALLTYPE LBI_InitMenu(ITfLangBarItemButton *pThis, void 
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, UINT wID) {
-    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
-    if (!obj->pService) return S_OK;   // Deactivate 후 — 서비스 접근 금지(UAF 방어)
+// 메뉴 명령 실행 (우클릭 자체 팝업과 레거시 OnMenuSelect가 공유)
+static void ExecMenuCmd(JamotongLangBarItem *obj, UINT wID) {
+    if (!obj->pService) return;
     if (wID == 1) {
         SettingsUI_Show(&obj->pService->config);   // 설정창 (별도 스레드)
     } else if (wID == 2) {
@@ -141,6 +169,12 @@ static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, U
             L"right-click for this menu.",
             L"About Jamotong IME", MB_OK | MB_TOPMOST | MB_SETFOREGROUND | MB_ICONINFORMATION);
     }
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, UINT wID) {
+    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
+    if (!obj->pService) return S_OK;   // Deactivate 후 — 서비스 접근 금지(UAF 방어)
+    ExecMenuCmd(obj, wID);
     return S_OK;
 }
 
@@ -189,7 +223,7 @@ static HICON CreateAbbrevIcon(const wchar_t *text) {
     if (hdc && hbmColor && hbmMask) {
         HGDIOBJ oldBmp = SelectObject(hdc, hbmColor);
         RECT full = { 0, 0, sz, sz };
-        HBRUSH bg = CreateSolidBrush(RGB(0, 92, 200));
+        HBRUSH bg = CreateSolidBrush(RGB(0, 0, 0));   // 모드 아이콘 지침: 흑백 전용
         FillRect(hdc, &full, bg);
         DeleteObject(bg);
         SetBkMode(hdc, TRANSPARENT);
