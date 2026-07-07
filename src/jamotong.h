@@ -56,6 +56,10 @@ typedef struct JamotongTextService {
     //   편집 세션(동기) 안에서 GetTextExt로 기록 → OutputResult가 세션 반환 직후 읽음(입력 스레드 전용).
     RECT lastCaretRect;
     BOOL lastCaretValid;
+    // CUAS 낡은 좌표 보정용: 직전에 칩을 그린 '원시' rect. CUAS는 비동기 삽입 때문에
+    // GetTextExt/캐럿이 한 키 늦게 전진한다 — 커밋이 있었는데 rect가 그대로면 낡은 것.
+    RECT prevChipRect;
+    BOOL prevChipValid;
 
     // Config & Engine State
     JamotongConfig config;

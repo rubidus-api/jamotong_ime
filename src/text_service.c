@@ -64,18 +64,24 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     if (show) {
         RECT rc;
         if (GetCaretScreenRect(obj, &rc)) {
-            // CUAS 보정: 세션 내 GetTextExt가 실패해(lastCaretValid=FALSE) 시스템 캐럿 폴백을 썼고
-            // 방금 커밋 삽입이 있었다면, 캐럿이 아직 전진하기 전 좌표라 칩이 직전 글자를 덮는다.
-            // 전각 1글자 폭(≈줄높이)만큼 오른쪽으로 보정해 '다음 칸'에 표시한다.
-            if (!obj->lastCaretValid && res.commitChar) {
+            // CUAS 낡은 좌표 보정: CUAS 앱은 커밋 삽입이 비동기라 GetTextExt/시스템 캐럿이
+            // '한 키 늦게' 전진한다(대하 시점엔 옛 칸, 대한에서야 새 칸). 그래서
+            // "커밋이 있었는데 rect가 직전 표시와 동일" = 낡은 좌표로 판정하고 전각 1글자
+            // 폭(≈줄높이)만큼 오른쪽 보정. 네이티브 앱은 rect가 즉시 전진해 보정이 안 걸린다.
+            RECT raw = rc;
+            if (res.commitChar && obj->prevChipValid &&
+                rc.left == obj->prevChipRect.left && rc.top == obj->prevChipRect.top) {
                 int adv = rc.bottom - rc.top;
                 rc.left += adv; rc.right += adv;
             }
+            obj->prevChipRect = raw;   // 다음 비교는 '원시' 좌표 기준 (보정값 저장 금지)
+            obj->prevChipValid = TRUE;
             wchar_t s[2] = { res.preeditChar, L'\0' };
             PreeditOverlay_Show(&rc, s, face, pvSize);
             return;
         }
     }
+    obj->prevChipValid = FALSE;   // 표시 안 함 → 비교 기준 리셋
     PreeditOverlay_Hide();   // preedit 없음/옵션 꺼짐/좌표 불명 → 숨김
 }
 
@@ -194,6 +200,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fFo
     Fsm_Init(&obj->fsm);
     Chord_Init(&obj->chord);
     obj->lastCaretValid = FALSE;
+    obj->prevChipValid = FALSE;
     PreeditOverlay_Hide();
     CodeInput_Hide();
     CandidateUI_Cancel();
@@ -767,6 +774,7 @@ static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, I
         AdviseTextEditSink(obj, NULL);
     }
     obj->lastCaretValid = FALSE;
+    obj->prevChipValid = FALSE;
     PreeditOverlay_Hide();   // 문서 포커스 이동 → 이전 위치의 미리보기 잔상 제거
     CodeInput_Hide();
     CandidateUI_Cancel();    // 후보창도 취소(pic 정리) — 다른 문서 위 잔류 방지
