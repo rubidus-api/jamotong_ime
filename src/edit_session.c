@@ -419,24 +419,40 @@ static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
 // "대한민국→大韓민국"처럼 앞 글자만 바뀌는 오동작을 보였다(실기 2026-07-08).
 // 오프셋 단위(문자/바이트)를 신뢰하지 않는다: 선택 후 실제 텍스트를 기대 단어와 대조하고,
 // 불일치하면 문자당 2단위(바이트 해석)도 시도, 그래도 아니면 캐럿을 복원하고 실패한다.
+// 컨트롤 h에서 [from,to)를 선택. RichEdit(EM_EXSETSEL)와 플레인 EDIT(EM_SETSEL) 모두 커버.
+static void CtlSetSel(HWND h, LONG from, LONG to, bool rich) {
+    if (rich) { CHARRANGE cr; cr.cpMin = from; cr.cpMax = to; SendMessageW(h, EM_EXSETSEL, 0, (LPARAM)&cr); }
+    else SendMessageW(h, EM_SETSEL, (WPARAM)from, (LPARAM)to);
+}
+
 bool EditCtl_SelectWordBeforeCaret(const wchar_t *word) {
     int len = (int)wcslen(word);
     if (len <= 0 || len > 16) return false;
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
     if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
     HWND h = gti.hwndFocus;
-    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
-    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
-    if (s == 0xFFFFFFFF || s != e || e == 0) return false;   // EDIT 계열 아님/캐럿이 접혀있지 않음
-    for (int mult = 1; mult <= 2; mult++) {                  // 1=문자 오프셋, 2=바이트(UTF-16) 해석
-        DWORD span = (DWORD)len * (DWORD)mult;
-        if (e < span) continue;
-        SendMessageW(h, EM_SETSEL, e - span, e);
+    // 캐럿 위치: EM_EXGETSEL(RichEdit/AkelEdit) 우선 — AkelEdit는 EM_GETSEL 미응답이라
+    // EM_GETSEL만 쓰면 단어 선택이 통째로 실패했다(실기 2026-07-08).
+    LONG caret = -1; bool rich = false;
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin >= 0 && cr.cpMin == cr.cpMax) { caret = cr.cpMin; rich = true; }
+    else {
+        DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+        SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+        if (s == 0xFFFFFFFF || s != e) return false;   // 비-EDIT/캐럿이 접혀있지 않음
+        caret = (LONG)e;
+    }
+    if (caret <= 0) return false;
+    for (int mult = 1; mult <= 2; mult++) {   // 1=문자 오프셋, 2=UTF-16 코드유닛(2단위) 해석
+        LONG span = (LONG)len * mult;
+        if (caret < span) continue;
+        CtlSetSel(h, caret - span, caret, rich);
         wchar_t got[24] = {0};
         if (ReadSelFromCtl(h, got, 16) && wcscmp(got, word) == 0)
-            return true;   // 검증 성공 — 선택 유지한 채 반환(호출자가 삽입=교체)
+            return true;   // 검증 성공 — 선택 유지한 채 반환(호출자가 EM_REPLACESEL 교체)
     }
-    SendMessageW(h, EM_SETSEL, e, e);   // 검증 실패 → 캐럿 복원
+    CtlSetSel(h, caret, caret, rich);   // 검증 실패 → 캐럿 복원
     return false;
 }
 
@@ -447,10 +463,21 @@ bool EditCtl_ReplaceSelection(const wchar_t *str) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
     if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
     HWND h = gti.hwndFocus;
+    // EDIT 판정은 EM_EXGETSEL(RichEdit/AkelEdit) 우선 — AkelEdit는 EM_GETSEL에 제대로 응답하지
+    // 않아, EM_GETSEL만 쓰면 판정 실패 → TSF 삽입 폴백 → CUAS 부분교체(4글자→2글자)로 이어졌다
+    // (실기 2026-07-08). 선택 읽기는 이미 EM_EXGETSEL로 성공하던 컨트롤이다.
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin >= 0 && cr.cpMax >= cr.cpMin) {
+        SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
+        JamoDiag("REPLACESEL exsel cp=%ld..%ld len=%d", cr.cpMin, cr.cpMax, (int)wcslen(str));
+        return true;
+    }
     DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
-    if (s == 0xFFFFFFFF || e == 0xFFFFFFFF) return false;   // EM_GETSEL 미응답 = 비-EDIT
+    if (s == 0xFFFFFFFF || e == 0xFFFFFFFF) return false;   // 둘 다 미응답 = 비-EDIT
     SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
+    JamoDiag("REPLACESEL getsel %lu..%lu len=%d", (unsigned long)s, (unsigned long)e, (int)wcslen(str));
     return true;
 }
 

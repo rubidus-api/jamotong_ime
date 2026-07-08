@@ -488,15 +488,24 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         bool fromSelection = false;   // 블록 선택 변환 여부 (EM_REPLACESEL 교체 경로 선택)
 
         if (obj->fsm.state == STATE_CHO) {
-            // 단일 자음 + 한자키 → 특수문자 표 (ComposeHangul은 0을 주므로 호환 자모로 조회)
-            searchStr[0] = Layout_ChoToCompatJamo(obj->fsm.cho);
-            searchStr[1] = L'\0';
-            replaceLen = 0;   // 커밋전용: 조합중 자모는 문서에 없음 → 교체 아니라 삽입
+            // 단일 자음 + 한자키 → 특수문자 표 (호환 자모로 조회).
+            // 조합 자음을 '문서에 먼저 커밋'한다 → 변환 취소 시 원본 자모가 남는다(실기 2026-07-08:
+            // 취소하면 조합 중이던 글자가 사라지던 문제). 선택 시엔 이 커밋 글자를 교체(replaceLen=1).
+            wchar_t ch = Layout_ChoToCompatJamo(obj->fsm.cho);
+            searchStr[0] = ch; searchStr[1] = L'\0';
             special = true;
+            Fsm_Init(&obj->fsm);
+            FsmResult res = {ch, 0, false};
+            OutputResult(obj, pic, res, TRUE);   // 문서에 자모 커밋
+            replaceLen = 1;
         } else if (obj->fsm.state != STATE_EMPTY) {
-            searchStr[0] = ComposeHangul(obj->fsm.cho, obj->fsm.jung, obj->fsm.jong);
-            searchStr[1] = L'\0';
-            replaceLen = 0;   // 커밋전용: 조합중 음절은 문서에 없음 → 교체 아니라 삽입
+            // 조합 중 음절 + 한자키 → 음절을 '문서에 먼저 커밋'(취소 시 원본 보존), 선택 시 교체.
+            wchar_t syl = ComposeHangul(obj->fsm.cho, obj->fsm.jung, obj->fsm.jong);
+            searchStr[0] = syl; searchStr[1] = L'\0';
+            Fsm_Init(&obj->fsm);
+            FsmResult res = {syl, 0, false};
+            OutputResult(obj, pic, res, TRUE);   // 문서에 음절 커밋
+            replaceLen = 1;
         } else {
             // [RFC-0003] 블록 선택 텍스트 변환 — 선택이 있으면 최우선.
             //   선택 교체 = InsertTextAtSelection 삽입(타이핑 덮어쓰기와 동일 경로)이라
