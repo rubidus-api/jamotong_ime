@@ -1,6 +1,7 @@
 #include "edit_session.h"
 #include <richedit.h>   // EM_EXGETSEL/EM_GETSELTEXT/CHARRANGE (선택 읽기 RichEdit 폴백)
 #include <string.h>
+#include <wctype.h>     // towlower (포커스 컨트롤 클래스명 판정)
 
 #ifdef JAMO_DIAG   // 임시 진단 로그 (-DJAMO_DIAG 빌드에서만): %TEMP%\jamotong-diag.log
 #include <stdio.h>
@@ -420,13 +421,22 @@ HWND EditCtl_FocusEditWindow(void) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
     if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return NULL;
     HWND h = gti.hwndFocus;
+    // 클래스명에 "edit"(대소문자 무관)가 있어야 EDIT 계열로 인정 — PuTTY 같은 자체 렌더링
+    // 터미널이 EM_GETSEL/EM_EXGETSEL에 우연히 응답해 EDIT로 오판되고, 우리가 보낸
+    // EM_REPLACESEL을 무시해 한글 입력이 통째로 씹히는 것을 막는다(실기 2026-07-08).
+    // 표준 클래스: "Edit", "RICHEDIT50W"/"RichEdit20W", AkelPad "AkelEditW" — 모두 'edit' 포함.
+    wchar_t cls[64];
+    int n = GetClassNameW(h, cls, 64);
+    if (n <= 0) return NULL;
+    for (int i = 0; i < n; i++) cls[i] = (wchar_t)towlower(cls[i]);
+    if (!wcsstr(cls, L"edit")) return NULL;         // PuTTY("PuTTY")·터미널·네이티브 앱 → TSF 경로
     CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
     SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
     if (cr.cpMin >= 0) return h;                    // RichEdit/AkelEdit
     DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
     if (s != 0xFFFFFFFF) return h;                  // 플레인 EDIT
-    return NULL;                                    // 비-EDIT(터미널·네이티브 리치앱)
+    return NULL;
 }
 
 // 캐럿 앞의 단어(word)를 EDIT 메시지로 '프로그램적으로 선택'하고 읽어서 검증한다.

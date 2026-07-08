@@ -73,6 +73,9 @@ static int ScaleX(int x) { return MulDiv(x, g_CurrentDpi, 96); }
 static int ScaleY(int y) { return MulDiv(y, g_CurrentDpi, 96); }
 
 // ── 테마(다크/라이트) ─────────────────────────────────────────────────────
+//   팔레트를 커스텀 값으로 통일(라이트에서 창=COLOR_BTNFACE·컨트롤=COLOR_WINDOW를 섞어 쓰던
+//   미묘한 배경색 차이 제거). g_clrBg=창·라벨·버튼 공통 배경, g_clrCtl=입력 컨트롤(리스트·
+//   에디트·콤보) 배경, g_clrLine=구분 테두리.
 static bool     g_dark = false;
 static COLORREF g_clrBg, g_clrText, g_clrCtl;
 static HBRUSH   g_brBg = NULL, g_brCtl = NULL;
@@ -85,8 +88,15 @@ static void InitTheme(void) {
         RegCloseKey(hk);
     }
     g_dark = (v == 0);
-    if (g_dark) { g_clrBg = RGB(32,32,32); g_clrText = RGB(235,235,235); g_clrCtl = RGB(45,45,45); }
-    else        { g_clrBg = GetSysColor(COLOR_BTNFACE); g_clrText = GetSysColor(COLOR_WINDOWTEXT); g_clrCtl = GetSysColor(COLOR_WINDOW); }
+    if (g_dark) {
+        g_clrBg   = RGB(32, 32, 32);     // 창·라벨 공통 배경
+        g_clrText = RGB(235, 235, 235);
+        g_clrCtl  = RGB(45, 45, 45);     // 입력 컨트롤
+    } else {
+        g_clrBg   = RGB(243, 243, 243);  // Win11 톤 — 창·라벨이 하나의 배경색
+        g_clrText = RGB(26, 26, 26);
+        g_clrCtl  = RGB(255, 255, 255);  // 입력 컨트롤은 흰색으로 대비
+    }
     if (g_brBg)  DeleteObject(g_brBg);
     if (g_brCtl) DeleteObject(g_brCtl);
     g_brBg  = CreateSolidBrush(g_clrBg);
@@ -479,7 +489,17 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             HDC hdc = (HDC)wParam; RECT rc; GetClientRect(hwnd, &rc);
             FillRect(hdc, &rc, g_brBg); return 1;   // 창 배경을 테마색으로 칠함
         }
-        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORSTATIC: {
+            SetTextColor((HDC)wParam, g_clrText);
+            // SS_SUNKEN 표시 라벨(글꼴 이름)은 읽기 전용 입력 필드처럼 보이므로 컨트롤 배경.
+            // 나머지 라벨은 창 배경과 통일.
+            if (GetDlgCtrlID((HWND)lParam) == ID_LBL_PVFONT) {
+                SetBkColor((HDC)wParam, g_clrCtl);
+                return (LRESULT)(INT_PTR)g_brCtl;
+            }
+            SetBkColor((HDC)wParam, g_clrBg);
+            return (LRESULT)(INT_PTR)g_brBg;
+        }
         case WM_CTLCOLORBTN:
             SetTextColor((HDC)wParam, g_clrText); SetBkColor((HDC)wParam, g_clrBg);
             return (LRESULT)(INT_PTR)g_brBg;
