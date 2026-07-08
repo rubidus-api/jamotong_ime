@@ -269,12 +269,16 @@ static HWND MkCtl(HWND parent, LPCWSTR cls, LPCWSTR txt, DWORD style, DWORD ex,
     if (c) SetWindowLongPtrW(c, GWLP_USERDATA, tab);
     return c;
 }
-static BOOL CALLBACK ShowTabProc(HWND h, LPARAM sel) {
-    LONG_PTR t = GetWindowLongPtrW(h, GWLP_USERDATA);
-    ShowWindow(h, (t == sel || t == TAB_ALWAYS) ? SW_SHOW : SW_HIDE);
-    return TRUE;
+// 직접 자식만 순회한다. EnumChildWindows는 손자까지 재귀하므로 콤보 박스 내부의
+// 에디트 자식(USERDATA=0=TAB_LAYOUTS)까지 숨겨버림 — 크기 콤보가 "Auto" 대신
+// 빈칸으로 보이던 원인.
+static void ShowTab(HWND hwnd, int sel) {
+    g_curTab = sel;
+    for (HWND h = GetWindow(hwnd, GW_CHILD); h; h = GetWindow(h, GW_HWNDNEXT)) {
+        LONG_PTR t = GetWindowLongPtrW(h, GWLP_USERDATA);
+        ShowWindow(h, (t == sel || t == TAB_ALWAYS) ? SW_SHOW : SW_HIDE);
+    }
 }
-static void ShowTab(HWND hwnd, int sel) { g_curTab = sel; EnumChildWindows(hwnd, ShowTabProc, sel); }
 
 static void UpdateHanjaLabel(HWND hwnd) {
     wchar_t buf[64]; FormatShortcutStr(&g_TempConfig.options.hanjaKey, buf, 64);
@@ -329,12 +333,13 @@ static void CreateControls(HWND hwnd) {
           14, 112, 312, 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Show composition preview (floating)", BS_AUTOCHECKBOX, 0,
           14, 140, 312, 22, ID_CHK_PREVIEW, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Preview font:", SS_CENTERIMAGE, 0, 14, 170, 70, 22, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 88, 170, 148, 22, ID_LBL_PVFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 169, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Preview size:", SS_CENTERIMAGE, 0, 14, 200, 70, 22, 0, TAB_OPTIONS);
+    // 라벨은 한 줄 전체를 쓰고 컨트롤은 그 아랫줄 — 좁은 열에서 라벨이 잘리던 문제 방지
+    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 170, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 190, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 188, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 222, 312, 18, 0, TAB_OPTIONS);
     HWND hCmbPv = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
-                        88, 198, 100, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
+                        14, 242, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
     {   // Auto + 흔한 px 크기 (직접 입력도 가능 — 8~96 클램프)
         SendMessageW(hCmbPv, CB_ADDSTRING, 0, (LPARAM)L"Auto");
         static const wchar_t *szs[] = { L"12", L"14", L"16", L"18", L"20", L"24", L"28", L"32", L"40", L"48" };

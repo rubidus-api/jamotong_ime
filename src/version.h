@@ -7,7 +7,7 @@
 //   갱신 절차: 아래 세 숫자만 수정 → 문자열/리소스 버전은 자동 파생. CHANGELOG.md에 항목 추가.
 #define JAMOTONG_VERSION_MAJOR 0
 #define JAMOTONG_VERSION_MINOR 11
-#define JAMOTONG_VERSION_PATCH 1
+#define JAMOTONG_VERSION_PATCH 2
 
 // 문자열 파생 (수정 금지). L"" 와 일반 문자열의 인접 결합은 C11 §6.4.5(와이드로 승격) 표준.
 #define JAMO_STR2(x) #x
