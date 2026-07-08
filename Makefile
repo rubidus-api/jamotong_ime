@@ -47,6 +47,7 @@ dist/jamotong.exe: $(APP_SRCS)
 # '설치 가능한 폴더'를 만든다. 소스 빌드 사용자는 이 폴더에서 install.bat 실행.
 stage: all win32 configapp
 	cp redist/* dist/
+	cp README.md README.ko.md LICENSE dist/
 	@echo "dist/ = installable folder (run install.bat as administrator)"
 
 clean:

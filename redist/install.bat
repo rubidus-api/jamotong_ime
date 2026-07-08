@@ -7,6 +7,10 @@ echo ================================================================
 echo   Jamotong IME - Install  (TSF text service)
 echo ================================================================
 echo.
+echo  This folder becomes the install location - the IME loads its
+echo  files from here. Keep it in a permanent place, for example:
+echo    C:\Program Files\Jamotong
+echo.
 
 REM ---- 1) Administrator required ----------------------------------
 net session >nul 2>&1
@@ -36,7 +40,7 @@ if not exist "%~dp0jamotong.dll" (
 )
 
 REM ---- 4) Unblock downloaded files (Mark-of-the-Web) --------------
-echo [*] Unblocking files ...
+echo [*] Unblocking downloaded files ...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File" >nul 2>&1
 
 REM ---- 5) Register 64-bit TSF DLL ---------------------------------
@@ -67,17 +71,25 @@ echo.
 echo ================================================================
 echo   [OK] Installed
 echo ================================================================
-echo  Next steps:
-echo   1) Sign out and back in ^(or reboot^).
-echo   2) Win+Space  -^>  select "Jamotong IME".
-echo   3) Cycle layouts: Right Alt / Hangul key / Shift+Space.
 echo.
-echo  Tools:
-echo   - jamotong.exe          : tray monitor + settings ^(run anytime^)
-echo   - Ctrl+Alt+K            : open settings while typing
-echo   - Ctrl+Alt+U            : Unicode codepoint input
-echo   - Hanja key             : hanja/symbol candidates
+echo  NEXT STEPS
+echo   1) Sign out and back in ^(a full reboot is not required^).
+echo   2) Press Win+Space and select "Jamotong IME".
 echo.
-echo  See README-install.txt for details and troubleshooting.
+echo  DEFAULT LAYOUTS  ^(enabled out of the box^)
+echo   - English QWERTY
+echo   - Korean Dubeolsik ^(2-beolsik^)
+echo   Dvorak and Sebeolsik-final are included but turned off.
+echo   Enable them in Settings ^> Layouts.
+echo.
+echo  DEFAULT KEYS  ^(all changeable, multiple bindings per function^)
+echo   - Switch layout ^(Kor/Eng^) : Hangul key / Right Alt / Shift+Space
+echo   - Hanja / symbols          : Hanja key ^(on a composing syllable,
+echo                                or on selected text^)
+echo   - Unicode codepoint input  : Ctrl+Alt+U
+echo   - Open settings            : Ctrl+Alt+K  ^(or run jamotong.exe^)
+echo.
+echo  Settings file:  %%APPDATA%%\Jamotong\config.ini
+echo  Full manual:    README.md ^(English^) / README.ko.md ^(Korean^)
 echo.
 pause
