@@ -16,5 +16,8 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
 //   성공 시 선택 range의 화면 rect를 svc->lastCaretRect에 캡처(후보창 위치용).
 //   ※ outBuf 용량은 최소 maxLen+1 (널 종단 기록).
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen);
+// 캐럿 앞의 word를 EDIT 메시지로 선택하고 읽어서 검증(성공 시 선택 유지 — 이어지는 삽입이
+// 선택을 교체). CUAS에서 range 교체가 부분 적용되는 문제의 우회 경로 (단어 한자 변환용).
+bool EditCtl_SelectWordBeforeCaret(const wchar_t *word);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op

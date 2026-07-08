@@ -385,27 +385,59 @@ static bool ReadSelViaRichEdit(HWND h, wchar_t *outBuf, int maxLen) {
     return true;
 }
 
-static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
-    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return;
-    HWND h = gti.hwndFocus;
-    if (ReadSelViaRichEdit(h, outBuf, maxLen)) return;   // ①차: RichEdit 계열 정확 경로
-    // ②차: 플레인 EDIT — EM_GETSEL 오프셋은 문자 단위가 보장됨
+// 컨트롤 h의 현재 선택 텍스트 읽기: ① RichEdit 정확 경로 ② 플레인 EDIT(EM_GETSEL=문자 단위)
+static bool ReadSelFromCtl(HWND h, wchar_t *outBuf, int maxLen) {
+    outBuf[0] = L'\0';
+    if (ReadSelViaRichEdit(h, outBuf, maxLen)) return true;
     DWORD s = 0, e = 0;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
-    if (e <= s || (int)(e - s) > maxLen) return;   // 선택 없음(비-EDIT 포함)/사전 상한 초과
-    if (e > 262144) return;                        // 과대 문서 보호 (전체 텍스트 복사 상한 512KB)
+    if (e <= s || (int)(e - s) > maxLen) return false;   // 선택 없음(비-EDIT 포함)/사전 상한 초과
+    if (e > 262144) return false;                        // 과대 문서 보호 (전체 텍스트 복사 상한 512KB)
     int total = GetWindowTextLengthW(h);
-    if (total <= 0 || (DWORD)total < e) return;    // EM_GETSEL 응답이 텍스트와 불일치(비-EDIT 방어)
+    if (total <= 0 || (DWORD)total < e) return false;    // EM_GETSEL 응답이 텍스트와 불일치(비-EDIT 방어)
     wchar_t *buf = (wchar_t*)HeapAlloc(GetProcessHeap(), 0, ((size_t)e + 1) * sizeof(wchar_t));
-    if (!buf) return;
-    int got = GetWindowTextW(h, buf, (int)e + 1);  // 선택 끝까지만 복사
+    if (!buf) return false;
+    int got = GetWindowTextW(h, buf, (int)e + 1);        // 선택 끝까지만 복사
     if ((DWORD)got >= e) {
         DWORD n = e - s;
         wmemcpy(outBuf, buf + s, n);
         outBuf[n] = L'\0';
     }
     HeapFree(GetProcessHeap(), 0, buf);
+    return outBuf[0] != L'\0';
+}
+
+static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return;
+    ReadSelFromCtl(gti.hwndFocus, outBuf, maxLen);
+}
+
+// 캐럿 앞의 단어(word)를 EDIT 메시지로 '프로그램적으로 선택'하고 읽어서 검증한다.
+// 성공하면 선택이 잡힌 채 반환 → 이어지는 InsertTextAtSelection 삽입이 선택을 교체한다
+// (= 검증된 CUAS 호환 경로). TSF range 교체(ShiftStart+SetText)는 CUAS에서 부분 적용되어
+// "대한민국→大韓민국"처럼 앞 글자만 바뀌는 오동작을 보였다(실기 2026-07-08).
+// 오프셋 단위(문자/바이트)를 신뢰하지 않는다: 선택 후 실제 텍스트를 기대 단어와 대조하고,
+// 불일치하면 문자당 2단위(바이트 해석)도 시도, 그래도 아니면 캐럿을 복원하고 실패한다.
+bool EditCtl_SelectWordBeforeCaret(const wchar_t *word) {
+    int len = (int)wcslen(word);
+    if (len <= 0 || len > 16) return false;
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
+    HWND h = gti.hwndFocus;
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s == 0xFFFFFFFF || s != e || e == 0) return false;   // EDIT 계열 아님/캐럿이 접혀있지 않음
+    for (int mult = 1; mult <= 2; mult++) {                  // 1=문자 오프셋, 2=바이트(UTF-16) 해석
+        DWORD span = (DWORD)len * (DWORD)mult;
+        if (e < span) continue;
+        SendMessageW(h, EM_SETSEL, e - span, e);
+        wchar_t got[24] = {0};
+        if (ReadSelFromCtl(h, got, 16) && wcscmp(got, word) == 0)
+            return true;   // 검증 성공 — 선택 유지한 채 반환(호출자가 삽입=교체)
+    }
+    SendMessageW(h, EM_SETSEL, e, e);   // 검증 실패 → 캐럿 복원
+    return false;
 }
 
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {

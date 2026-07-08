@@ -118,6 +118,7 @@ static inline unsigned HexValW(wchar_t c) {
 typedef struct {
     JamotongTextService *obj;
     ITfContext *pic;
+    wchar_t word[32];   // 단어 변환 대상 원문 (EDIT 선택 검증용 — 실기 2026-07-08)
 } CandidateContext;
 static CandidateContext g_CandCtx;
 
@@ -126,8 +127,17 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
     CandidateContext *cc = (CandidateContext*)ctx;
     int replaceLen = CandidateUI_GetReplaceLen();
     if (replaceLen > 0) {
-        // 이미 확정된 텍스트(단어단위 변환)를 교체 — range 편집이라 네이티브 앱만 동작.
-        RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);
+        // 이미 확정된 텍스트(단어단위 변환)를 교체.
+        // ① EDIT 계열: 단어를 프로그램적으로 선택(읽기 검증) 후 삽입 = 선택 교체 —
+        //    CUAS에서 range 교체가 앞 글자만 부분 적용되던 오동작(실기 2026-07-08)의 정공 우회.
+        // ② 그 외(비-EDIT 네이티브 앱): 종전 TSF range 교체.
+        if (cc->word[0] && EditCtl_SelectWordBeforeCaret(cc->word)) {
+            EditSessionData esd = {0};
+            wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
+            RequestEditSessionData(cc->obj, cc->pic, &esd);   // 삽입 = 검증된 선택을 교체
+        } else {
+            RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);
+        }
     } else {
         // 커밋전용: 조합중 음절은 문서에 없음 → 선택 한자를 그냥 삽입(모든 앱 동작).
         EditSessionData esd = {0};
@@ -193,6 +203,27 @@ static void SendKeyThrough(WPARAM vk, LPARAM lParam) {
 // 삽입 불가 → 재전달 유지가 불가피). 재전달을 ~30ms 늦춰 삽입이 앱에 닿을 시간을 준다.
 // 새 경계키가 그 안에 또 오면 보류분을 먼저 즉시 방출해 순서를 지킨다. (입력 스레드 전용)
 #define RESEND_DELAY_MS 30
+// 실제 재전달 실행. EDIT 계열(포커스 창이 EM_GETSEL에 정상 응답)이면 SendInput 대신
+// **그 창의 메시지 큐에 WM_KEYDOWN/UP을 직접 게시** — 같은 큐에 뒤이어 서므로 CUAS의
+// 확정문자 전달 메시지를 추월할 수 없다(순서 보장). SendInput은 시스템 입력 큐 경유라
+// 앱 큐와 순서가 안 맞을 수 있음(실기 2026-07-08: 30ms 지연으로도 AkelPad 엔터가 마지막
+// 음절을 소실). 비-EDIT(터미널 등)은 종전 SendInput 유지(PuTTY 검증됨).
+static void ResendKeyNow(WPARAM vk, LPARAM lParam) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) {
+        DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+        SendMessageW(gti.hwndFocus, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+        if (s != 0xFFFFFFFF && e != 0xFFFFFFFF && s <= e) {   // EDIT 계열로 판정
+            LPARAM base = lParam & 0x01FF0000;   // 스캔코드·확장키 비트 유지
+            PostMessageW(gti.hwndFocus, WM_KEYDOWN, vk, base | 1);
+            PostMessageW(gti.hwndFocus, WM_KEYUP,   vk, base | 0xC0000001);
+            JamoDiag("RESEND vk=%02X via PostMessage", (unsigned)vk);
+            return;
+        }
+    }
+    JamoDiag("RESEND vk=%02X via SendInput", (unsigned)vk);
+    SendKeyThrough(vk, lParam);
+}
 static WPARAM  g_pendResendVk = 0;
 static LPARAM  g_pendResendLp = 0;
 static UINT_PTR g_pendResendTimer = 0;
@@ -201,18 +232,18 @@ static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD tim
     KillTimer(NULL, id);
     if (id == g_pendResendTimer) {
         g_pendResendTimer = 0;
-        SendKeyThrough(g_pendResendVk, g_pendResendLp);
+        ResendKeyNow(g_pendResendVk, g_pendResendLp);
     }
 }
 static void ScheduleKeyResend(WPARAM vk, LPARAM lParam) {
     if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
         KillTimer(NULL, g_pendResendTimer);
         g_pendResendTimer = 0;
-        SendKeyThrough(g_pendResendVk, g_pendResendLp);
+        ResendKeyNow(g_pendResendVk, g_pendResendLp);
     }
     g_pendResendVk = vk; g_pendResendLp = lParam;
     g_pendResendTimer = SetTimer(NULL, 0, RESEND_DELAY_MS, ResendTimerProc);
-    if (!g_pendResendTimer) SendKeyThrough(vk, lParam);   // 타이머 실패 시 종전 즉시 재전달
+    if (!g_pendResendTimer) ResendKeyNow(vk, lParam);   // 타이머 실패 시 즉시 재전달
 }
 
 // ASCII → 전각(full-width). 전각 모드일 때 라틴/숫자/기호를 전각 폭 문자로 변환.
@@ -524,6 +555,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                                  : HanjaDict_Find(searchStr, &cands, &count);
             if (found) {
                 g_CandCtx.obj = obj;
+                wcsncpy(g_CandCtx.word, searchStr, 31); g_CandCtx.word[31] = L'\0';   // 교체 검증용 원문
                 // 후보창은 비동기(즉시 반환) — 나중 콜백에서 pic를 쓰므로 AddRef로 수명 고정(UAF 방지).
                 // 이전 후보가 남아 있으면(방어적) 먼저 해제.
                 if (g_CandCtx.pic) g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic);
