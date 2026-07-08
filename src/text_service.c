@@ -91,6 +91,19 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     PreeditOverlay_Hide();   // preedit 없음/옵션 꺼짐/좌표 불명 → 숨김
 }
 
+// 조합 상태 전면 리셋 — FSM·모아치기(chord)·미리보기 칩 상태를 '한 곳에서' 비운다.
+// (프리뷰 숨김/칩 상태 리셋이 여러 경로에 흩어져 있어, 조합이 깨졌을 때 칩이 갇히거나
+// 상태가 어긋나던 문제의 단일 진입점 — 실기 2026-07-08. 표시 갱신은 OutputResult가 유일한
+// 표시 경로이고, 리셋은 이 함수가 유일한 정리 경로다.)
+static void ResetComposition(JamotongTextService *obj) {
+    Fsm_Init(&obj->fsm);
+    Chord_Init(&obj->chord);
+    obj->lastCaretValid = FALSE;
+    obj->prevChipValid = FALSE;
+    obj->chipPendingAdv = 0;
+    PreeditOverlay_Hide();
+}
+
 // 유니코드 직접 입력용 16진수 헬퍼
 static inline bool IsHexW(wchar_t c) {
     return (c >= L'0' && c <= L'9') || (c >= L'A' && c <= L'F') || (c >= L'a' && c <= L'f');
@@ -121,8 +134,7 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
         wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
         RequestEditSessionData(cc->obj, cc->pic, &esd);
     }
-    Fsm_Init(&cc->obj->fsm);
-    PreeditOverlay_Hide();   // 조합 음절이 한자로 확정됨 → 미리보기 제거
+    ResetComposition(cc->obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
     if (cc->pic) { cc->pic->lpVtbl->Release(cc->pic); cc->pic = NULL; }   // 저장 시 AddRef한 것 해제
 }
 
@@ -246,13 +258,9 @@ static ULONG STDMETHODCALLTYPE KES_Release(ITfKeyEventSink *pThis) {
 static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fForeground) {
     JamotongTextService *obj = IMPL_TO_OBJ(KES, pThis);
     (void)fForeground;
-    // 포커스 변경 시 FSM/모아치기 리셋 + 팝업들 정리 → 새 위치에서 깨끗이 시작.
+    // 포커스 변경 시 조합 상태 전면 리셋 + 팝업들 정리 → 새 위치에서 깨끗이 시작.
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조가 정리되게 한다 — 열린 채 방치되던 '멈춤' 방지.
-    Fsm_Init(&obj->fsm);
-    Chord_Init(&obj->chord);
-    obj->lastCaretValid = FALSE;
-    obj->prevChipValid = FALSE;
-    PreeditOverlay_Hide();
+    ResetComposition(obj);
     CodeInput_Hide();
     CandidateUI_Cancel();
     return S_OK;
@@ -336,8 +344,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         }
 
         if (layout && (layout->type == LAYOUT_TYPE_KOREAN_FSM || layout->type == LAYOUT_TYPE_HANGUL_CUSTOM)) {
-            // 조합 중 백스페이스는 우리가 처리하므로 예측-소비 (앱이 먼저 지우지 않도록)
-            if (wParam == VK_BACK && (obj->fsm.state != STATE_EMPTY)) {
+            // 조합 중 백스페이스는 우리가 처리하므로 예측-소비 (앱이 먼저 지우지 않도록).
+            // 모아치기 조합(obj->chord)은 fsm.state에 안 잡히므로 함께 검사.
+            if (wParam == VK_BACK && (obj->fsm.state != STATE_EMPTY || obj->chord.activeKeys > 0)) {
+                if (pfEaten) *pfEaten = TRUE;
+                goto tk_done;
+            }
+            // Esc = 조합 취소 탈출구 (순차 FSM·모아치기 공통) — 갇힌 조합/칩을 확실히 비운다.
+            if (wParam == VK_ESCAPE && (obj->fsm.state != STATE_EMPTY || obj->chord.activeKeys > 0)) {
                 if (pfEaten) *pfEaten = TRUE;
                 goto tk_done;
             }
@@ -542,6 +556,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResult(obj, pic, res, TRUE);   // 현재 음절 확정
         }
+        Chord_Init(&obj->chord);   // 모아치기 잔여 상태도 정리 (자판 전환 = 조합 경계)
         Config_RotateLayout(&obj->config);
         LangBar_Update(obj->pLangBarItem);
         Jamotong_PublishStatus(&obj->config);   // 트레이 모니터링 갱신
@@ -625,13 +640,18 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
 
     if (layout && (layout->type == LAYOUT_TYPE_KOREAN_FSM || layout->type == LAYOUT_TYPE_HANGUL_CUSTOM)) {
         const HangulLayout *hl = (const HangulLayout*)layout->pHangulLayout;
+        // Esc = 조합 취소 (확정하지 않고 비움) — MS IME 관례이자, 상태가 어긋난 조합/칩의
+        // 확실한 탈출구(순차 FSM·모아치기 공통. 실기 2026-07-08 '갇힌 글자' 대응).
+        if (wParam == VK_ESCAPE && (obj->fsm.state != STATE_EMPTY || obj->chord.activeKeys > 0)) {
+            ResetComposition(obj);
+            if (pfEaten) *pfEaten = TRUE;
+            goto kd_done;
+        }
         if (hl && hl->moachigi) {
             // 모아치기(동시치기): KeyDown에서 자모를 누적하고 조합 중 글자만 보여준다.
             // 확정은 눌린 글쇠가 모두 떨어지는 KES_OnKeyUp에서 이루어진다.
-            if (wParam == VK_BACK && obj->fsm.state != STATE_EMPTY) {   // 조합 중 백스페이스 → 조합 비움
-                Chord_Init(&obj->chord);
-                FsmResult res = {0, 0, true};
-                OutputResult(obj, pic, res, FALSE);
+            if (wParam == VK_BACK && (obj->fsm.state != STATE_EMPTY || obj->chord.activeKeys > 0)) {
+                ResetComposition(obj);   // 조합 중 백스페이스 → 조합 비움 (chord는 fsm.state에 안 잡힘)
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
             }
@@ -857,9 +877,7 @@ static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, I
     } else {
         AdviseTextEditSink(obj, NULL);
     }
-    obj->lastCaretValid = FALSE;
-    obj->prevChipValid = FALSE;
-    PreeditOverlay_Hide();   // 문서 포커스 이동 → 이전 위치의 미리보기 잔상 제거
+    ResetComposition(obj);   // 문서 포커스 이동 → 조합·미리보기 잔상 전면 리셋
     CodeInput_Hide();
     CandidateUI_Cancel();    // 후보창도 취소(pic 정리) — 다른 문서 위 잔류 방지
     return S_OK;

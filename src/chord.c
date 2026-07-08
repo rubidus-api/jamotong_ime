@@ -37,9 +37,16 @@ ChordResult Chord_KeyDown(ChordContext *c, const HangulLayout *hl, UINT vk, wcha
     if (lr.type == JAMO_NONE) return r;   // 자모 아님 → 통과
 
     r.eaten = true;
-    if (vk < 256 && c->keyDown[vk]) {     // 키 반복 → 변화 없이 현재 조합 반환
-        r.composing = ComposeChord(c);
-        return r;
+    if (vk < 256 && c->keyDown[vk]) {
+        // 키 반복으로 보이지만, keyup 유실로 플래그가 박힌 '유령 키'일 수 있다 — 그 경우 이 키는
+        // 영원히 먹히기만 하고(eaten) 조합도 확정되지 않는다(실기 2026-07-08: 특정 글자 계속 무시).
+        // OS 물리 키 상태와 대조해 실제로는 떼어져 있으면 자가 치유 후 새 눌림으로 처리한다.
+        if (GetKeyState((int)vk) & 0x8000) {   // 진짜 오토리핏 → 변화 없이 현재 조합 반환
+            r.composing = ComposeChord(c);
+            return r;
+        }
+        c->keyDown[vk] = false;                // 유령 플래그 해제
+        if (c->activeKeys > 0) c->activeKeys--;
     }
     if (vk < 256) { c->keyDown[vk] = true; c->activeKeys++; }
     AddJamo(c, hl, lr);

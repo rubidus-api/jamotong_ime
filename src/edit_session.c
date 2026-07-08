@@ -1,4 +1,5 @@
 #include "edit_session.h"
+#include <richedit.h>   // EM_EXGETSEL/EM_GETSELTEXT/CHARRANGE (선택 읽기 RichEdit 폴백)
 #include <string.h>
 
 #ifdef JAMO_DIAG   // 임시 진단 로그 (-DJAMO_DIAG 빌드에서만): %TEMP%\jamotong-diag.log
@@ -365,10 +366,31 @@ static ITfEditSessionVtbl ReadSelVtbl = { RSel_QueryInterface, RSel_AddRef, RSel
 // 블록 한자 변환이 무동작이었다). 포커스 컨트롤에서 EM_GETSEL + WM_GETTEXT로 직접 읽는다 —
 // EDIT/RichEdit/AkelEdit 등 EDIT 호환 컨트롤에서 동작하고, 그 외 컨트롤은 검증(s<e·범위)에
 // 걸려 무해하게 빈손 반환. 같은 스레드의 포커스 창이므로 SendMessage 계열은 안전.
+// ①차 폴백: RichEdit 계열(AkelEdit 포함) — EM_EXGETSEL(CHARRANGE)+EM_GETSELTEXT.
+//   컨트롤이 선택 텍스트를 '직접' 복사해 주므로 오프셋 해석(문자/바이트·개행 축약) 차이에서
+//   자유롭다. (실기 2026-07-08: EM_GETSEL+WM_GETTEXT 조합은 레거시 앱에서 "대한민국" 선택이
+//   "대한"으로 잘리는 오프셋 불일치를 보임.) 모르는 컨트롤은 CHARRANGE를 안 건드려 걸러진다.
+static bool ReadSelViaRichEdit(HWND h, wchar_t *outBuf, int maxLen) {
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;   // 미응답 감지용 초기값
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin < 0 || cr.cpMax <= cr.cpMin) return false;
+    if (cr.cpMax - cr.cpMin > maxLen) return false;   // 사전 조회 상한 초과
+    // EM_GETSELTEXT는 버퍼 크기 인자가 없는 고전 API — 선택 길이를 위에서 상한(≤maxLen≤16)
+    // 검증했고, CRLF 확장 등 여유를 위해 넉넉한 지역 버퍼에 받은 뒤 길이를 재검증한다.
+    wchar_t buf[256]; buf[0] = L'\0';
+    LRESULT n = SendMessageW(h, EM_GETSELTEXT, 0, (LPARAM)buf);
+    if (n <= 0 || n > maxLen) return false;
+    buf[n] = L'\0';
+    wmemcpy(outBuf, buf, (size_t)n + 1);
+    return true;
+}
+
 static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
     if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return;
     HWND h = gti.hwndFocus;
+    if (ReadSelViaRichEdit(h, outBuf, maxLen)) return;   // ①차: RichEdit 계열 정확 경로
+    // ②차: 플레인 EDIT — EM_GETSEL 오프셋은 문자 단위가 보장됨
     DWORD s = 0, e = 0;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
     if (e <= s || (int)(e - s) > maxLen) return;   // 선택 없음(비-EDIT 포함)/사전 상한 초과

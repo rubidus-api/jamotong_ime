@@ -348,7 +348,14 @@ bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t 
     if (!cl || keyChar == 0 || keyChar >= 128) return false;
     int bit = cl->keyBit[(int)keyChar];
     if (bit < 0) return false;
-    if (vk < 256 && c->keyDown[vk]) return true;   // 반복
+    if (vk < 256 && c->keyDown[vk]) {
+        if (GetKeyState((int)vk) & 0x8000) return true;   // 진짜 반복
+        // keyup 유실로 박힌 유령 키 자가 치유 (chord.c와 동일 근거) — 새 눌림으로 재처리
+        c->keyDown[vk] = false;
+        if (c->role[vk] == 1 && c->pendKeys > 0) c->pendKeys--;
+        else if (c->role[vk] == 2 && c->holdKeys > 0) c->holdKeys--;
+        c->role[vk] = 0;
+    }
 
     // 형성 중 조합이 '지속형 hold'(임시 레이어/모디파이어)이고 새 글쇠가 들어오면 → hold 확정(방해 기반).
     // 그 hold 글쇠들은 눌려 있는 동안 레이어/모디파이어를 유지하고, 새 글쇠는 새 조합을 시작한다.

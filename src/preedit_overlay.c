@@ -6,7 +6,8 @@ extern HINSTANCE g_hInst;
 
 // 상태 (입력 스레드 전용 — candidate_ui와 동일 단일스레드 계약)
 static HWND    g_hwnd = NULL;
-static wchar_t g_text[16];              // 조합 표시 문자열 (한글 preedit는 1~2자)
+static wchar_t g_text[64];              // 조합 표시 문자열 — 한글은 1~2자지만, 다국어(로마자
+                                        // 시퀀스·단어 단위 preedit 등)를 위해 여러 글자 허용
 static HFONT   g_font = NULL;
 static wchar_t g_fontFace[32];          // 현재 글꼴 캐시 키
 static int     g_fontH = 0;
@@ -165,7 +166,7 @@ void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t
         SetLayeredWindowAttributes(g_hwnd, 0, 235, LWA_ALPHA);   // 약간 비치는 칩
     }
 
-    wcsncpy(g_text, text, 15); g_text[15] = L'\0';
+    wcsncpy(g_text, text, 63); g_text[63] = L'\0';
     // 글꼴 크기: 고정(fixedSize>0)이면 그 값, Auto면 캐럿(줄) 높이 근사.
     // (PuTTY 등 일부 앱은 캐럿 rect가 실제 글자보다 작게 보고됨 → 고정 크기 설정으로 해결)
     g_fixedSize = fixedSize;
