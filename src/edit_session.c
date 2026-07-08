@@ -361,6 +361,31 @@ static HRESULT STDMETHODCALLTYPE RSel_DoEditSession(ITfEditSession *pThis, TfEdi
 }
 static ITfEditSessionVtbl ReadSelVtbl = { RSel_QueryInterface, RSel_AddRef, RSel_Release, RSel_DoEditSession };
 
+// CUAS 폴백 (실기 2026-07-08: 레거시 EDIT 계열은 선택을 TSF GetSelection으로 노출하지 않아
+// 블록 한자 변환이 무동작이었다). 포커스 컨트롤에서 EM_GETSEL + WM_GETTEXT로 직접 읽는다 —
+// EDIT/RichEdit/AkelEdit 등 EDIT 호환 컨트롤에서 동작하고, 그 외 컨트롤은 검증(s<e·범위)에
+// 걸려 무해하게 빈손 반환. 같은 스레드의 포커스 창이므로 SendMessage 계열은 안전.
+static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return;
+    HWND h = gti.hwndFocus;
+    DWORD s = 0, e = 0;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (e <= s || (int)(e - s) > maxLen) return;   // 선택 없음(비-EDIT 포함)/사전 상한 초과
+    if (e > 262144) return;                        // 과대 문서 보호 (전체 텍스트 복사 상한 512KB)
+    int total = GetWindowTextLengthW(h);
+    if (total <= 0 || (DWORD)total < e) return;    // EM_GETSEL 응답이 텍스트와 불일치(비-EDIT 방어)
+    wchar_t *buf = (wchar_t*)HeapAlloc(GetProcessHeap(), 0, ((size_t)e + 1) * sizeof(wchar_t));
+    if (!buf) return;
+    int got = GetWindowTextW(h, buf, (int)e + 1);  // 선택 끝까지만 복사
+    if ((DWORD)got >= e) {
+        DWORD n = e - s;
+        wmemcpy(outBuf, buf + s, n);
+        outBuf[n] = L'\0';
+    }
+    HeapFree(GetProcessHeap(), 0, buf);
+}
+
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {
     ReadSelSession *es = (ReadSelSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReadSelSession));
     if (!es) return E_OUTOFMEMORY;
@@ -371,5 +396,8 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READ, &hrSession);
     es->lpVtbl->Release((ITfEditSession*)es);
+    // TSF가 빈손이면(레거시 앱) 포커스 EDIT 컨트롤에서 직접 읽기 — 후보창 위치는 호출자의
+    // GUIThreadInfo 캐럿 폴백이 잡는다. 삽입=선택 교체는 EDIT의 표준 동작이라 그대로 성립.
+    if (outBuf[0] == L'\0') ReadSelectionFromFocusCtl(outBuf, maxLen);
     return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }

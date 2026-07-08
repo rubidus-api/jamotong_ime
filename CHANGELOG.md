@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- 레거시(CUAS) 앱에서 **블록 선택 → 한자키 변환이 무동작**이던 문제(메모장 등 네이티브
+  앱은 정상): 레거시 EDIT 계열은 선택을 TSF `GetSelection`으로 노출하지 않는다 — TSF
+  읽기가 빈손이면 포커스 컨트롤에서 `EM_GETSEL`+`WM_GETTEXT`로 직접 읽는 폴백 추가
+  (EDIT/RichEdit/AkelEdit 호환, 삽입=선택 교체는 EDIT 표준 동작).
+
 ## [0.12.0] - 2026-07-08
 
 ### Added
