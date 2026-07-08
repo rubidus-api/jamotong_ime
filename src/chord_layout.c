@@ -116,50 +116,59 @@ static void ExpandText(wchar_t *dst, size_t dstn, const wchar_t *src) {
     dst[j] = L'\0';
 }
 
-// RHS 동작 문자열을 파싱해 e에 채운다.
-static void ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
+// RHS 동작 문자열을 파싱해 e에 채운다. false = 잘못된 이름/대상 (RFC-0004 P1-3:
+// 예전엔 unknown key/mod/layer가 무음 no-op 엔트리로 저장돼 "로드 성공인데 조합이 안 먹는"
+// 상태가 됐다 — 이제 로드 실패로 표면화).
+static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
     wchar_t verb[16] = {0}, a1[32] = {0}, a2[16] = {0};
     if (swscanf(rhs, L"%15ls %31ls %15ls", verb, a1, a2) >= 1) {
         if (!_wcsicmp(verb, L"key")) {
-            bool ex = false; e->act = CA_KEY; e->vk = KeyNameToVK(a1, &ex); e->keyExt = ex; return;
+            bool ex = false; e->act = CA_KEY; e->vk = KeyNameToVK(a1, &ex); e->keyExt = ex;
+            return e->vk != 0;   // 미지의 키 이름 거부
         }
         if (!_wcsicmp(verb, L"mod")) {
-            e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(a1); return;
+            e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(a1);
+            return e->mod != 0;   // 미지의 모디파이어 이름 거부
         }
         if (!_wcsicmp(verb, L"layer")) {
-            e->act = CA_LAYER_ONESHOT; e->targetLayer = LayerFindOrAdd(cl, a1); return;
+            e->act = CA_LAYER_ONESHOT; e->targetLayer = LayerFindOrAdd(cl, a1);
+            return e->targetLayer >= 0;   // 레이어 정원(CL_MAX_LAYERS) 초과 거부
         }
         if (!_wcsicmp(verb, L"tlayer")) {
-            e->act = CA_LAYER_TOGGLE; e->targetLayer = LayerFindOrAdd(cl, a1); return;
+            e->act = CA_LAYER_TOGGLE; e->targetLayer = LayerFindOrAdd(cl, a1);
+            return e->targetLayer >= 0;
         }
         if (!_wcsicmp(verb, L"slayer")) {
-            e->act = CA_LAYER_SWITCH; e->targetLayer = LayerFindOrAdd(cl, a1); return;
+            e->act = CA_LAYER_SWITCH; e->targetLayer = LayerFindOrAdd(cl, a1);
+            return e->targetLayer >= 0;
         }
         if (!_wcsicmp(verb, L"mouse")) {
-            if (!_wcsicmp(a1, L"move")) { e->act = CA_MOUSE_MOVE; e->p1 = _wtoi(a2); e->p2 = 0;
+            if (!_wcsicmp(a1, L"move")) { e->act = CA_MOUSE_MOVE;
                 // 두 번째 좌표는 rhs에서 재파싱
-                int dx=0, dy=0; swscanf(rhs, L"mouse move %d %d", &dx, &dy); e->p1=dx; e->p2=dy; return; }
+                int dx=0, dy=0; swscanf(rhs, L"mouse move %d %d", &dx, &dy); e->p1=dx; e->p2=dy; return true; }
             if (!_wcsicmp(a1, L"click") || !_wcsicmp(a1, L"down") || !_wcsicmp(a1, L"up")) {
                 e->act = CA_MOUSE_BTN;
                 e->p1 = (!_wcsicmp(a2, L"right"))?1 : (!_wcsicmp(a2, L"middle"))?2 : 0;
                 e->p2 = (!_wcsicmp(a1, L"down"))?1 : (!_wcsicmp(a1, L"up"))?2 : 0;
-                return;
+                return true;
             }
             if (!_wcsicmp(a1, L"wheel")) {
                 e->act = CA_MOUSE_WHEEL;
                 if (!_wcsicmp(a2, L"up")) e->p1 = WHEEL_DELTA;
                 else if (!_wcsicmp(a2, L"down")) e->p1 = -WHEEL_DELTA;
                 else e->p1 = _wtoi(a2);
-                e->p2 = 0; return;
+                e->p2 = 0; return true;
             }
+            return false;   // mouse 뒤 미지의 하위 동작
         }
     }
     // 기본: 텍스트 (\b\n\t\s 는 특수키/문자로)
-    if (!wcscmp(rhs, L"\\b")) { e->act = CA_KEY; e->vk = VK_BACK; return; }
-    if (!wcscmp(rhs, L"\\n")) { e->act = CA_KEY; e->vk = VK_RETURN; return; }
-    if (!wcscmp(rhs, L"\\t")) { e->act = CA_KEY; e->vk = VK_TAB; return; }
+    if (!wcscmp(rhs, L"\\b")) { e->act = CA_KEY; e->vk = VK_BACK; return true; }
+    if (!wcscmp(rhs, L"\\n")) { e->act = CA_KEY; e->vk = VK_RETURN; return true; }
+    if (!wcscmp(rhs, L"\\t")) { e->act = CA_KEY; e->vk = VK_TAB; return true; }
     e->act = CA_TEXT;
     ExpandText(e->text, 24, rhs);
+    return e->text[0] != L'\0';
 }
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
@@ -172,6 +181,7 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
     wcscpy_s(cl->layerNames[0], 32, L"base");
     cl->layerCount = 1;
     int curLayer = 0;
+    bool bad = false;   // 잘못된 글쇠/동작 참조 발견 시 파일 전체 거부 (RFC-0004 P1-3)
 
     wchar_t line[256];
     while (fgetws(line, 256, fp)) {
@@ -190,7 +200,8 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
         }
         else if (swscanf(p, L"Layer %31ls", name) == 1) {
             int idx = LayerFindOrAdd(cl, name);
-            curLayer = (idx >= 0) ? idx : 0;
+            if (idx >= 0) curLayer = idx;
+            else bad = true;   // 레이어 정원(CL_MAX_LAYERS) 초과
         }
         else if ((!wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)) && cl->chordCount < CL_MAX_CHORDS) {
             int isHold = (p[0] == L'H' || p[0] == L'h');
@@ -203,16 +214,18 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
                     mask |= (1u << kb);
                 }
                 if (ok && mask) {
-                    ChordEntry *e = &cl->chords[cl->chordCount++];
+                    ChordEntry *e = &cl->chords[cl->chordCount];
                     memset(e, 0, sizeof(*e));
                     e->mask = mask; e->layer = curLayer; e->targetLayer = -1; e->isHold = isHold;
                     TrimEnds(rhs);
-                    ParseAction(cl, e, rhs);
-                }
+                    if (ParseAction(cl, e, rhs)) cl->chordCount++;
+                    else bad = true;   // 미지의 key/mod/하위동작 이름 → 무음 no-op 대신 실패
+                } else bad = true;     // Key로 선언 안 된 글쇠를 조합이 참조
             }
         }
     }
     fclose(fp);
+    if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
     return cl;
 }
 

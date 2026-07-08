@@ -179,6 +179,14 @@ void Config_ApplyEdited(JamotongConfig *live, const JamotongConfig *edited) {
     for (int i = 0; i < live->layoutCount; i++)
         if (!Config_HasLayout(edited, &live->layouts[i])) Layout_FreeResources(&live->layouts[i]);
     *live = *edited;
+    // enabled 자판이 하나도 없으면 첫 자판을 켠다 — 회전이 영구히 먹통이 되는 0-enabled 상태 방어
+    // (삭제 경로 등으로 만들어질 수 있었음, RFC-0004 P0-3).
+    if (live->layoutCount > 0) {
+        bool any = false;
+        for (int i = 0; i < live->layoutCount; i++)
+            if (live->layouts[i].enabled) { any = true; break; }
+        if (!any) live->layouts[0].enabled = true;
+    }
     // 현재 활성 자판이 꺼졌으면 켜진 첫 자판으로 이동 (꺼진 자판이 활성으로 남지 않도록)
     if (live->layoutCount > 0 &&
         (live->currentLayoutIndex < 0 || live->currentLayoutIndex >= live->layoutCount ||
@@ -197,6 +205,19 @@ void Config_DiscardEdited(JamotongConfig *edited, const JamotongConfig *live) {
     LeaveCriticalSection(&g_configLock);
 }
 
+void Config_FreeLayoutResources(LayoutConfig *L) { Layout_FreeResources(L); }
+
+// 편집본에서 idx 자판 제거 (RFC-0004 P0-3): live가 소유하지 않은 리소스는 shift로 사라지기
+// 전에 여기서 해제한다. enabled 불변식(최소 1개)은 호출자(설정 UI)가 검사한다.
+void Config_RemoveEditedLayout(JamotongConfig *edited, int idx, const JamotongConfig *live) {
+    if (idx < 0 || idx >= edited->layoutCount) return;
+    if (!live || !Config_HasLayout(live, &edited->layouts[idx]))
+        Layout_FreeResources(&edited->layouts[idx]);
+    for (int i = idx; i < edited->layoutCount - 1; i++)
+        edited->layouts[i] = edited->layouts[i + 1];
+    edited->layoutCount--;
+}
+
 // 사용자 설정 파일 경로: %APPDATA%\Jamotong\config.ini (디렉터리 없으면 생성).
 //   모든 TIP 인스턴스가 Create에서 이걸 로드하고, 설정창 Apply가 여기에 저장 → 세션·프로세스
 //   간 설정 공유(설정 "옵션" 버튼이 실제로 동작하려면 필수).
@@ -209,6 +230,21 @@ bool Config_UserPath(wchar_t *out, int cch) {
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
     CreateDirectoryW(dir, NULL);   // 이미 있으면 조용히 실패(무시)
     _snwprintf(out, cch, L"%ls\\config.ini", dir);
+    return true;
+}
+
+// 사용자 자판 저장소 %APPDATA%\Jamotong\layouts (없으면 생성). 설정창 Add가 여기로 복사하고
+// PluginLoader_LoadAll이 시작 시 자동 로드한다 (외부 .jmt 영속화, RFC-0004 P0-2).
+bool Config_UserLayoutDir(wchar_t *out, int cch) {
+    if (!out || cch < 8) return false;
+    wchar_t appdata[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return false;
+    wchar_t dir[MAX_PATH];
+    _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
+    CreateDirectoryW(dir, NULL);
+    _snwprintf(out, cch, L"%ls\\layouts", dir);
+    CreateDirectoryW(out, NULL);
     return true;
 }
 

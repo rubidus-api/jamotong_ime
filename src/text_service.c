@@ -143,6 +143,23 @@ static bool HasCtrlAltWin(void) {
            (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
 }
 
+// 한자/훈음 사전 lazy-load: 첫 한자 요청 시 1회만 시도(실패도 캐시 — 반복 IO 방지).
+static void EnsureHanjaDicts(void) {
+    static bool s_tried = false;
+    if (s_tried) return;
+    s_tried = true;
+    wchar_t dictPath[MAX_PATH];
+    if (GetModuleFileNameW(g_hInst, dictPath, MAX_PATH)) {
+        wchar_t *pSlash = wcsrchr(dictPath, L'\\');
+        if (pSlash) {
+            wcscpy(pSlash + 1, L"hanja.txt");
+            HanjaDict_Load(dictPath);
+            wcscpy(pSlash + 1, L"hanja_hunum.txt");   // 훈음(뜻·음) 표 — 후보창 표시용
+            HunumDict_Load(dictPath);
+        }
+    }
+}
+
 // 조합 확정 후, 확정을 유발한 '비자모' 키를 실제 키 이벤트로 다시 보낸다(JAMO_SYNTH_MARK 표식).
 // 텍스트 삽입(편집세션)은 메모장류엔 되지만 PuTTY 같은 터미널엔 안 통함 → 실제 키를 재전달해야
 // 앱이 네이티브로 처리(스페이스·엔터·방향키·터미널 등). 재전달된 키는 OnKeyDown 진입부 가드로 통과.
@@ -258,8 +275,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         goto tk_done;
     }
 
-    // Ctrl/Alt/Win 조합(Ctrl+C, Ctrl+A 등 앱 단축키)은 소비하지 않고 앱으로 통과
-    if (HasCtrlAltWin()) goto tk_done;
+    // Ctrl/Alt/Win 조합(Ctrl+C, Ctrl+A 등 앱 단축키): 조합 중이 아니면 소비하지 않고 통과.
+    // 조합 중이면 한 번 eat — TSF는 eat 안 한 키에 OnKeyDown을 부르지 않으므로, 통과시키면
+    // OnKeyDown의 flush가 영영 실행되지 않아 조합 중 Ctrl+S 저장에서 마지막 음절이 빠진다
+    // (RFC-0004 P0-1). OnKeyDown이 확정 후 원키를 재전달한다.
+    if (HasCtrlAltWin()) {
+        if (obj->fsm.state != STATE_EMPTY && pfEaten) *pfEaten = TRUE;
+        goto tk_done;
+    }
 
     {
         LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
@@ -377,6 +400,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // Hanja trigger (설정된 한자 키 목록 — 기본 VK_HANJA, 복수 지정 가능). VK_KANJI는 항상 허용.
     if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
          || wParam == VK_KANJI) && !CandidateUI_IsVisible()) {
+        EnsureHanjaDicts();   // lazy-load (첫 한자 요청 시 1회)
         wchar_t searchStr[64] = {0};
         int replaceLen = 0;
         bool special = false;
@@ -492,13 +516,19 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         goto kd_done;
     }
 
-    // Ctrl/Alt/Win 조합(앱 단축키)은 소비하지 않고 통과. 단 조합 중이면 먼저 확정한다.
+    // Ctrl/Alt/Win 조합(앱 단축키): 조합 중이었다면 OnTestKeyDown이 eat했으므로 여기 도달.
+    // 조합을 먼저 확정(동기 편집세션)한 뒤 본키만 재전달한다 — 모디파이어는 사용자가 물리로
+    // 누르고 있으므로 앱은 Ctrl+<키>로 받는다. 재전달 키는 JAMO_SYNTH_MARK 가드로 재처리 안 됨.
+    // (RFC-0004 P0-1: 이전엔 eat 규칙 때문에 이 블록이 도달 불가한 죽은 코드였다.)
     if (HasCtrlAltWin()) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResult(obj, pic, res, TRUE);   // 현재 음절 확정
+            JamoDiag("KD  vk=%02X ctrl/alt/win flush+resend", (unsigned)wParam);
+            SendKeyThrough(wParam, lParam);
+            if (pfEaten) *pfEaten = TRUE;
         }
-        goto kd_done;   // pfEaten=FALSE 유지 → 앱이 단축키 처리
+        goto kd_done;   // 비조합(방어적 도달)은 pfEaten=FALSE 유지 → 앱이 직접 처리
     }
 
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
@@ -891,24 +921,14 @@ static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfT
 
     obj->daAtom = DA_RegisterAtom(ptim);   // composition display-attribute atom (per thread)
 
-    // 최초 1회 전역 초기화 (버그 수정: 이전엔 어디서도 호출되지 않아 한자 기능이 죽어 있었음)
-    //  - CandidateUI_Initialize: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸)
-    //  - HanjaDict_Load: DLL 옆 hanja.txt 로드(없으면 HanjaDict_Find가 항상 실패 → 후보 0개)
+    // 최초 1회 전역 초기화: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸).
+    // 한자/훈음 사전은 여기서 로드하지 않는다 — TIP은 텍스트를 쓰는 모든 프로세스에 로드되므로
+    // 활성화마다 파일 IO를 하면 낭비. 첫 한자 요청 시 EnsureHanjaDicts()가 1회 로드(RFC-0004 §6.1).
     {
         static bool s_globalInit = false;
         if (!s_globalInit) {
             s_globalInit = true;
             CandidateUI_Initialize();
-            wchar_t dictPath[MAX_PATH];
-            if (GetModuleFileNameW(g_hInst, dictPath, MAX_PATH)) {
-                wchar_t *pSlash = wcsrchr(dictPath, L'\\');
-                if (pSlash) {
-                    wcscpy(pSlash + 1, L"hanja.txt");
-                    HanjaDict_Load(dictPath);
-                    wcscpy(pSlash + 1, L"hanja_hunum.txt");   // 훈음(뜻·음) 표 — 후보창 표시용
-                    HunumDict_Load(dictPath);
-                }
-            }
         }
     }
 
@@ -934,6 +954,9 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     SettingsUI_Shutdown();
 
     // 진행 중이던 오토마타 상태 정리 (재활성 후 유령 입력 방지) + 팝업 창들 파괴(입력 스레드).
+    // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 g_CandCtx.obj(raw 서비스 포인터)를 정리 —
+    // 열린 채 Deactivate되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
+    CandidateUI_Cancel();
     Fsm_Init(&obj->fsm);
     Chord_Init(&obj->chord);
     PreeditOverlay_Uninitialize();

@@ -625,8 +625,28 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                             lc.enabled = true;
                             g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
                             RefreshLists(hwnd);
+                            // 사용자 자판 저장소로 복사 → 재시작 후에도 자동 로드 (RFC-0004 P0-2).
+                            // 이미 저장소/DLL 옆에 있는 파일이면 복사 실패(ERROR_FILE_EXISTS)여도 영속.
+                            bool persisted = false;
+                            wchar_t udir[MAX_PATH];
+                            if (Config_UserLayoutDir(udir, MAX_PATH)) {
+                                const wchar_t *base = wcsrchr(szFile, L'\\');
+                                base = base ? base + 1 : szFile;
+                                wchar_t dst[MAX_PATH];
+                                _snwprintf(dst, MAX_PATH, L"%ls\\%ls", udir, base);
+                                if (CopyFileW(szFile, dst, FALSE) || GetLastError() == ERROR_FILE_EXISTS)
+                                    persisted = true;
+                            }
+                            if (!persisted)
+                                MessageBoxW(hwnd,
+                                    L"Loaded for this session, but copying to the user layout store failed.\n"
+                                    L"It will disappear after sign-out. Copy the .jmt file manually to\n"
+                                    L"%APPDATA%\\Jamotong\\layouts or next to jamotong.dll.",
+                                    L"Warning", MB_ICONWARNING);
                         } else {
-                            MessageBoxW(hwnd, L"Failed to load the layout (.jmt) file.", L"Error", MB_ICONERROR);
+                            MessageBoxW(hwnd, L"Failed to load the layout (.jmt) file.\n"
+                                              L"Check its Type/Key/Combine lines (invalid entries reject the file).",
+                                        L"Error", MB_ICONERROR);
                         }
                     }
                     break;
@@ -658,13 +678,19 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 case ID_BTN_LAYOUT_DEL: {
                     HWND hLst = GetDlgItem(hwnd, ID_LST_LAYOUTS);
                     int sel = SendMessageW(hLst, LB_GETCURSEL, 0, 0);
-                    if (sel >= 0 && g_TempConfig.layoutCount > 1) { // 최소 1개는 유지
-                        for (int i = sel; i < g_TempConfig.layoutCount - 1; i++) {
-                            g_TempConfig.layouts[i] = g_TempConfig.layouts[i + 1];
+                    if (sel < 0 || g_TempConfig.layoutCount <= 1) break;   // 최소 1개는 유지
+                    if (g_TempConfig.layouts[sel].enabled) {   // 마지막 enabled 삭제 금지 (RFC-0004 P0-3)
+                        int on = 0;
+                        for (int i = 0; i < g_TempConfig.layoutCount; i++)
+                            if (g_TempConfig.layouts[i].enabled) on++;
+                        if (on <= 1) {
+                            MessageBoxW(hwnd, L"At least one layout must stay On.", L"Info", MB_OK);
+                            break;
                         }
-                        g_TempConfig.layoutCount--;
-                        RefreshLists(hwnd);
                     }
+                    // 임시(Add 후 미적용) 자판 리소스는 내부에서 해제 후 제거 — 누수 방지
+                    Config_RemoveEditedLayout(&g_TempConfig, sel, g_pRealConfig);
+                    RefreshLists(hwnd);
                     break;
                 }
                 case ID_CMB_SCFN:   // 기능 선택 변경 → 그 기능의 단축키 목록 표시

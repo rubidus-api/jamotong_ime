@@ -100,10 +100,12 @@ static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditC
     JamotongEditSession *es = (JamotongEditSession*)pThis;
     ITfContext *ctx = es->pContext;
     int cLen = (int)wcslen(es->data.committed);
+    HRESULT hrOut = S_OK;   // 삽입 실패를 hrSession으로 전파 (RFC-0004 P2-2: S_OK로 삼키지 않음)
 
     if (cLen > 0) {
         ITfInsertAtSelection *pIns = NULL;
-        if (SUCCEEDED(ctx->lpVtbl->QueryInterface(ctx, &IID_ITfInsertAtSelection, (void**)&pIns))) {
+        hrOut = ctx->lpVtbl->QueryInterface(ctx, &IID_ITfInsertAtSelection, (void**)&pIns);
+        if (SUCCEEDED(hrOut)) {
             ITfRange *r = NULL;
             HRESULT hrIns = pIns->lpVtbl->InsertTextAtSelection(pIns, ec, 0, es->data.committed, cLen, &r);
             JamoDiag("INSERT U+%04X len=%d hr=0x%08lX r=%p", (unsigned)es->data.committed[0], cLen, (unsigned long)hrIns, (void*)r);
@@ -111,11 +113,12 @@ static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditC
                 MoveCaretToEnd(ctx, ec, r);   // 커서를 삽입 글자 뒤로 (역순 방지)
                 r->lpVtbl->Release(r);
             }
+            if (FAILED(hrIns)) hrOut = hrIns;
             pIns->lpVtbl->Release(pIns);
         }
     }
     CaptureCaretRect(es->pService, ctx, ec);   // 삽입 '후' 캐럿 = 조합 미리보기가 뜰 자리
-    return S_OK;
+    return hrOut;
 }
 
 static ITfEditSessionVtbl EditSessionVtbl = {
@@ -144,7 +147,8 @@ HRESULT RequestEditSessionData(JamotongTextService *pService, ITfContext *pConte
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
 
     es->lpVtbl->Release((ITfEditSession*)es);
-    return hr;
+    // 바깥 hr(요청 접수)만 반환하면 DoEditSession 내부 실패가 숨는다 → 세션 hr까지 전파 (RFC-0004 P2-2)
+    return FAILED(hr) ? hr : hrSession;
 }
 
 HRESULT RequestEditSession(JamotongTextService *pService, ITfContext *pContext, FsmResult fsmRes) {
@@ -220,7 +224,7 @@ HRESULT RequestReadSessionString(JamotongTextService *pService, ITfContext *pCon
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READ, &hrSession);
     es->lpVtbl->Release((ITfEditSession*)es);
-    return hr;
+    return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }
 
 // ----------------------------------------------------
@@ -289,7 +293,7 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
     es->lpVtbl->Release((ITfEditSession*)es);
-    return hr;
+    return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }
 
 // ----------------------------------------------------
@@ -367,5 +371,5 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READ, &hrSession);
     es->lpVtbl->Release((ITfEditSession*)es);
-    return hr;
+    return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }

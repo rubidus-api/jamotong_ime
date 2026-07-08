@@ -118,8 +118,15 @@ LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config);
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath);
 bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath);
 bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini (자동 저장/로드용)
+// 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시
+// 자동 로드된다(외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).
+bool Config_UserLayoutDir(wchar_t *out, int cch);
 
 // 리소스 소유권 (플러그인 DLL/컨텍스트, heap name). live config만 소유 — 자세히는 config.c 참조.
 void Config_Free(JamotongConfig *cfg);                                       // live 파괴 시 전체 해제
 void Config_ApplyEdited(JamotongConfig *live, const JamotongConfig *edited); // 설정 적용(떨어낸 것 해제 후 채택)
 void Config_DiscardEdited(JamotongConfig *edited, const JamotongConfig *live);// 설정 취소(비-live 리소스만 해제)
+void Config_FreeLayoutResources(LayoutConfig *L);                            // 단일 자판 리소스 해제(중복 로드본 등)
+// 편집본에서 idx 자판 제거. live가 소유하지 않은(Add 직후 등) 리소스는 제거 전에 해제한다 —
+// shift로 배열에서 사라지면 Discard/Apply가 볼 수 없어 누수됐다(RFC-0004 P0-3).
+void Config_RemoveEditedLayout(JamotongConfig *edited, int idx, const JamotongConfig *live);

@@ -123,15 +123,21 @@ STDAPI DllRegisterServer(void) {
     if (RegCreateKeyExW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) return E_FAIL;
     RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)c_szDescription, (DWORD)(wcslen(c_szDescription) + 1) * sizeof(WCHAR));
 
-    if (RegCreateKeyExW(hKey, c_szInprocServer32, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hSubKey, NULL) == ERROR_SUCCESS) {
-        RegSetValueExW(hSubKey, NULL, 0, REG_SZ, (const BYTE*)szModule, (DWORD)(wcslen(szModule) + 1) * sizeof(WCHAR));
-        RegSetValueExW(hSubKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)c_szModelName, (DWORD)(wcslen(c_szModelName) + 1) * sizeof(WCHAR));
-        RegCloseKey(hSubKey);
+    if (RegCreateKeyExW(hKey, c_szInprocServer32, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hSubKey, NULL) != ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return E_FAIL;   // InprocServer32 없이는 등록이 무의미 — 실패를 숨기지 않는다 (RFC-0004 P1-5)
     }
+    RegSetValueExW(hSubKey, NULL, 0, REG_SZ, (const BYTE*)szModule, (DWORD)(wcslen(szModule) + 1) * sizeof(WCHAR));
+    RegSetValueExW(hSubKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)c_szModelName, (DWORD)(wcslen(c_szModelName) + 1) * sizeof(WCHAR));
+    RegCloseKey(hSubKey);
     RegCloseKey(hKey);
 
-    RegisterProfiles();
-    RegisterCategories();
+    // TSF 프로파일/카테고리 등록 실패를 regsvr32에 그대로 노출 — "설치 성공인데 IME가 안 보임"이
+    // 설치 시점에 드러나게 한다 (RFC-0004 P1-5).
+    HRESULT hr = RegisterProfiles();
+    if (FAILED(hr)) return hr;
+    hr = RegisterCategories();
+    if (FAILED(hr)) return hr;
 
     return S_OK;
 }
