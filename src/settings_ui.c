@@ -491,18 +491,20 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         }
         case WM_CTLCOLORSTATIC: {
             SetTextColor((HDC)wParam, g_clrText);
-            // SS_SUNKEN 표시 라벨(글꼴 이름)은 읽기 전용 입력 필드처럼 보이므로 컨트롤 배경.
-            // 나머지 라벨은 창 배경과 통일.
+            // SS_SUNKEN 표시 라벨(글꼴 이름)은 읽기 전용 입력 필드처럼 보이므로 불투명 컨트롤 배경.
             if (GetDlgCtrlID((HWND)lParam) == ID_LBL_PVFONT) {
                 SetBkColor((HDC)wParam, g_clrCtl);
                 return (LRESULT)(INT_PTR)g_brCtl;
             }
-            SetBkColor((HDC)wParam, g_clrBg);
-            return (LRESULT)(INT_PTR)g_brBg;
+            // 나머지 라벨은 배경을 투명 처리 → 탭 컨트롤 안(살짝 밝음)이든 창 위(살짝 어두움)든
+            // 아래 픽셀 색을 그대로 따라가 라벨 주위의 배경색 seam이 사라진다.
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)(INT_PTR)GetStockObject(NULL_BRUSH);
         }
-        case WM_CTLCOLORBTN:
-            SetTextColor((HDC)wParam, g_clrText); SetBkColor((HDC)wParam, g_clrBg);
-            return (LRESULT)(INT_PTR)g_brBg;
+        case WM_CTLCOLORBTN:   // 체크박스 텍스트 배경도 투명 → 탭/창 배경 따라감(푸시버튼은 시스템 렌더)
+            SetTextColor((HDC)wParam, g_clrText);
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)(INT_PTR)GetStockObject(NULL_BRUSH);
         case WM_CTLCOLORLISTBOX:
         case WM_CTLCOLOREDIT:
             SetTextColor((HDC)wParam, g_clrText); SetBkColor((HDC)wParam, g_clrCtl);
