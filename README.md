@@ -132,30 +132,24 @@ base**, including Shift: `k` is the K key, `K` is Shift+K, `;` `!` etc. work too
 
 ### Type = static (1:1 remap)
 
-One directive:
+One directive, in single and **array** form:
 
 ```ini
-Map <key> = <output>    # that key now produces <output>
+Map <key> = <output>      # that key now produces <output>
+Map <keys...> = <outputs...>  # array: same length both sides, paired by position
 ```
 
 Unmapped keys keep their original character. Uppercase/symbol variants are separate
-mappings. Example (Dvorak top row):
+mappings. Key strings cannot contain a space — map the space key with the single form.
+Example (Dvorak top row in one line):
 
 ```ini
 Type = static
 Name = my_dvorak
 Abbrev = Dv
 
-Map q = '
-Map w = ,
-Map e = .
-Map r = p
-Map t = y
-Map y = f
-Map u = g
-Map i = c
-Map o = r
-Map p = l
+Map qwertyuiop = ',.pyfgcrl   # array form: q→' w→, e→. ...
+Map [ = /                     # single form still works
 ```
 
 ### Type = hangul (automata layout)
@@ -165,6 +159,7 @@ Assign jamo to keys and declare combination rules; the IME's automata does the r
 
 ```ini
 Key <key> = <C|M|T><index>          # one jamo per key: C=choseong M=jungseong T=jongseong
+Key <keys...> = <spec> <spec> ...   # array: one spec per key, paired by position
 Combine <C|M|T> <a> <b> = <result>  # jamo <a> then <b> combine into <result>
 Moachigi = 0|1                      # 1 = simultaneous (order-free) combination, see below
 ```
@@ -186,13 +181,10 @@ Name = ex_hangul
 Abbrev = 예벌
 Moachigi = 1
 
-Key k = C0      # ㄱ as choseong
-Key h = C2      # ㄴ as choseong
-Key j = C11     # ㅇ as choseong
-Key f = M0      # ㅏ
-Key d = M20     # ㅣ
-Key s = T4      # ㄴ as jongseong
-Key x = T1      # ㄱ as jongseong
+Key khj = C0 C2 C11   # array: k=ㄱ h=ㄴ j=ㅇ (choseong)
+Key fd = M0 M20       # f=ㅏ d=ㅣ
+Key s = T4            # ㄴ as jongseong (single form)
+Key x = T1            # ㄱ as jongseong
 
 Combine C 11 0 = 1     # choseong ㅇ+ㄱ → ㄲ (doubled consonant)
 Combine C 18 12 = 14   # choseong ㅎ+ㅈ → ㅊ (aspirated)
@@ -220,11 +212,9 @@ Name = ex_chord
 Abbrev = ART
 
 # 1) Declare the chord keys first: each gets a bit number 0–31.
-Key j = 0
-Key k = 1
-Key l = 2
-Key ; = 3
-Key f = 4
+#    Array form assigns consecutive bits from the given start:
+Key jkl; = 0    # j=0 k=1 l=2 ;=3
+Key f = 4       # single form still works
 
 # 2) Chords: press the listed keys together, release, action fires.
 Chord j   = a          # single key = the letter a

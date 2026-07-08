@@ -120,30 +120,24 @@ Abbrev = 마            # 트레이 2x2 아이콘에 그릴 1~4글자 (선택)
 
 ### Type = static (1:1 리맵)
 
-지시문 하나:
+지시문 하나 — 단건과 **배열** 두 형태:
 
 ```ini
-Map <키> = <출력>    # 그 키가 <출력> 문자를 내게 된다
+Map <키> = <출력>          # 그 키가 <출력> 문자를 내게 된다
+Map <키…> = <출력…>        # 배열 지정: 좌우 같은 길이, 위치 대응
 ```
 
 지정하지 않은 키는 원래 문자를 유지한다. 대문자/기호 자리는 각각 따로 지정한다.
-예 (드보락 윗줄):
+키 나열엔 공백을 쓸 수 없으므로 스페이스 키는 단건으로 지정한다.
+예 (드보락 윗줄을 한 줄로):
 
 ```ini
 Type = static
 Name = my_dvorak
 Abbrev = Dv
 
-Map q = '
-Map w = ,
-Map e = .
-Map r = p
-Map t = y
-Map y = f
-Map u = g
-Map i = c
-Map o = r
-Map p = l
+Map qwertyuiop = ',.pyfgcrl   # 배열 지정: q→' w→, e→. ...
+Map [ = /                     # 단건 지정도 그대로 가능
 ```
 
 ### Type = hangul (조합 자판)
@@ -153,6 +147,7 @@ Map p = l
 
 ```ini
 Key <키> = <C|M|T><인덱스>          # 키 하나에 자모 하나: C=초성 M=중성 T=종성
+Key <키…> = <스펙> <스펙> …         # 배열 지정: 키 수만큼 스펙 나열, 위치 대응
 Combine <C|M|T> <a> <b> = <결과>    # 자모 a 다음 b가 오면 <결과>로 결합
 Moachigi = 0|1                      # 1 = 모아치기(순서 무관 결합), 아래 설명
 ```
@@ -173,13 +168,10 @@ Name = ex_hangul
 Abbrev = 예벌
 Moachigi = 1
 
-Key k = C0      # ㄱ 초성
-Key h = C2      # ㄴ 초성
-Key j = C11     # ㅇ 초성
-Key f = M0      # ㅏ
-Key d = M20     # ㅣ
-Key s = T4      # ㄴ 종성
-Key x = T1      # ㄱ 종성
+Key khj = C0 C2 C11   # 배열 지정: k=ㄱ h=ㄴ j=ㅇ (초성)
+Key fd = M0 M20       # f=ㅏ d=ㅣ
+Key s = T4            # ㄴ 종성 (단건 지정)
+Key x = T1            # ㄱ 종성
 
 Combine C 11 0 = 1     # 초성 ㅇ+ㄱ → ㄲ (된소리)
 Combine C 18 12 = 14   # 초성 ㅎ+ㅈ → ㅊ (거센소리)
@@ -206,11 +198,9 @@ Name = ex_chord
 Abbrev = ART
 
 # 1) 코드 글쇠 선언이 먼저: 각 글쇠에 비트 번호 0~31을 배정.
-Key j = 0
-Key k = 1
-Key l = 2
-Key ; = 3
-Key f = 4
+#    배열 지정은 시작 비트부터 연속 배정:
+Key jkl; = 0    # j=0 k=1 l=2 ;=3
+Key f = 4       # 단건 지정도 그대로 가능
 
 # 2) 조합: 나열한 글쇠를 함께 눌렀다 떼면 동작 실행.
 Chord j   = a          # 한 글쇠 = 문자 a

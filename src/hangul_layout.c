@@ -44,19 +44,35 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path) {
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'\0' || *p == L'#') continue;   // 빈 줄/주석
 
-        wchar_t keyc = 0, typec = 0;
+        wchar_t typec = 0;
         int a = 0, b = 0, idx = 0, val = 0;
 
         if (swscanf(p, L"Name = %63l[^\n]", hl->name) == 1) {
             TrimCrLf(hl->name);
         } else if (swscanf(p, L"Moachigi = %d", &val) == 1) {
             hl->moachigi = (val != 0);
-        } else if (swscanf(p, L"Key %lc = %lc%d", &keyc, &typec, &idx) == 3) {
-            JamoType t = TypeFromChar(typec);
-            if (t != JAMO_NONE && (unsigned)keyc < 128 && ValidIdx(t, idx)) {
-                hl->keymap[(int)keyc].type = t;
-                hl->keymap[(int)keyc].index = idx;
-            } else bad = true;   // 잘못된 타입/키/인덱스
+        } else if (!wcsncmp(p, L"Key ", 4)) {
+            // Key <키…> = <타입인덱스 …>  — 좌변 키 나열 = 배열 지정(키 수 = 스펙 수, 위치 대응).
+            //   예: Key khj = C0 C2 C11.  단건(Key k = C0)은 길이 1의 특수형. 꼬리 '#' 주석 허용.
+            wchar_t lhs[64] = {0};
+            int consumed = 0;
+            swscanf(p, L"Key %63ls = %n", lhs, &consumed);
+            if (consumed <= 0) { bad = true; continue; }   // '=' 없는 기형 Key 줄
+            const wchar_t *q = p + consumed;
+            size_t nk = wcslen(lhs), ki = 0;
+            for (; ki < nk; ki++) {
+                while (*q == L' ' || *q == L'\t') q++;
+                if (*q == L'\0' || *q == L'#') break;   // 스펙이 키 수보다 적음 → 아래에서 bad
+                int adv = 0;
+                if (swscanf(q, L"%lc%d%n", &typec, &idx, &adv) != 2) break;
+                JamoType t = TypeFromChar(typec);
+                if (t == JAMO_NONE || (unsigned)lhs[ki] >= 128 || !ValidIdx(t, idx)) break;
+                hl->keymap[(int)lhs[ki]].type = t;
+                hl->keymap[(int)lhs[ki]].index = idx;
+                q += adv;
+            }
+            while (*q == L' ' || *q == L'\t') q++;
+            if (ki != nk || (*q != L'\0' && *q != L'#')) bad = true;   // 개수 불일치/잘못된 스펙
         } else if (swscanf(p, L"Combine %lc %d %d = %d", &typec, &a, &b, &val) == 4) {
             JamoType t = TypeFromChar(typec);
             if (t != JAMO_NONE && ValidIdx(t, a) && ValidIdx(t, b) && ValidIdx(t, val) &&

@@ -190,13 +190,20 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
         while (*p==L' '||*p==L'\t') p++;
         if (*p==L'\0' || *p==L'#') continue;
 
-        wchar_t keyc = 0, name[32] = {0}, keys[32] = {0}, rhs[64] = {0};
+        wchar_t name[32] = {0}, keys[32] = {0}, rhs[64] = {0};
         int bit = 0;
 
         if (swscanf(p, L"Name = %63l[^\n]", cl->name) == 1) { TrimEnds(cl->name); }
         else if (swscanf(p, L"Type = %31ls", name) == 1) { /* 통합 로더가 사용, 여기선 무시 */ }
-        else if (swscanf(p, L"Key %lc = %d", &keyc, &bit) == 2) {
-            if ((unsigned)keyc < 128 && bit >= 0 && bit < 32) cl->keyBit[(int)keyc] = bit;
+        else if (swscanf(p, L"Key %31ls = %d", keys, &bit) == 2) {
+            // 좌변 키 나열 = 배열 지정: 시작 비트부터 연속 배정 (예: Key jkl; = 0 → j0 k1 l2 ;3).
+            // 단건(Key j = 0)은 길이 1의 특수형. 범위(0~31) 밖·비ASCII 키는 파일 거부.
+            size_t nk = wcslen(keys);
+            for (size_t i = 0; i < nk; i++) {
+                int b = bit + (int)i;
+                if ((unsigned)keys[i] < 128 && b >= 0 && b < 32) cl->keyBit[(int)keys[i]] = b;
+                else { bad = true; break; }
+            }
         }
         else if (swscanf(p, L"Layer %31ls", name) == 1) {
             int idx = LayerFindOrAdd(cl, name);

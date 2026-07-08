@@ -20,26 +20,37 @@ static void PeekType(const wchar_t *path, wchar_t *type, size_t n) {
     fclose(fp);
 }
 
-// Type = static: Map <키문자> = <출력문자>
+// Type = static: Map <키…> = <출력…>
+//   좌변에 키를 여러 개 쓰면 배열 지정 — 좌우 같은 길이, 위치 대응 (예: Map qwe = ',.).
+//   단건(Map q = ')은 길이 1의 특수형. 길이 불일치·범위 밖 키는 파일 거부.
 static bool LoadStatic(const wchar_t *path, LayoutConfig *out) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
     if (!fp) return false;
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
     wchar_t nameBuf[64]; wcscpy_s(nameBuf, 64, L"static");
     wchar_t line[256];
+    bool bad = false;
     while (fgetws(line, 256, fp)) {
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'#' || *p == L'\0') continue;
-        wchar_t src = 0, dst = 0;
+        wchar_t lhs[64] = {0}, rhs[64] = {0};
         if (swscanf(p, L"Name = %63l[^\n]", nameBuf) == 1) {
             size_t k = wcslen(nameBuf);
             while (k > 0 && (nameBuf[k-1]==L' '||nameBuf[k-1]==L'\t'||nameBuf[k-1]==L'\r')) nameBuf[--k]=L'\0';
             continue;
         }
-        if (swscanf(p, L"Map %lc = %lc", &src, &dst) == 2 && (unsigned)src < 256) out->charMap[src] = dst;
+        if (swscanf(p, L"Map %63ls = %63ls", lhs, rhs) == 2) {
+            size_t n = wcslen(lhs);
+            if (n == 0 || n != wcslen(rhs)) { bad = true; continue; }   // 키 수 ≠ 출력 수
+            for (size_t i = 0; i < n; i++) {
+                if ((unsigned)lhs[i] < 256) out->charMap[lhs[i]] = rhs[i];
+                else bad = true;
+            }
+        }
     }
     fclose(fp);
+    if (bad) return false;
     out->type = LAYOUT_TYPE_STATIC_MAP;
     out->name = _wcsdup(nameBuf);
     return out->name != NULL;

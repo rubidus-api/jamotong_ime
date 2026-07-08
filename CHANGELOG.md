@@ -14,6 +14,10 @@
 - 설정 창 **Shortcuts 탭 개편**: 위 콤보에서 기능(자판 전환/한자 변환/코드 입력)을 고르고,
   아래 리스트에서 그 기능의 단축키를 추가(Add)/편집(Edit)/삭제(Del). 한자 키 설정은
   IME Options 탭에서 Shortcuts 탭으로 이동.
+- **`.jmt` 배열(키 나열) 지정 문법**: 좌변에 키를 여러 개 쓰면 한 줄로 일괄 배정 —
+  `Map qwertyuiop = ',.pyfgcrl`(static, 위치 대응) / `Key khj = C0 C2 C11`(hangul,
+  키 수=스펙 수) / `Key jkl; = 0`(chord, 시작 비트부터 연속). 단건 지정과 완전 호환,
+  개수 불일치·범위 밖은 로드 거부. 예제 3종·README 레퍼런스 갱신.
 
 ### Changed
 - 설정 파일 `[Shortcuts]` 구조를 기능별로 재편(`RotateCount/Rotate0_Key…`,
