@@ -20,6 +20,22 @@ typedef struct {
     UINT mods;   // SMOD_* 비트마스크
 } ShortcutKey;
 
+// 단축키가 걸리는 기능. 설정창 Shortcuts 탭의 기능 콤보 순서와 동일해야 한다.
+typedef enum {
+    SC_FN_ROTATE = 0,   // 자판 전환 (한/영 토글)
+    SC_FN_HANJA  = 1,   // 한자/특수문자 변환
+    SC_FN_CODE   = 2,   // 유니코드 코드 포인트 직접 입력 (기본 Ctrl+Alt+U)
+    SC_FN_COUNT
+} ShortcutFn;
+
+#define SHORTCUTS_MAX 8
+
+// 한 기능에 배정된 단축키 목록 (모든 기능이 복수 단축키 허용)
+typedef struct {
+    ShortcutKey keys[SHORTCUTS_MAX];
+    int count;
+} ShortcutList;
+
 #include "jamotong_plugin.h"
 
 // 레이아웃 종류 (하이브리드 아키텍처 준비)
@@ -59,9 +75,8 @@ typedef struct {
     bool enabled;   // 전환 순환에 포함되는가 (설정 체크박스). 기본 켜짐: en_qwerty, ko_2bul 만.
 } LayoutConfig;
 
-// IME 동작 옵션 (설정창 'IME Options' 탭)
+// IME 동작 옵션 (설정창 'IME Options' 탭). 단축키류는 JamotongConfig.shortcuts 로 통합.
 typedef struct {
-    ShortcutKey hanjaKey;   // 한자 변환 트리거 키 (기본 Hanja 키). 다른 언어 특수키도 지정 가능.
     bool fullWidth;         // 전각 입력 (영문/기호를 전각 폭 U+FF01~ 으로)
     bool jamoDelete;        // 백스페이스 = 자소 단위 삭제 (끄면 조합 음절 전체 삭제). 기본 켜짐.
     bool showPreview;       // 조합 미리보기 플로팅 오버레이 (RFC-0002). 기본 켜짐.
@@ -71,8 +86,7 @@ typedef struct {
 
 // 글로벌 환경 설정 매니저
 typedef struct {
-    ShortcutKey rotateShortcuts[8];
-    int rotateShortcutCount;
+    ShortcutList shortcuts[SC_FN_COUNT];   // 기능별 단축키 목록 (ShortcutFn 인덱스)
 
     LayoutConfig layouts[8];
     int layoutCount;
@@ -84,10 +98,9 @@ typedef struct {
 // 기본 설정 로드 (임시 하드코딩, 향후 ini 파일 파싱으로 대체)
 void Config_LoadDefault(JamotongConfig *config);
 
-// 입력된 키가 단축키 중 하나인지 확인
-// 현재 키 이벤트가 전환 단축키인지. vKey/mods 는 아래 헬퍼로 해석해 넘긴다.
-bool Config_IsRotateShortcut(JamotongConfig *config, UINT vKey, UINT mods);
-// 단일 단축키(한자키 등)가 현재 키 이벤트와 일치하는지.
+// 현재 키 이벤트가 fn 기능의 단축키 목록 중 하나와 일치하는지. vKey/mods 는 아래 헬퍼로 해석해 넘긴다.
+bool Config_IsShortcut(const JamotongConfig *config, ShortcutFn fn, UINT vKey, UINT mods);
+// 단일 단축키가 현재 키 이벤트와 일치하는지.
 bool Config_MatchShortcut(const ShortcutKey *sk, UINT vKey, UINT mods);
 // wParam+lParam(스캔코드/확장비트)로 좌우 구분 가상키 해석 (VK_MENU→VK_LMENU/VK_RMENU 등).
 UINT Config_ResolveVK(WPARAM wParam, LPARAM lParam);

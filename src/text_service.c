@@ -224,12 +224,6 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         if (pfEaten) *pfEaten = TRUE;
         return S_OK;
     }
-    // 유니코드 코드 입력 단축키 Ctrl+Alt+U 예측-소비 (TODO #5).
-    if (wParam == 'U' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
-        if (pfEaten) *pfEaten = TRUE;
-        return S_OK;
-    }
-
     // OnKeyDown과 동일 순서(맨 앞): 코드입력/후보창/한자키를 예측-소비해야 OnKeyDown이 호출됨.
     // (TSF는 OnTestKeyDown이 TRUE로 표시한 키만 OnKeyDown 호출. 예측만 하고 부작용은 OnKeyDown에서.)
     if (CodeInput_IsVisible()) {     // 코드 입력 팝업이 뜨면 모든 키를 소비
@@ -245,14 +239,20 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     // (기존엔 무락이라, 설정 적용 중 pHangulLayout/pChordLayout이 해제되는 순간 키가 오면 UAF.)
     EnterCriticalSection(&g_configLock);
 
-    if (Config_MatchShortcut(&obj->config.options.hanjaKey, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
+    // 유니코드 코드 입력 단축키 (설정 가능, 기본 Ctrl+Alt+U) 예측-소비.
+    if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        if (pfEaten) *pfEaten = TRUE;
+        goto tk_done;
+    }
+
+    if (Config_IsShortcut(&obj->config, SC_FN_HANJA, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
         || wParam == VK_KANJI) {   // 한자/변환 트리거 키 (기본 VK_HANJA — IsModifierOrLock이라 아래선 못 잡음)
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
 
     // Check if it's a layout rotate shortcut
-    if (Config_IsRotateShortcut(&obj->config, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
@@ -347,19 +347,6 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         if (pfEaten) *pfEaten = TRUE;
         return S_OK;
     }
-    // 코드 입력 트리거 Ctrl+Alt+U — 조합 중이면 먼저 확정하고 캐럿 근처에 팝업.
-    if (wParam == 'U' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
-        if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResult(obj, pic, res, TRUE);
-        }
-        RECT rc; int x = 100, y = 100;
-        if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
-        CodeInput_Show(x, y);
-        if (pfEaten) *pfEaten = TRUE;
-        return S_OK;
-    }
-
     // Hanja UI interception (후보창 키 라우팅 — config 미접근이라 락 밖)
     if (CandidateUI_IsVisible()) {
         if (CandidateUI_HandleKey((UINT)wParam)) {
@@ -373,8 +360,21 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // Config_RotateLayout 등과 중첩돼도 안전. 이후 모든 경로는 kd_done으로 해제.
     EnterCriticalSection(&g_configLock);
 
-    // Hanja trigger (설정된 한자 키 — 기본 VK_HANJA, 다른 특수키로 변경 가능). VK_KANJI는 항상 허용.
-    if ((Config_MatchShortcut(&obj->config.options.hanjaKey, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
+    // 코드 입력 트리거 (설정 가능한 단축키, 기본 Ctrl+Alt+U) — 조합 중이면 먼저 확정하고 캐럿 근처에 팝업.
+    if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        if (obj->fsm.state != STATE_EMPTY) {
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            OutputResult(obj, pic, res, TRUE);
+        }
+        RECT rc; int x = 100, y = 100;
+        if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
+        CodeInput_Show(x, y);
+        if (pfEaten) *pfEaten = TRUE;
+        goto kd_done;
+    }
+
+    // Hanja trigger (설정된 한자 키 목록 — 기본 VK_HANJA, 복수 지정 가능). VK_KANJI는 항상 허용.
+    if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
          || wParam == VK_KANJI) && !CandidateUI_IsVisible()) {
         wchar_t searchStr[64] = {0};
         int replaceLen = 0;
@@ -470,7 +470,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     }
 
     // Handle layout rotation
-    if (Config_IsRotateShortcut(&obj->config, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
         // Flush composition before rotating
         LayoutConfig *curLayout = Config_GetCurrentLayout(&obj->config);
         if (curLayout && curLayout->type == LAYOUT_TYPE_DLL_PLUGIN) {

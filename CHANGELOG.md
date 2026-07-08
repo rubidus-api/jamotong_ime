@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-08
+
+### Added
+- **기능별 복수 단축키**: 자판 전환뿐 아니라 **한자 변환**과 **유니코드 코드 입력**(기존
+  Ctrl+Alt+U 고정)도 단축키를 변경하거나 여러 개 지정 가능(기능당 최대 8개).
+- 설정 창 **Shortcuts 탭 개편**: 위 콤보에서 기능(자판 전환/한자 변환/코드 입력)을 고르고,
+  아래 리스트에서 그 기능의 단축키를 추가(Add)/편집(Edit)/삭제(Del). 한자 키 설정은
+  IME Options 탭에서 Shortcuts 탭으로 이동.
+
+### Changed
+- 설정 파일 `[Shortcuts]` 구조를 기능별로 재편(`RotateCount/Rotate0_Key…`,
+  `HanjaCount/…`, `CodeCount/…`). 구형(~v0.11) 파일의 `Count/0_Key…`(자판 전환)와
+  `[Options] HanjaKey/HanjaMods`(단일 한자키)는 로드 시 자동 변환(하위호환).
+- 단축키 캡처 팝업이 설정 창과 동일한 글꼴(Segoe UI, DPI 스케일)을 사용.
+- Apply & Save 버튼 폭을 캡션 좌우 여백(~0.1em)만큼 확장.
+
 ## [0.11.2] - 2026-07-08
 
 ### Fixed

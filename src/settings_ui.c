@@ -39,8 +39,6 @@ static int g_CurrentDpi = 96;
 #define ID_TAB               1030
 #define ID_CHK_FULLWIDTH     1031
 #define ID_CHK_JAMODELETE    1032
-#define ID_BTN_HANJA_SET     1033
-#define ID_LBL_HANJA         1034
 #define ID_LBL_LAYOUT_HINT   1035
 #define ID_LBL_SHORTCUT_HINT 1036
 #define ID_CHK_PREVIEW       1040   // 조합 미리보기 오버레이 (RFC-0002)
@@ -52,11 +50,20 @@ static int g_CurrentDpi = 96;
 enum { TAB_LAYOUTS = 0, TAB_SHORTCUTS = 1, TAB_OPTIONS = 2, TAB_GENERAL = 3, TAB_ALWAYS = 99 };
 static int g_curTab = 0;
 
-// Shortcuts Group
+// Shortcuts Group — 위 콤보로 기능을 고르고 아래 리스트에서 그 기능의 단축키를 추가/삭제
 #define ID_LST_SHORTCUTS    1012
 #define ID_BTN_SHORTCUT_ADD 1013
 #define ID_BTN_SHORTCUT_DEL 1014
 #define ID_BTN_SHORTCUT_EDIT 1015
+#define ID_CMB_SCFN         1044   // 기능 선택 콤보 (ShortcutFn 순서)
+
+// 기능 콤보 표시 이름 (ShortcutFn 인덱스와 동일 순서)
+static const wchar_t *g_scFnNames[SC_FN_COUNT] = {
+    L"Layout switch (Korean/English toggle)",
+    L"Hanja / special character conversion",
+    L"Unicode code point input",
+};
+static int g_curScFn = 0;   // 현재 선택된 기능 (DPI 재구성에도 유지)
 
 static HFONT g_hUiFont = NULL;   // Segoe UI 12pt (DPI 스케일) — 모든 컨트롤에 적용
 
@@ -182,8 +189,10 @@ static LRESULT CALLBACK CaptureProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             RECT rc; GetClientRect(h, &rc);
             FillRect(hdc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
             SetBkMode(hdc, TRANSPARENT);
+            HFONT oldFont = g_hUiFont ? (HFONT)SelectObject(hdc, g_hUiFont) : NULL;   // 설정창과 동일 글꼴
             DrawTextW(hdc, L"Press the key or combination to use.\n(single keys like Right Alt / Hangul work too - Esc = cancel)",
                       -1, &rc, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+            if (oldFont) SelectObject(hdc, oldFont);
             EndPaint(h, &ps);
             return 0;
         }
@@ -240,9 +249,11 @@ static void RefreshLists(HWND hwnd) {
         SendMessageW(hLstLayouts, LB_ADDSTRING, 0, (LPARAM)buf);
     }
     
-    for (int i = 0; i < g_TempConfig.rotateShortcutCount; i++) {
+    // 단축키 리스트 = 현재 선택된 기능(콤보)의 목록
+    ShortcutList *sl = &g_TempConfig.shortcuts[g_curScFn];
+    for (int i = 0; i < sl->count; i++) {
         wchar_t buf[64];
-        FormatShortcutStr(&g_TempConfig.rotateShortcuts[i], buf, 64);
+        FormatShortcutStr(&sl->keys[i], buf, 64);
         SendMessageW(hLstShortcuts, LB_ADDSTRING, 0, (LPARAM)buf);
     }
 }
@@ -280,11 +291,6 @@ static void ShowTab(HWND hwnd, int sel) {
     }
 }
 
-static void UpdateHanjaLabel(HWND hwnd) {
-    wchar_t buf[64]; FormatShortcutStr(&g_TempConfig.options.hanjaKey, buf, 64);
-    SetWindowTextW(GetDlgItem(hwnd, ID_LBL_HANJA), buf);
-}
-
 // 창 논리 크기 (세로는 리사이즈로 늘어남)
 #define WIN_W 340
 #define WIN_H_MIN 356
@@ -314,32 +320,35 @@ static void CreateControls(HWND hwnd) {
     MkCtl(hwnd, L"STATIC", L"Double-click a row to turn it On/Off.", 0, 0,
           14, 44 + listH, 312, 18, ID_LBL_LAYOUT_HINT, TAB_LAYOUTS);
 
-    // ── Tab: Shortcuts ──
+    // ── Tab: Shortcuts (위 = 기능 콤보, 아래 = 그 기능의 단축키 목록) ──
+    MkCtl(hwnd, L"STATIC", L"Function:", 0, 0, 14, 40, 312, 18, 0, TAB_SHORTCUTS);
+    HWND hCmbFn = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0,
+                        14, 60, 312, 200, ID_CMB_SCFN, TAB_SHORTCUTS);
+    for (int f = 0; f < SC_FN_COUNT; f++)
+        SendMessageW(hCmbFn, CB_ADDSTRING, 0, (LPARAM)g_scFnNames[f]);
+    SendMessageW(hCmbFn, CB_SETCURSEL, g_curScFn, 0);
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
-          14, 40, 224, listH, ID_LST_SHORTCUTS, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Add",  BS_PUSHBUTTON, 0, 244, 40, 82, 26, ID_BTN_SHORTCUT_ADD, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Edit", BS_PUSHBUTTON, 0, 244, 70, 82, 26, ID_BTN_SHORTCUT_EDIT, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Del",  BS_PUSHBUTTON, 0, 244, 100, 82, 26, ID_BTN_SHORTCUT_DEL, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"STATIC", L"Select a row, then Edit/Del. Add captures a new key.", 0, 0,
+          14, 92, 224, listH - 52, ID_LST_SHORTCUTS, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Add",  BS_PUSHBUTTON, 0, 244, 92, 82, 26, ID_BTN_SHORTCUT_ADD, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Edit", BS_PUSHBUTTON, 0, 244, 122, 82, 26, ID_BTN_SHORTCUT_EDIT, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Del",  BS_PUSHBUTTON, 0, 244, 152, 82, 26, ID_BTN_SHORTCUT_DEL, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"STATIC", L"Shortcuts for the selected function. Add captures a new key.", 0, 0,
           14, 44 + listH, 312, 18, ID_LBL_SHORTCUT_HINT, TAB_SHORTCUTS);
 
     // ── Tab: IME Options ──
-    MkCtl(hwnd, L"STATIC", L"Hanja key:", SS_CENTERIMAGE, 0, 14, 46, 70, 22, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 88, 46, 148, 22, ID_LBL_HANJA, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 45, 82, 26, ID_BTN_HANJA_SET, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Full-width (fullwidth Latin/symbols)", BS_AUTOCHECKBOX, 0,
-          14, 84, 312, 22, ID_CHK_FULLWIDTH, TAB_OPTIONS);
+          14, 46, 312, 22, ID_CHK_FULLWIDTH, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Backspace deletes one jamo at a time", BS_AUTOCHECKBOX, 0,
-          14, 112, 312, 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
+          14, 74, 312, 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Show composition preview (floating)", BS_AUTOCHECKBOX, 0,
-          14, 140, 312, 22, ID_CHK_PREVIEW, TAB_OPTIONS);
+          14, 102, 312, 22, ID_CHK_PREVIEW, TAB_OPTIONS);
     // 라벨은 한 줄 전체를 쓰고 컨트롤은 그 아랫줄 — 좁은 열에서 라벨이 잘리던 문제 방지
-    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 170, 312, 18, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 190, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 188, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 222, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 132, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 152, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 150, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 184, 312, 18, 0, TAB_OPTIONS);
     HWND hCmbPv = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
-                        14, 242, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
+                        14, 204, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
     {   // Auto + 흔한 px 크기 (직접 입력도 가능 — 8~96 클램프)
         SendMessageW(hCmbPv, CB_ADDSTRING, 0, (LPARAM)L"Auto");
         static const wchar_t *szs[] = { L"12", L"14", L"16", L"18", L"20", L"24", L"28", L"32", L"40", L"48" };
@@ -367,15 +376,14 @@ static void CreateControls(HWND hwnd) {
     MkCtl(hwnd, L"BUTTON", L"Reset",  BS_PUSHBUTTON, 0, 14, 116, 90, 26, ID_BTN_RESET, TAB_GENERAL);
     MkCtl(hwnd, L"BUTTON", L"Revert", BS_PUSHBUTTON, 0, 110, 116, 90, 26, ID_BTN_REVERT, TAB_GENERAL);
 
-    // ── Bottom bar (always) ──
-    MkCtl(hwnd, L"BUTTON", L"Apply && Save", BS_DEFPUSHBUTTON, 0, W - 192, H - 34, 100, 26, ID_BTN_APPLY, TAB_ALWAYS);
+    // ── Bottom bar (always) ── (Apply 버튼은 캡션 좌우로 ~0.1em 여유폭)
+    MkCtl(hwnd, L"BUTTON", L"Apply && Save", BS_DEFPUSHBUTTON, 0, W - 198, H - 34, 106, 26, ID_BTN_APPLY, TAB_ALWAYS);
     MkCtl(hwnd, L"BUTTON", L"Cancel", BS_PUSHBUTTON, 0, W - 86, H - 34, 74, 26, ID_BTN_CANCEL, TAB_ALWAYS);
 
     // 옵션 컨트롤 초기 상태 반영
     SendMessageW(GetDlgItem(hwnd, ID_CHK_FULLWIDTH),  BM_SETCHECK, g_TempConfig.options.fullWidth ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(hwnd, ID_CHK_JAMODELETE), BM_SETCHECK, g_TempConfig.options.jamoDelete ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(hwnd, ID_CHK_PREVIEW),    BM_SETCHECK, g_TempConfig.options.showPreview ? BST_CHECKED : BST_UNCHECKED, 0);
-    UpdateHanjaLabel(hwnd);
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_PVFONT),
                    g_TempConfig.options.previewFont[0] ? g_TempConfig.options.previewFont : L"Malgun Gothic");
     ShowTab(hwnd, g_curTab);
@@ -389,11 +397,12 @@ static void LayoutControls(HWND hwnd) {
     if ((c = GetDlgItem(hwnd, ID_TAB)))           MoveWindow(c, ScaleX(6), ScaleY(6), W - ScaleX(12), H - BB - ScaleY(8), TRUE);
     int listH = H - BB - ScaleY(96); if (listH < ScaleY(60)) listH = ScaleY(60);
     if ((c = GetDlgItem(hwnd, ID_LST_LAYOUTS)))   MoveWindow(c, ScaleX(14), ScaleY(40), ScaleX(224), listH, TRUE);
-    if ((c = GetDlgItem(hwnd, ID_LST_SHORTCUTS))) MoveWindow(c, ScaleX(14), ScaleY(40), ScaleX(224), listH, TRUE);
+    int listH2 = listH - ScaleY(52); if (listH2 < ScaleY(40)) listH2 = ScaleY(40);   // 단축키 리스트(기능 콤보 아래)
+    if ((c = GetDlgItem(hwnd, ID_LST_SHORTCUTS))) MoveWindow(c, ScaleX(14), ScaleY(92), ScaleX(224), listH2, TRUE);
     h = ScaleY(40) + listH + ScaleY(4);
     if ((c = GetDlgItem(hwnd, ID_LBL_LAYOUT_HINT)))   MoveWindow(c, ScaleX(14), h, ScaleX(312), ScaleY(18), TRUE);
     if ((c = GetDlgItem(hwnd, ID_LBL_SHORTCUT_HINT))) MoveWindow(c, ScaleX(14), h, ScaleX(312), ScaleY(18), TRUE);
-    if ((c = GetDlgItem(hwnd, ID_BTN_APPLY)))     MoveWindow(c, W - ScaleX(192), H - ScaleY(34), ScaleX(100), ScaleY(26), TRUE);
+    if ((c = GetDlgItem(hwnd, ID_BTN_APPLY)))     MoveWindow(c, W - ScaleX(198), H - ScaleY(34), ScaleX(106), ScaleY(26), TRUE);
     if ((c = GetDlgItem(hwnd, ID_BTN_CANCEL)))    MoveWindow(c, W - ScaleX(86),  H - ScaleY(34), ScaleX(74),  ScaleY(26), TRUE);
     InvalidateRect(hwnd, NULL, TRUE);
 }
@@ -503,11 +512,6 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     g_TempConfig.options.jamoDelete =
                         (SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
                     break;
-                case ID_BTN_HANJA_SET: {
-                    ShortcutKey sk;
-                    if (CaptureShortcut(hwnd, &sk)) { g_TempConfig.options.hanjaKey = sk; UpdateHanjaLabel(hwnd); }
-                    break;
-                }
                 case ID_CHK_PREVIEW:
                     g_TempConfig.options.showPreview =
                         (SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -662,11 +666,18 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     }
                     break;
                 }
+                case ID_CMB_SCFN:   // 기능 선택 변경 → 그 기능의 단축키 목록 표시
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                        if (sel >= 0 && sel < SC_FN_COUNT) { g_curScFn = sel; RefreshLists(hwnd); }
+                    }
+                    break;
                 case ID_BTN_SHORTCUT_ADD: {
-                    if (g_TempConfig.rotateShortcutCount < 8) {
+                    ShortcutList *sl = &g_TempConfig.shortcuts[g_curScFn];
+                    if (sl->count < SHORTCUTS_MAX) {
                         ShortcutKey sk;
                         if (CaptureShortcut(hwnd, &sk)) {
-                            g_TempConfig.rotateShortcuts[g_TempConfig.rotateShortcutCount++] = sk;
+                            sl->keys[sl->count++] = sk;
                             RefreshLists(hwnd);
                         }
                     } else {
@@ -679,11 +690,12 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     // fall through
                 case ID_BTN_SHORTCUT_EDIT: {
                     HWND hLst = GetDlgItem(hwnd, ID_LST_SHORTCUTS);
+                    ShortcutList *sl = &g_TempConfig.shortcuts[g_curScFn];
                     int sel = SendMessageW(hLst, LB_GETCURSEL, 0, 0);
-                    if (sel >= 0 && sel < g_TempConfig.rotateShortcutCount) {
+                    if (sel >= 0 && sel < sl->count) {
                         ShortcutKey sk;
                         if (CaptureShortcut(hwnd, &sk)) {
-                            g_TempConfig.rotateShortcuts[sel] = sk;
+                            sl->keys[sel] = sk;
                             RefreshLists(hwnd);
                             SendMessageW(hLst, LB_SETCURSEL, sel, 0);
                         }
@@ -692,14 +704,16 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 }
                 case ID_BTN_SHORTCUT_DEL: {
                     HWND hLst = GetDlgItem(hwnd, ID_LST_SHORTCUTS);
+                    ShortcutList *sl = &g_TempConfig.shortcuts[g_curScFn];
                     int sel = SendMessageW(hLst, LB_GETCURSEL, 0, 0);
-                    if (sel >= 0 && g_TempConfig.rotateShortcutCount > 1) { // 최소 1개 유지
-                        for (int i = sel; i < g_TempConfig.rotateShortcutCount - 1; i++) {
-                            g_TempConfig.rotateShortcuts[i] = g_TempConfig.rotateShortcuts[i + 1];
-                        }
-                        g_TempConfig.rotateShortcutCount--;
-                        RefreshLists(hwnd);
+                    if (sel < 0 || sel >= sl->count) break;
+                    if (g_curScFn == SC_FN_ROTATE && sl->count <= 1) {   // 자판 전환은 최소 1개 유지
+                        MessageBoxW(hwnd, L"At least one layout-switch shortcut must remain.", L"Info", MB_OK);
+                        break;
                     }
+                    for (int i = sel; i < sl->count - 1; i++) sl->keys[i] = sl->keys[i + 1];
+                    sl->count--;
+                    RefreshLists(hwnd);
                     break;
                 }
                 case ID_BTN_CANCEL:

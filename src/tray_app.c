@@ -117,7 +117,7 @@ static void ApplyResult(wchar_t commit, wchar_t preedit) {
 // 키다운 처리. true=우리가 소비(에디트 기본처리 생략), false=에디트에 위임(패스스루·스페이스 등).
 static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
     UINT rvk = Config_ResolveVK(vk, lParam);
-    if (Config_IsRotateShortcut(&g_config, rvk, Config_CurrentMods())) {
+    if (Config_IsShortcut(&g_config, SC_FN_ROTATE, rvk, Config_CurrentMods())) {
         ResetComp();   // 조합은 이미 텍스트에 있으므로 확정 처리만
         Fsm_Init(&g_fsm); Chord_Init(&g_chord);
         Config_RotateLayout(&g_config); UpdateStatus();

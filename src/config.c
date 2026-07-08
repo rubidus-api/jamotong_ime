@@ -52,14 +52,21 @@ void Config_LoadDefault(JamotongConfig *config) {
 
     config->currentLayoutIndex = 0; // 기본 시작: 영문 QWERTY (안전한 IME 기본값)
     
-    // 기본 전환 단축키: 한/영 키, 오른쪽 Alt, Shift+Space
-    config->rotateShortcutCount = 3;
-    config->rotateShortcuts[0].vKey = VK_HANGUL; config->rotateShortcuts[0].mods = 0;   // 한/영
-    config->rotateShortcuts[1].vKey = VK_RMENU;  config->rotateShortcuts[1].mods = 0;   // 오른쪽 Alt
-    config->rotateShortcuts[2].vKey = VK_SPACE;  config->rotateShortcuts[2].mods = SMOD_SHIFT;
+    // 기본 단축키 (기능별 목록)
+    memset(config->shortcuts, 0, sizeof(config->shortcuts));
+    ShortcutList *rot = &config->shortcuts[SC_FN_ROTATE];   // 자판 전환: 한/영 키, 오른쪽 Alt, Shift+Space
+    rot->count = 3;
+    rot->keys[0].vKey = VK_HANGUL; rot->keys[0].mods = 0;
+    rot->keys[1].vKey = VK_RMENU;  rot->keys[1].mods = 0;
+    rot->keys[2].vKey = VK_SPACE;  rot->keys[2].mods = SMOD_SHIFT;
+    ShortcutList *hj = &config->shortcuts[SC_FN_HANJA];     // 한자/특수문자 변환: 한자 키
+    hj->count = 1;
+    hj->keys[0].vKey = VK_HANJA; hj->keys[0].mods = 0;
+    ShortcutList *cd = &config->shortcuts[SC_FN_CODE];      // 유니코드 코드 입력: Ctrl+Alt+U
+    cd->count = 1;
+    cd->keys[0].vKey = 'U'; cd->keys[0].mods = SMOD_CTRL | SMOD_ALT;
 
     // IME 옵션 기본값
-    config->options.hanjaKey.vKey = VK_HANJA; config->options.hanjaKey.mods = 0;   // 기본 한자 키
     config->options.fullWidth = false;
     config->options.jamoDelete = true;         // 백스페이스 = 자소 단위 삭제
     config->options.showPreview = true;        // 조합 미리보기 오버레이 (RFC-0002)
@@ -105,9 +112,11 @@ bool Config_MatchShortcut(const ShortcutKey *sk, UINT vKey, UINT mods) {
     return sk->vKey == vKey && sk->mods == eff;
 }
 
-bool Config_IsRotateShortcut(JamotongConfig *config, UINT vKey, UINT mods) {
-    for (int i = 0; i < config->rotateShortcutCount; i++) {
-        if (Config_MatchShortcut(&config->rotateShortcuts[i], vKey, mods)) return true;
+bool Config_IsShortcut(const JamotongConfig *config, ShortcutFn fn, UINT vKey, UINT mods) {
+    if (fn < 0 || fn >= SC_FN_COUNT) return false;
+    const ShortcutList *sl = &config->shortcuts[fn];
+    for (int i = 0; i < sl->count && i < SHORTCUTS_MAX; i++) {
+        if (Config_MatchShortcut(&sl->keys[i], vKey, mods)) return true;
     }
     return false;
 }
@@ -200,6 +209,9 @@ bool Config_UserPath(wchar_t *out, int cch) {
     return true;
 }
 
+// 설정 파일 [Shortcuts] 섹션의 기능별 키 이름 (ShortcutFn 인덱스)
+static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code" };
+
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath) {
     FILE *fp = _wfopen(filepath, L"w, ccs=UTF-8");
     if (!fp) return false;
@@ -211,16 +223,18 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath) {
         fwprintf(fp, L"%d_Enabled=%d\n", i, config->layouts[i].enabled ? 1 : 0);
     }
     
-    fwprintf(fp, L"\n[Shortcuts]\nCount=%d\n", config->rotateShortcutCount);
-    for (int i = 0; i < config->rotateShortcutCount; i++) {
-        ShortcutKey *sk = &config->rotateShortcuts[i];
-        fwprintf(fp, L"%d_Key=%u\n", i, sk->vKey);
-        fwprintf(fp, L"%d_Mods=%u\n", i, sk->mods);
+    // 기능별 단축키: <기능이름>Count / <기능이름><i>_Key / <기능이름><i>_Mods
+    fwprintf(fp, L"\n[Shortcuts]\n");
+    for (int f = 0; f < SC_FN_COUNT; f++) {
+        const ShortcutList *sl = &config->shortcuts[f];
+        fwprintf(fp, L"%lsCount=%d\n", SC_NAMES[f], sl->count);
+        for (int i = 0; i < sl->count && i < SHORTCUTS_MAX; i++) {
+            fwprintf(fp, L"%ls%d_Key=%u\n", SC_NAMES[f], i, sl->keys[i].vKey);
+            fwprintf(fp, L"%ls%d_Mods=%u\n", SC_NAMES[f], i, sl->keys[i].mods);
+        }
     }
 
     fwprintf(fp, L"\n[Options]\n");
-    fwprintf(fp, L"HanjaKey=%u\n", config->options.hanjaKey.vKey);
-    fwprintf(fp, L"HanjaMods=%u\n", config->options.hanjaKey.mods);
     fwprintf(fp, L"FullWidth=%d\n", config->options.fullWidth ? 1 : 0);
     fwprintf(fp, L"JamoDelete=%d\n", config->options.jamoDelete ? 1 : 0);
     fwprintf(fp, L"ShowPreview=%d\n", config->options.showPreview ? 1 : 0);
@@ -251,10 +265,11 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     if (!fp) return false;
 
     JamotongConfig temp = {0};
-    temp.options.hanjaKey.vKey = VK_HANJA; temp.options.jamoDelete = true;   // [Options] 없는 .ini 대비 기본값
+    temp.options.jamoDelete = true;   // [Options] 없는 .ini 대비 기본값
     temp.options.showPreview = true; // 구버전 .ini 대비 기본 켜짐 (RFC-0002)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
+    bool haveSc[SC_FN_COUNT] = { false };   // 파일에 해당 기능 목록이 명시됐는가 (없으면 기존 유지)
     wchar_t line[256];
     wchar_t fontBuf[32];
     int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options
@@ -283,18 +298,48 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             }
         }
         else if (section == 2) {
-            int count;
-            if (swscanf(line, L"Count=%d", &count) == 1) temp.rotateShortcutCount = count < 0 ? 0 : (count > 8 ? 8 : count);   // 배열 크기(8) 클램프
-            else {
-                int idx, val;
-                if (swscanf(line, L"%d_Key=%d", &idx, &val) == 2 && (unsigned)idx < 8) temp.rotateShortcuts[idx].vKey = (UINT)val;
-                else if (swscanf(line, L"%d_Mods=%d", &idx, &val) == 2 && (unsigned)idx < 8) temp.rotateShortcuts[idx].mods = (UINT)val;
+            int idx, val;
+            wchar_t fmt[48];
+            bool hit = false;
+            for (int f = 0; f < SC_FN_COUNT && !hit; f++) {   // 기능별 이름: RotateCount / Rotate0_Key / ...
+                ShortcutList *sl = &temp.shortcuts[f];
+                swprintf(fmt, 48, L"%lsCount=%%d", SC_NAMES[f]);
+                if (swscanf(line, fmt, &val) == 1) {
+                    sl->count = val < 0 ? 0 : (val > SHORTCUTS_MAX ? SHORTCUTS_MAX : val);   // 배열 크기 클램프
+                    haveSc[f] = true; hit = true; break;
+                }
+                swprintf(fmt, 48, L"%ls%%d_Key=%%d", SC_NAMES[f]);
+                if (swscanf(line, fmt, &idx, &val) == 2 && (unsigned)idx < SHORTCUTS_MAX) {
+                    sl->keys[idx].vKey = (UINT)val; hit = true; break;
+                }
+                swprintf(fmt, 48, L"%ls%%d_Mods=%%d", SC_NAMES[f]);
+                if (swscanf(line, fmt, &idx, &val) == 2 && (unsigned)idx < SHORTCUTS_MAX) {
+                    sl->keys[idx].mods = (UINT)val; hit = true; break;
+                }
+            }
+            if (!hit) {   // 구형식(~v0.11): Count/0_Key/0_Mods = 자판 전환 목록
+                ShortcutList *rot = &temp.shortcuts[SC_FN_ROTATE];
+                if (swscanf(line, L"Count=%d", &val) == 1) {
+                    rot->count = val < 0 ? 0 : (val > SHORTCUTS_MAX ? SHORTCUTS_MAX : val);
+                    haveSc[SC_FN_ROTATE] = true;
+                }
+                else if (swscanf(line, L"%d_Key=%d", &idx, &val) == 2 && (unsigned)idx < SHORTCUTS_MAX) rot->keys[idx].vKey = (UINT)val;
+                else if (swscanf(line, L"%d_Mods=%d", &idx, &val) == 2 && (unsigned)idx < SHORTCUTS_MAX) rot->keys[idx].mods = (UINT)val;
             }
         }
         else if (section == 3) {
             int val;
-            if (swscanf(line, L"HanjaKey=%d", &val) == 1) temp.options.hanjaKey.vKey = (UINT)val;
-            else if (swscanf(line, L"HanjaMods=%d", &val) == 1) temp.options.hanjaKey.mods = (UINT)val;
+            // 구형식(~v0.11): [Options]의 HanjaKey/HanjaMods 단일 한자키 → 한자 목록[0]으로 승격
+            if (swscanf(line, L"HanjaKey=%d", &val) == 1) {
+                temp.shortcuts[SC_FN_HANJA].keys[0].vKey = (UINT)val;
+                if (temp.shortcuts[SC_FN_HANJA].count < 1) temp.shortcuts[SC_FN_HANJA].count = 1;
+                haveSc[SC_FN_HANJA] = true;
+            }
+            else if (swscanf(line, L"HanjaMods=%d", &val) == 1) {
+                temp.shortcuts[SC_FN_HANJA].keys[0].mods = (UINT)val;
+                if (temp.shortcuts[SC_FN_HANJA].count < 1) temp.shortcuts[SC_FN_HANJA].count = 1;
+                haveSc[SC_FN_HANJA] = true;
+            }
             else if (swscanf(line, L"FullWidth=%d", &val) == 1) temp.options.fullWidth = (val != 0);
             else if (swscanf(line, L"JamoDelete=%d", &val) == 1) temp.options.jamoDelete = (val != 0);
             // (구버전 .ini의 LegacyImm= 줄은 무시됨 — 옵션 제거, 2026-07-07)
@@ -332,9 +377,10 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     for (int i = 0; i < 8; i++)   // 매칭용 임시 이름 해제 — Count가 엔트리보다 작은 기형 파일도 전체 해제
         if (temp.layouts[i].name) free((void*)temp.layouts[i].name);
 
-    if (temp.rotateShortcutCount > 0) {   // [Shortcuts] 없는 파일이면 기존 단축키 유지
-        merged.rotateShortcutCount = temp.rotateShortcutCount;
-        memcpy(merged.rotateShortcuts, temp.rotateShortcuts, sizeof(merged.rotateShortcuts));
+    for (int f = 0; f < SC_FN_COUNT; f++) {
+        // 파일에 명시된 기능 목록만 교체. 자판 전환은 0개가 되면 자판을 못 바꾸므로 0이면 기존 유지.
+        if (haveSc[f] && (f != SC_FN_ROTATE || temp.shortcuts[f].count > 0))
+            merged.shortcuts[f] = temp.shortcuts[f];
     }
     merged.options = temp.options;
 

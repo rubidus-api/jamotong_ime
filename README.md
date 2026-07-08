@@ -21,7 +21,7 @@ Framework) text service with no frameworks and no external libraries.
   educational-basic-hanja first ordering) + 331 curated words + 1,784 hunum entries.
 - **Special characters**: consonant + Hanja key (Mieum = symbols, Siot = Greek,
   Jieut = Roman numerals, etc. — the familiar Korean IME convention).
-- **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live preview) → Enter.
+- **Unicode codepoint input**: `Ctrl+Alt+U` (configurable, multiple shortcuts) → type hex (live preview) → Enter.
 - **Settings**: `Ctrl+Alt+K` or run `jamotong.exe` — layouts, hotkeys, options.
   Stored at `%APPDATA%\Jamotong\config.ini`, with import/export.
 - **Tray monitor** (`jamotong.exe`): shows the current layout in the system tray
