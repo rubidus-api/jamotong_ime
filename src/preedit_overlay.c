@@ -90,14 +90,15 @@ static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
                 if (--g_adjustLeft <= 0) KillTimer(hwnd, ADJUST_TIMER_ID);
                 RECT rc;
                 if (g_text[0] && IsWindowVisible(hwnd) && GuitiCaretRect(&rc)) {
-                    // 실캐럿이 표시값과 다르면 즉시 따라감 — 위치는 2px, 줄높이는 1px 초과 차이만
-                    // (동일 rect 재적용으로 인한 깜빡임 방지). 고정 크기 설정이면 위치만 보정.
+                    // '위치가 실제로 움직였을 때만' 실캐럿을 따라간다(크기도 그때 새 rect 높이로).
+                    // 높이만 다른 경우는 무시 — 편집세션 rect와 시스템 캐럿 rect가 같은 자리를
+                    // 항상 다른 높이로 보고하는 앱(메모장)에서, 매 키마다 Show(큰)↔보정(작은)이
+                    // 번갈아 그려져 칩이 여러 번 깜빡이던 실기 발견(2026-07-08)의 원인이었다.
+                    // 낡은 좌표(CUAS)·다른 크기 영역으로의 이동은 위치도 함께 변하므로 계속 잡힌다.
                     BOOL moved = IAbs(rc.left - g_shownRect.left) > 2 || IAbs(rc.top - g_shownRect.top) > 2;
-                    BOOL resized = (g_fixedSize <= 0) &&
-                        IAbs((int)(rc.bottom - rc.top) - (int)(g_shownRect.bottom - g_shownRect.top)) > 1;
-                    if (moved || resized) {
-                        JamoDiag("OVERLAY adjust move=%d resize=%d h=%ld->%ld", (int)moved, (int)resized,
-                                 g_shownRect.bottom - g_shownRect.top, rc.bottom - rc.top);
+                    if (moved) {
+                        JamoDiag("OVERLAY adjust h=%ld->%ld", g_shownRect.bottom - g_shownRect.top,
+                                 rc.bottom - rc.top);
                         PlaceChip(&rc, NULL);
                     }
                 }

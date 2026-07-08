@@ -175,6 +175,34 @@ static void SendKeyThrough(WPARAM vk, LPARAM lParam) {
     SendInput(2, in, sizeof(INPUT));
 }
 
+// ── 경계키 '지연' 재전달 (실기 발견 2026-07-08: AkelPad 엔터가 마지막 음절을 소실) ─────────
+// CUAS 앱은 확정 음절의 문서 전달이 비동기라, 즉시 SendInput한 합성 경계키가 그 전달을
+// 추월해 음절이 사라진다(스페이스는 v0.11.0에서 단일삽입으로 해결; 엔터/방향키는 제어키라
+// 삽입 불가 → 재전달 유지가 불가피). 재전달을 ~30ms 늦춰 삽입이 앱에 닿을 시간을 준다.
+// 새 경계키가 그 안에 또 오면 보류분을 먼저 즉시 방출해 순서를 지킨다. (입력 스레드 전용)
+#define RESEND_DELAY_MS 30
+static WPARAM  g_pendResendVk = 0;
+static LPARAM  g_pendResendLp = 0;
+static UINT_PTR g_pendResendTimer = 0;
+static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
+    (void)hwnd; (void)msg; (void)time;
+    KillTimer(NULL, id);
+    if (id == g_pendResendTimer) {
+        g_pendResendTimer = 0;
+        SendKeyThrough(g_pendResendVk, g_pendResendLp);
+    }
+}
+static void ScheduleKeyResend(WPARAM vk, LPARAM lParam) {
+    if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
+        KillTimer(NULL, g_pendResendTimer);
+        g_pendResendTimer = 0;
+        SendKeyThrough(g_pendResendVk, g_pendResendLp);
+    }
+    g_pendResendVk = vk; g_pendResendLp = lParam;
+    g_pendResendTimer = SetTimer(NULL, 0, RESEND_DELAY_MS, ResendTimerProc);
+    if (!g_pendResendTimer) SendKeyThrough(vk, lParam);   // 타이머 실패 시 종전 즉시 재전달
+}
+
 // ASCII → 전각(full-width). 전각 모드일 때 라틴/숫자/기호를 전각 폭 문자로 변환.
 static wchar_t ToFullWidth(wchar_t c) {
     if (c == L' ') return 0x3000;                         // 전각 공백
@@ -275,13 +303,18 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         goto tk_done;
     }
 
-    // Ctrl/Alt/Win 조합(Ctrl+C, Ctrl+A 등 앱 단축키): 조합 중이 아니면 소비하지 않고 통과.
-    // 조합 중이면 한 번 eat — TSF는 eat 안 한 키에 OnKeyDown을 부르지 않으므로, 통과시키면
-    // OnKeyDown의 flush가 영영 실행되지 않아 조합 중 Ctrl+S 저장에서 마지막 음절이 빠진다
-    // (RFC-0004 P0-1). OnKeyDown이 확정 후 원키를 재전달한다.
+    // Ctrl/Alt/Win 조합(Ctrl+C, Ctrl+A 등 앱 단축키): 조합 중이면 '여기서' 확정하고, 키는
+    // 소비하지 않고 통과 → 앱이 원래 타이밍·원래 이벤트로 기능키를 처리한다.
+    //   (RFC-0004 P0-1 개정, 실기 2026-07-08: eat+재전달 방식은 주입된 키가 이미 큐에 쌓인
+    //   사용자 입력(Ctrl 뗌 등)을 추월당해 Ctrl 없이 처리됨 → 'C'가 ㅊ로 오입력되는 재앙.
+    //   flush는 동기 편집세션이라 통과 전에 완료되고, 부작용은 조기 확정뿐이라 안전.)
     if (HasCtrlAltWin()) {
-        if (obj->fsm.state != STATE_EMPTY && pfEaten) *pfEaten = TRUE;
-        goto tk_done;
+        if (obj->fsm.state != STATE_EMPTY) {
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            JamoDiag("TK  vk=%02X ctrl/alt/win flush-in-test commit=U+%04X", (unsigned)wParam, (unsigned)res.commitChar);
+            OutputResult(obj, pic, res, TRUE);   // 음절 확정 (통과 전에 동기 완료)
+        }
+        goto tk_done;   // pfEaten=FALSE — 앱이 단축키를 네이티브로 처리
     }
 
     {
@@ -516,19 +549,16 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         goto kd_done;
     }
 
-    // Ctrl/Alt/Win 조합(앱 단축키): 조합 중이었다면 OnTestKeyDown이 eat했으므로 여기 도달.
-    // 조합을 먼저 확정(동기 편집세션)한 뒤 본키만 재전달한다 — 모디파이어는 사용자가 물리로
-    // 누르고 있으므로 앱은 Ctrl+<키>로 받는다. 재전달 키는 JAMO_SYNTH_MARK 가드로 재처리 안 됨.
-    // (RFC-0004 P0-1: 이전엔 eat 규칙 때문에 이 블록이 도달 불가한 죽은 코드였다.)
+    // Ctrl/Alt/Win 조합(앱 단축키): 확정은 OnTestKeyDown의 flush-in-test가 담당하고 키는
+    // 통과되므로 보통 여기 도달하지 않는다. 도달하면(호스트가 Test 없이 KeyDown만 주는 등)
+    // 방어적으로 확정만 하고 통과. 재전달·eat 금지 — 주입 키가 큐의 사용자 입력에 추월당해
+    // 자모로 오입력되던 실기 재앙(2026-07-08, ㅊ/ㅍ) 재발 방지.
     if (HasCtrlAltWin()) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResult(obj, pic, res, TRUE);   // 현재 음절 확정
-            JamoDiag("KD  vk=%02X ctrl/alt/win flush+resend", (unsigned)wParam);
-            SendKeyThrough(wParam, lParam);
-            if (pfEaten) *pfEaten = TRUE;
         }
-        goto kd_done;   // 비조합(방어적 도달)은 pfEaten=FALSE 유지 → 앱이 직접 처리
+        goto kd_done;   // pfEaten=FALSE 유지 → 앱이 단축키 직접 처리
     }
 
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
@@ -656,9 +686,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // 그 외 비자모 키: 조합만 확정하고, 원래 키는 실제 이벤트로 재전달 → 앱이 네이티브 처리.
                 // (편집세션 텍스트 삽입은 터미널(PuTTY 등)엔 안 통함. 방향키 이동·엔터·터미널 모두 지원.)
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
-                JamoDiag("FLUSH commit=U+%04X then resend vk=%02X", (unsigned)res.commitChar, (unsigned)wParam);
+                JamoDiag("FLUSH commit=U+%04X then resend vk=%02X (delayed)", (unsigned)res.commitChar, (unsigned)wParam);
                 OutputResult(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
-                SendKeyThrough(wParam, lParam);
+                ScheduleKeyResend(wParam, lParam);   // 지연 재전달 — CUAS 전달 경합 방지 (AkelPad 엔터 소실)
                 if (pfEaten) *pfEaten = TRUE;   // 원본 소비(재전달본이 대신 처리)
             }
         }
