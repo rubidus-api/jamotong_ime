@@ -65,6 +65,9 @@ void Config_LoadDefault(JamotongConfig *config) {
     ShortcutList *cd = &config->shortcuts[SC_FN_CODE];      // 유니코드 코드 입력: Ctrl+Alt+U
     cd->count = 1;
     cd->keys[0].vKey = 'U'; cd->keys[0].mods = SMOD_CTRL | SMOD_ALT;
+    ShortcutList *st = &config->shortcuts[SC_FN_SETTINGS];  // 설정 창 열기: Ctrl+Alt+K
+    st->count = 1;
+    st->keys[0].vKey = 'K'; st->keys[0].mods = SMOD_CTRL | SMOD_ALT;
 
     // IME 옵션 기본값
     config->options.fullWidth = false;
@@ -210,7 +213,7 @@ bool Config_UserPath(wchar_t *out, int cch) {
 }
 
 // 설정 파일 [Shortcuts] 섹션의 기능별 키 이름 (ShortcutFn 인덱스)
-static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code" };
+static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings" };
 
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath) {
     FILE *fp = _wfopen(filepath, L"w, ccs=UTF-8");

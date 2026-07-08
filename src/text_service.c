@@ -219,11 +219,6 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     if (pfEaten) *pfEaten = FALSE;
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) return S_OK;   // 합성 입력 통과
 
-    // 설정 단축키 Ctrl+Alt+K 예측-소비 (OnKeyDown이 불려 설정창을 열도록).
-    if (wParam == 'K' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
-        if (pfEaten) *pfEaten = TRUE;
-        return S_OK;
-    }
     // OnKeyDown과 동일 순서(맨 앞): 코드입력/후보창/한자키를 예측-소비해야 OnKeyDown이 호출됨.
     // (TSF는 OnTestKeyDown이 TRUE로 표시한 키만 OnKeyDown 호출. 예측만 하고 부작용은 OnKeyDown에서.)
     if (CodeInput_IsVisible()) {     // 코드 입력 팝업이 뜨면 모든 키를 소비
@@ -238,6 +233,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     // 이하 config/레이아웃 접근 전체를 설정 스레드의 Config_ApplyEdited(레이아웃 free)와 직렬화.
     // (기존엔 무락이라, 설정 적용 중 pHangulLayout/pChordLayout이 해제되는 순간 키가 오면 UAF.)
     EnterCriticalSection(&g_configLock);
+
+    // 설정창 단축키 (설정 가능, 기본 Ctrl+Alt+K) 예측-소비 (OnKeyDown이 불려 설정창을 열도록).
+    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        if (pfEaten) *pfEaten = TRUE;
+        goto tk_done;
+    }
 
     // 유니코드 코드 입력 단축키 (설정 가능, 기본 Ctrl+Alt+U) 예측-소비.
     if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
@@ -321,13 +322,6 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) { JamoDiag("KD  vk=%02X SYNTH-pass", (unsigned)wParam); return S_OK; }
     JamoDiag("KD  vk=%02X state=%d", (unsigned)wParam, (int)obj->fsm.state);
 
-    // 설정창 단축키 Ctrl+Alt+K (Win11 모던 설정엔 IME "옵션" 버튼이 없어 단축키로 연다).
-    if (wParam == 'K' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_MENU) & 0x8000)) {
-        SettingsUI_Show(&obj->config);
-        if (pfEaten) *pfEaten = TRUE;
-        return S_OK;
-    }
-
     bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
     // 유니코드 코드 입력 팝업 키 라우팅 (열려 있으면 모든 키 소비; Enter 확정 시 문자 삽입)
@@ -359,6 +353,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 스레드의 Config_ApplyEdited(레이아웃 free)와 직렬화한다. 재진입 락이라 내부의
     // Config_RotateLayout 등과 중첩돼도 안전. 이후 모든 경로는 kd_done으로 해제.
     EnterCriticalSection(&g_configLock);
+
+    // 설정창 단축키 (설정 가능, 기본 Ctrl+Alt+K — Win11 모던 설정엔 IME "옵션" 버튼이 없어 단축키로 연다).
+    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        SettingsUI_Show(&obj->config);
+        if (pfEaten) *pfEaten = TRUE;
+        goto kd_done;
+    }
 
     // 코드 입력 트리거 (설정 가능한 단축키, 기본 Ctrl+Alt+U) — 조합 중이면 먼저 확정하고 캐럿 근처에 팝업.
     if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {

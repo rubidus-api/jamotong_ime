@@ -22,7 +22,7 @@ Framework) text service with no frameworks and no external libraries.
 - **Special characters**: consonant + Hanja key (Mieum = symbols, Siot = Greek,
   Jieut = Roman numerals, etc. — the familiar Korean IME convention).
 - **Unicode codepoint input**: `Ctrl+Alt+U` (configurable, multiple shortcuts) → type hex (live preview) → Enter.
-- **Settings**: `Ctrl+Alt+K` or run `jamotong.exe` — layouts, hotkeys, options.
+- **Settings**: `Ctrl+Alt+K` (configurable) or run `jamotong.exe` — layouts, hotkeys, options.
   Stored at `%APPDATA%\Jamotong\config.ini`, with import/export.
 - **Tray monitor** (`jamotong.exe`): shows the current layout in the system tray
   (blue = Jamotong active, gray = inactive); left-click = settings, right-click = menu.

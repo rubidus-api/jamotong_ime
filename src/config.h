@@ -22,9 +22,10 @@ typedef struct {
 
 // 단축키가 걸리는 기능. 설정창 Shortcuts 탭의 기능 콤보 순서와 동일해야 한다.
 typedef enum {
-    SC_FN_ROTATE = 0,   // 자판 전환 (한/영 토글)
-    SC_FN_HANJA  = 1,   // 한자/특수문자 변환
-    SC_FN_CODE   = 2,   // 유니코드 코드 포인트 직접 입력 (기본 Ctrl+Alt+U)
+    SC_FN_ROTATE   = 0,   // 자판 전환 (한/영 토글)
+    SC_FN_HANJA    = 1,   // 한자/특수문자 변환
+    SC_FN_CODE     = 2,   // 유니코드 코드 포인트 직접 입력 (기본 Ctrl+Alt+U)
+    SC_FN_SETTINGS = 3,   // 설정 창 열기 (기본 Ctrl+Alt+K)
     SC_FN_COUNT
 } ShortcutFn;
 

@@ -62,6 +62,7 @@ static const wchar_t *g_scFnNames[SC_FN_COUNT] = {
     L"Layout switch (Korean/English toggle)",
     L"Hanja / special character conversion",
     L"Unicode code point input",
+    L"Open IME settings (this window)",
 };
 static int g_curScFn = 0;   // 현재 선택된 기능 (DPI 재구성에도 유지)
 

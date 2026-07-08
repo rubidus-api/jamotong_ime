@@ -17,7 +17,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
   독음 데이터 = Unicode Unihan(8,900+자, 교육용 기초한자 우선 정렬) + 단어 331개 + 훈음 1,784자.
 - **특수문자**: 자음 + 한자키 (ㅁ=기호, ㅅ=그리스, ㅈ=로마숫자 등 관례).
 - **유니코드 직접 입력**: `Ctrl+Alt+U`(변경/복수 지정 가능) → 16진 코드포인트 입력 팝업(실시간 미리보기) → Enter 삽입.
-- **설정**: `Ctrl+Alt+K` 또는 `jamotong.exe` — 자판 관리/단축키/옵션, `%APPDATA%\Jamotong\config.ini`
+- **설정**: `Ctrl+Alt+K`(변경 가능) 또는 `jamotong.exe` — 자판 관리/단축키/옵션, `%APPDATA%\Jamotong\config.ini`
   저장, Import/Export.
 - 32/64비트 앱 모두 지원(각각의 DLL), Win11 트레이 브랜딩 아이콘.
 
