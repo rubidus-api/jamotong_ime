@@ -48,11 +48,31 @@ static BOOL GetCaretScreenRect(JamotongTextService *obj, RECT *out) {
     return FALSE;
 }
 
-// FSM 결과 출력 → 커밋 전용 편집세션(확정 음절만 삽입) + 조합 미리보기 오버레이 갱신(RFC-0002).
+// 확정 텍스트 커밋: EDIT 계열이면 EM_REPLACESEL(빈 선택=캐럿 삽입), 아니면 TSF 편집세션.
+//   AkelEdit는 TSF InsertTextAtSelection을 hr=0으로 받고도 반영하지 않아(실기 2026-07-08),
+//   EDIT 계열은 EM_REPLACESEL만 신뢰할 수 있다. 반환 후 lastCaretValid를 세팅해 오버레이가
+//   올바른 캐럿 소스를 쓰게 한다(EDIT=GUIThreadInfo 시스템 캐럿, TSF=세션 GetTextExt).
+static void CommitText(JamotongTextService *obj, ITfContext *pic, const wchar_t *str) {
+    HWND edit = EditCtl_FocusEditWindow();
+    if (edit && EditCtl_ReplaceSelection(edit, str)) {
+        obj->lastCaretValid = FALSE;   // TSF rect 없음 → 오버레이는 GUIThreadInfo 캐럿 폴백
+    } else {
+        EditSessionData esd = {0};
+        wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
+        RequestEditSessionData(obj, pic, &esd);   // 비-EDIT(터미널·네이티브): TSF + 캐럿 캡처
+    }
+}
+
+// FSM 결과 출력 → 커밋(확정 음절) + 조합 미리보기 오버레이 갱신(RFC-0002).
 //   g_configLock 재진입: OnKeyDown(락 보유)에서도, KeyUp(무락)에서도 안전.
 static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
     (void)isFlush;
-    RequestEditSession(obj, pic, res);   // 삽입 + 세션 내 캐럿 rect 캡처
+    if (res.commitChar) {                 // 확정 음절 → EDIT=EM_REPLACESEL / 비-EDIT=TSF
+        wchar_t cs[2] = { res.commitChar, L'\0' };
+        CommitText(obj, pic, cs);
+    } else {
+        RequestEditSession(obj, pic, res);   // 조합만(삽입 없음): 캐럿 rect 캡처만 (오버레이용)
+    }
 
     EnterCriticalSection(&g_configLock);
     bool show = obj->config.options.showPreview && res.preeditChar;
@@ -120,6 +140,7 @@ typedef struct {
     ITfContext *pic;
     wchar_t word[32];    // 단어 변환 대상 원문 (EDIT 선택 검증용 — 실기 2026-07-08)
     bool fromSelection;  // 블록 선택(이미 선택돼 있음)에서 온 변환 — EM_REPLACESEL로 교체
+    HWND targetHwnd;     // 대상 EDIT 창(한자키 시점 저장) — 콜백 땐 포커스가 옮겨가 재조회 불가
 } CandidateContext;
 static CandidateContext g_CandCtx;
 
@@ -127,25 +148,23 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
     (void)index;   // 콜백 시그니처상 받지만 실제 치환은 str로만 함
     CandidateContext *cc = (CandidateContext*)ctx;
     int replaceLen = CandidateUI_GetReplaceLen();
-    EditSessionData esd = {0};
-    wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
+    HWND h = cc->targetHwnd;   // 한자키 시점에 저장한 대상 EDIT (콜백 땐 포커스 이동으로 재조회 불가)
 
     if (cc->fromSelection) {
         // 블록 선택 변환: 선택이 그대로 유지돼 있으므로(후보창=NOACTIVATE) EDIT 계열은
-        // EM_REPLACESEL로 선택 전체를 정확히 교체. TSF InsertTextAtSelection은 CUAS에서
-        // 선택을 앞 글자만 부분 교체했다("대한민국"→"大韓민국", 실기 2026-07-08). 비-EDIT는 삽입.
-        if (!EditCtl_ReplaceSelection(str))
-            RequestEditSessionData(cc->obj, cc->pic, &esd);
+        // EM_REPLACESEL로 선택 전체를 정확히 교체. 비-EDIT는 TSF 삽입=선택 교체.
+        if (!(h && EditCtl_ReplaceSelection(h, str)))
+            CommitText(cc->obj, cc->pic, str);
     } else if (replaceLen > 0) {
-        // 커서 앞 단어 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
-        if (cc->word[0] && EditCtl_SelectWordBeforeCaret(cc->word) && EditCtl_ReplaceSelection(str)) {
+        // 커서 앞 단어/음절 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
+        if (h && cc->word[0] && EditCtl_SelectWordBeforeCaret(h, cc->word)
+              && EditCtl_ReplaceSelection(h, str)) {
             /* 교체 완료 */
         } else {
             RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);   // 비-EDIT 네이티브
         }
     } else {
-        // 커밋전용: 조합중 음절은 문서에 없음 → 선택 한자를 그냥 삽입(모든 앱 동작).
-        RequestEditSessionData(cc->obj, cc->pic, &esd);
+        CommitText(cc->obj, cc->pic, str);   // 커밋전용 삽입(방어적 — 현재 경로는 replaceLen=1)
     }
     ResetComposition(cc->obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
     if (cc->pic) { cc->pic->lpVtbl->Release(cc->pic); cc->pic = NULL; }   // 저장 시 AddRef한 것 해제
@@ -571,6 +590,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             if (found) {
                 g_CandCtx.obj = obj;
                 g_CandCtx.fromSelection = fromSelection;
+                g_CandCtx.targetHwnd = EditCtl_FocusEditWindow();   // 대상 EDIT 저장(콜백 시점 재조회 불가)
                 wcsncpy(g_CandCtx.word, searchStr, 31); g_CandCtx.word[31] = L'\0';   // 교체 검증용 원문
                 // 후보창은 비동기(즉시 반환) — 나중 콜백에서 pic를 쓰므로 AddRef로 수명 고정(UAF 방지).
                 // 이전 후보가 남아 있으면(방어적) 먼저 해제.
@@ -739,13 +759,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 //   소실되는 현상 대응 — 삽입 경로 하나로 직렬화하면 경합 자체가 없다.
                 //   (공백은 '문자'라 터미널 포함 삽입으로 전달 가능. 엔터/방향키는 제어키라 기존 재전달 유지)
                 if (wParam == VK_SPACE) {
-                    EditSessionData esd = {0};
                     wchar_t c = Fsm_Flush(&obj->fsm);
-                    int n = 0;
-                    if (c) esd.committed[n++] = c;
-                    esd.committed[n++] = L' ';
-                    JamoDiag("FLUSH+SPACE single-insert commit=U+%04X", (unsigned)c);
-                    RequestEditSessionData(obj, pic, &esd);
+                    wchar_t buf[3]; int n = 0;
+                    if (c) buf[n++] = c;
+                    buf[n++] = L' '; buf[n] = L'\0';
+                    JamoDiag("FLUSH+SPACE commit=U+%04X", (unsigned)c);
+                    CommitText(obj, pic, buf);   // EDIT=EM_REPLACESEL / 비-EDIT=TSF
                     obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
                     PreeditOverlay_Hide();   // 조합 종료 → 미리보기 제거
                     if (pfEaten) *pfEaten = TRUE;

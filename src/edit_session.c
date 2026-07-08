@@ -413,6 +413,22 @@ static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
     ReadSelFromCtl(gti.hwndFocus, outBuf, maxLen);
 }
 
+// 포커스된 컨트롤이 EDIT 계열(선택/캐럿을 EM_EXGETSEL 또는 EM_GETSEL로 노출)이면 그 HWND,
+// 아니면 NULL. 삽입/교체 시점의 포커스 창을 '한 번' 얻어 이후 EM_* 조작에 재사용한다 —
+// 후보창 콜백 등 뒤늦은 시점엔 포커스가 옮겨가 GetGUIThreadInfo가 딴 창을 주기 때문(실기 2026-07-08).
+HWND EditCtl_FocusEditWindow(void) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return NULL;
+    HWND h = gti.hwndFocus;
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin >= 0) return h;                    // RichEdit/AkelEdit
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s != 0xFFFFFFFF) return h;                  // 플레인 EDIT
+    return NULL;                                    // 비-EDIT(터미널·네이티브 리치앱)
+}
+
 // 캐럿 앞의 단어(word)를 EDIT 메시지로 '프로그램적으로 선택'하고 읽어서 검증한다.
 // 성공하면 선택이 잡힌 채 반환 → 이어지는 InsertTextAtSelection 삽입이 선택을 교체한다
 // (= 검증된 CUAS 호환 경로). TSF range 교체(ShiftStart+SetText)는 CUAS에서 부분 적용되어
@@ -425,12 +441,9 @@ static void CtlSetSel(HWND h, LONG from, LONG to, bool rich) {
     else SendMessageW(h, EM_SETSEL, (WPARAM)from, (LPARAM)to);
 }
 
-bool EditCtl_SelectWordBeforeCaret(const wchar_t *word) {
+bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word) {
     int len = (int)wcslen(word);
-    if (len <= 0 || len > 16) return false;
-    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
-    HWND h = gti.hwndFocus;
+    if (!h || len <= 0 || len > 16) return false;
     // 캐럿 위치: EM_EXGETSEL(RichEdit/AkelEdit) 우선 — AkelEdit는 EM_GETSEL 미응답이라
     // EM_GETSEL만 쓰면 단어 선택이 통째로 실패했다(실기 2026-07-08).
     LONG caret = -1; bool rich = false;
@@ -456,28 +469,14 @@ bool EditCtl_SelectWordBeforeCaret(const wchar_t *word) {
     return false;
 }
 
-// 포커스 EDIT 계열 컨트롤의 현재 선택을 str로 교체(EM_REPLACESEL, undo 가능).
-// EDIT의 표준 동작이라 선택 전체가 정확히 교체된다 — TSF InsertTextAtSelection이 CUAS에서
-// 선택을 앞 글자만 부분 교체하던 문제("대한민국"→"大韓민국")의 정공 우회. 비-EDIT면 false.
-bool EditCtl_ReplaceSelection(const wchar_t *str) {
-    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
-    HWND h = gti.hwndFocus;
-    // EDIT 판정은 EM_EXGETSEL(RichEdit/AkelEdit) 우선 — AkelEdit는 EM_GETSEL에 제대로 응답하지
-    // 않아, EM_GETSEL만 쓰면 판정 실패 → TSF 삽입 폴백 → CUAS 부분교체(4글자→2글자)로 이어졌다
-    // (실기 2026-07-08). 선택 읽기는 이미 EM_EXGETSEL로 성공하던 컨트롤이다.
-    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
-    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
-    if (cr.cpMin >= 0 && cr.cpMax >= cr.cpMin) {
-        SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
-        JamoDiag("REPLACESEL exsel cp=%ld..%ld len=%d", cr.cpMin, cr.cpMax, (int)wcslen(str));
-        return true;
-    }
-    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
-    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
-    if (s == 0xFFFFFFFF || e == 0xFFFFFFFF) return false;   // 둘 다 미응답 = 비-EDIT
+// 컨트롤 h의 현재 선택을 str로 교체(EM_REPLACESEL, undo 가능; 선택이 비었으면 캐럿에 삽입).
+// EDIT의 표준 동작이라 정확히 교체/삽입된다 — AkelEdit는 TSF InsertTextAtSelection을 hr=0으로
+// 받고도 실제 반영하지 않아(실기 2026-07-08: raw 좌표 고정), 커밋·교체 모두 이 경로가 신뢰성 있다.
+// h는 EditCtl_FocusEditWindow()로 미리 얻은 EDIT 계열 창.
+bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str) {
+    if (!h) return false;
     SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
-    JamoDiag("REPLACESEL getsel %lu..%lu len=%d", (unsigned long)s, (unsigned long)e, (int)wcslen(str));
+    JamoDiag("REPLACESEL len=%d", (int)wcslen(str));
     return true;
 }
 

@@ -16,11 +16,13 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
 //   성공 시 선택 range의 화면 rect를 svc->lastCaretRect에 캡처(후보창 위치용).
 //   ※ outBuf 용량은 최소 maxLen+1 (널 종단 기록).
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen);
-// 캐럿 앞의 word를 EDIT 메시지로 선택하고 읽어서 검증(성공 시 선택 유지 — 이어지는 삽입이
-// 선택을 교체). CUAS에서 range 교체가 부분 적용되는 문제의 우회 경로 (단어 한자 변환용).
-bool EditCtl_SelectWordBeforeCaret(const wchar_t *word);
-// 포커스 EDIT 계열 컨트롤의 현재 선택을 str로 교체(EM_REPLACESEL). 비-EDIT면 false.
-// TSF 삽입이 CUAS에서 선택을 부분 교체하던 문제의 우회 (블록/단어 한자 변환 공통).
-bool EditCtl_ReplaceSelection(const wchar_t *str);
+// 포커스가 EDIT 계열이면 그 HWND, 아니면 NULL. 삽입/교체 시점에 한 번 얻어 이후 EM_* 조작에
+// 재사용한다(후보창 콜백 시점엔 포커스가 옮겨가 GetGUIThreadInfo가 딴 창을 주기 때문).
+HWND EditCtl_FocusEditWindow(void);
+// h(EDIT 계열)에서 캐럿 앞 word를 선택하고 읽어 검증(성공 시 선택 유지 → EM_REPLACESEL로 교체).
+bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word);
+// h의 현재 선택을 str로 교체(빈 선택이면 캐럿에 삽입). AkelEdit는 TSF 삽입을 반영 안 해
+// 커밋·교체 모두 이 경로가 신뢰성 있다.
+bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op
