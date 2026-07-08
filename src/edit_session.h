@@ -19,5 +19,8 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
 // 캐럿 앞의 word를 EDIT 메시지로 선택하고 읽어서 검증(성공 시 선택 유지 — 이어지는 삽입이
 // 선택을 교체). CUAS에서 range 교체가 부분 적용되는 문제의 우회 경로 (단어 한자 변환용).
 bool EditCtl_SelectWordBeforeCaret(const wchar_t *word);
+// 포커스 EDIT 계열 컨트롤의 현재 선택을 str로 교체(EM_REPLACESEL). 비-EDIT면 false.
+// TSF 삽입이 CUAS에서 선택을 부분 교체하던 문제의 우회 (블록/단어 한자 변환 공통).
+bool EditCtl_ReplaceSelection(const wchar_t *str);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op

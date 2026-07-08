@@ -440,6 +440,20 @@ bool EditCtl_SelectWordBeforeCaret(const wchar_t *word) {
     return false;
 }
 
+// 포커스 EDIT 계열 컨트롤의 현재 선택을 str로 교체(EM_REPLACESEL, undo 가능).
+// EDIT의 표준 동작이라 선택 전체가 정확히 교체된다 — TSF InsertTextAtSelection이 CUAS에서
+// 선택을 앞 글자만 부분 교체하던 문제("대한민국"→"大韓민국")의 정공 우회. 비-EDIT면 false.
+bool EditCtl_ReplaceSelection(const wchar_t *str) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return false;
+    HWND h = gti.hwndFocus;
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s == 0xFFFFFFFF || e == 0xFFFFFFFF) return false;   // EM_GETSEL 미응답 = 비-EDIT
+    SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
+    return true;
+}
+
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {
     ReadSelSession *es = (ReadSelSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReadSelSession));
     if (!es) return E_OUTOFMEMORY;

@@ -118,7 +118,8 @@ static inline unsigned HexValW(wchar_t c) {
 typedef struct {
     JamotongTextService *obj;
     ITfContext *pic;
-    wchar_t word[32];   // 단어 변환 대상 원문 (EDIT 선택 검증용 — 실기 2026-07-08)
+    wchar_t word[32];    // 단어 변환 대상 원문 (EDIT 선택 검증용 — 실기 2026-07-08)
+    bool fromSelection;  // 블록 선택(이미 선택돼 있음)에서 온 변환 — EM_REPLACESEL로 교체
 } CandidateContext;
 static CandidateContext g_CandCtx;
 
@@ -126,22 +127,24 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
     (void)index;   // 콜백 시그니처상 받지만 실제 치환은 str로만 함
     CandidateContext *cc = (CandidateContext*)ctx;
     int replaceLen = CandidateUI_GetReplaceLen();
-    if (replaceLen > 0) {
-        // 이미 확정된 텍스트(단어단위 변환)를 교체.
-        // ① EDIT 계열: 단어를 프로그램적으로 선택(읽기 검증) 후 삽입 = 선택 교체 —
-        //    CUAS에서 range 교체가 앞 글자만 부분 적용되던 오동작(실기 2026-07-08)의 정공 우회.
-        // ② 그 외(비-EDIT 네이티브 앱): 종전 TSF range 교체.
-        if (cc->word[0] && EditCtl_SelectWordBeforeCaret(cc->word)) {
-            EditSessionData esd = {0};
-            wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
-            RequestEditSessionData(cc->obj, cc->pic, &esd);   // 삽입 = 검증된 선택을 교체
+    EditSessionData esd = {0};
+    wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
+
+    if (cc->fromSelection) {
+        // 블록 선택 변환: 선택이 그대로 유지돼 있으므로(후보창=NOACTIVATE) EDIT 계열은
+        // EM_REPLACESEL로 선택 전체를 정확히 교체. TSF InsertTextAtSelection은 CUAS에서
+        // 선택을 앞 글자만 부분 교체했다("대한민국"→"大韓민국", 실기 2026-07-08). 비-EDIT는 삽입.
+        if (!EditCtl_ReplaceSelection(str))
+            RequestEditSessionData(cc->obj, cc->pic, &esd);
+    } else if (replaceLen > 0) {
+        // 커서 앞 단어 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
+        if (cc->word[0] && EditCtl_SelectWordBeforeCaret(cc->word) && EditCtl_ReplaceSelection(str)) {
+            /* 교체 완료 */
         } else {
-            RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);
+            RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);   // 비-EDIT 네이티브
         }
     } else {
         // 커밋전용: 조합중 음절은 문서에 없음 → 선택 한자를 그냥 삽입(모든 앱 동작).
-        EditSessionData esd = {0};
-        wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
         RequestEditSessionData(cc->obj, cc->pic, &esd);
     }
     ResetComposition(cc->obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
@@ -482,6 +485,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         wchar_t searchStr[64] = {0};
         int replaceLen = 0;
         bool special = false;
+        bool fromSelection = false;   // 블록 선택 변환 여부 (EM_REPLACESEL 교체 경로 선택)
 
         if (obj->fsm.state == STATE_CHO) {
             // 단일 자음 + 한자키 → 특수문자 표 (ComposeHangul은 0을 주므로 호환 자모로 조회)
@@ -503,11 +507,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 wchar_t **selCands; int selCount;
                 if (HanjaDict_Find(selBuf, &selCands, &selCount)) {
                     wcsncpy(searchStr, selBuf, 63); searchStr[63] = L'\0';   // 음절(1자)/단어 공용 사전
+                    fromSelection = true;
                 } else if (!selBuf[1] && SpecialChar_Find(selBuf[0], &selCands, &selCount)) {
                     searchStr[0] = selBuf[0]; searchStr[1] = L'\0';          // 단일 문자: 특수문자 표 폴백
                     special = true;
+                    fromSelection = true;
                 }
-                replaceLen = 0;   // 삽입 = 선택 자동 교체 (range 편집 불필요)
+                replaceLen = 0;   // EDIT 계열은 EM_REPLACESEL, 비-EDIT는 삽입=선택 교체
             } else {
             wchar_t readBuf[32] = {0};
             if (SUCCEEDED(RequestReadSessionString(obj, pic, readBuf, 10))) {
@@ -555,6 +561,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                                  : HanjaDict_Find(searchStr, &cands, &count);
             if (found) {
                 g_CandCtx.obj = obj;
+                g_CandCtx.fromSelection = fromSelection;
                 wcsncpy(g_CandCtx.word, searchStr, 31); g_CandCtx.word[31] = L'\0';   // 교체 검증용 원문
                 // 후보창은 비동기(즉시 반환) — 나중 콜백에서 pic를 쓰므로 AddRef로 수명 고정(UAF 방지).
                 // 이전 후보가 남아 있으면(방어적) 먼저 해제.
