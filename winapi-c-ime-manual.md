@@ -35,6 +35,7 @@ Goal: to let you build another IME from the ground up using this document alone.
 10. [Gotchas](#10-gotchas)
 11. [Minimal IME checklist](#11-minimal-checklist)
 12. [★Field lessons after commit-only](#12-field-lessons-after-commit-only)
+13. [★★Text injection is not one thing — the per-app-class strategy](#13-text-injection-per-app-class)
 
 ---
 
@@ -454,6 +455,12 @@ back to commit-only for CUAS/terminals** — but telling the two apart requires 
 detection ("start a composition and watch it die"), which mangles the first keystroke
 (an orphan). jamotong chose commit-only because that orphan was unacceptable.
 
+> **Update (v0.12, see §13).** "Insertion is universal" turned out to be *almost* true.
+> `InsertTextAtSelection` works everywhere for **native TSF apps and terminals**, but some
+> CUAS EDIT controls (AkelPad's AkelEdit) accept it with `hr=0` and **silently do nothing**.
+> The final engine therefore picks the injection method **by app class** — TSF insert /
+> `EM_REPLACESEL` / `SendInput`. Read §13 before you trust a single path.
+
 ### 8.5 Chronicle of trial and error (summary)
 1. Inline TSF composition → terminated on every key in CUAS apps (PuTTY, AkelPad).
    Judged "CUAS limitation."
@@ -651,6 +658,204 @@ fix", all verified with on-device logging (v0.9–v0.11).
 
 ---
 
+## 13. Text injection per app class
+
+§8 concluded "insertion is the only universal, so commit-only." A later round of on-device
+testing (v0.12) forced a sharper conclusion: **even `InsertTextAtSelection` is not
+universal.** Getting text reliably into *every* app took a per-app-class strategy plus a
+cluster of related fixes. This chapter is that strategy and the incidents that produced it.
+
+### 13.1 ★★The core reversal — AkelEdit accepts a TSF insert with hr=0 and drops it
+
+- **Problem**: in AkelPad (whose editor is the RichEdit-family control *AkelEdit*), typing
+  Hangul worked for the first few characters, then some syllables simply **never appeared**;
+  a repeated character was **swallowed entirely**; a selected 4-char word converted to hanja
+  came out with only its **first two characters** replaced. Notepad and KakaoTalk were fine.
+- **Diagnosis (from the log)**: every `INSERT` line showed `hr=0x00000000` — success — yet
+  the captured caret rect **stayed frozen** (`CHIP raw=(14,825…)` across three inserts while
+  the "advance" compensation ran up 29→58→87). Native apps advance the rect; AkelEdit
+  reported success and moved nothing. **The insert was a no-op.**
+- **Cause**: `InsertTextAtSelection` is honored by native TSF apps and by terminals (via the
+  IMM bridge), but **some CUAS EDIT controls silently ignore it** while returning `S_OK`.
+  There is no error to branch on.
+- **Fix — inject by app class.** For EDIT-family controls, drive the control directly with
+  `EM_REPLACESEL` (the standard EDIT message; an empty selection means "insert at caret").
+  Keep the TSF session for everything else.
+
+```c
+// Is the focused control an EDIT-family control? Return its HWND, else NULL.
+// Require the class name to contain "edit" so a self-rendering terminal (PuTTY) that
+// happens to answer EM_GETSEL is not mistaken for an editor (see §13.3).
+HWND FocusEditWindow(void){
+    GUITHREADINFO gti = { sizeof gti };
+    if (!GetGUIThreadInfo(0,&gti) || !gti.hwndFocus) return NULL;
+    HWND h = gti.hwndFocus;
+    wchar_t cls[64]; int n = GetClassNameW(h, cls, 64);
+    if (n<=0) return NULL;
+    for (int i=0;i<n;i++) cls[i]=towlower(cls[i]);
+    if (!wcsstr(cls, L"edit")) return NULL;          // Edit / RICHEDIT50W / AkelEditW
+    CHARRANGE cr = {-2,-2};
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);     // RichEdit/AkelEdit answer this
+    if (cr.cpMin >= 0) return h;
+    DWORD s=~0u,e=~0u; SendMessageW(h, EM_GETSEL,(WPARAM)&s,(LPARAM)&e);  // plain EDIT
+    return (s!=~0u) ? h : NULL;
+}
+
+// Commit finalized text. One choke point used by every commit path.
+void CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
+    HWND edit = FocusEditWindow();
+    if (edit){ SendMessageW(edit, EM_REPLACESEL, TRUE, (LPARAM)str);  // EDIT-family: reliable
+               svc->lastCaretValid = FALSE; }                        // overlay uses system caret
+    else      RequestEditSessionInsert(svc, pic, str);               // native/terminal: TSF
+}
+```
+
+- Now the three app classes map to three injection methods:
+
+  | App class | Detect | Inject finalized text |
+  |---|---|---|
+  | Native TSF (Notepad, modern) | not EDIT-class | `InsertTextAtSelection` (TSF session) |
+  | CUAS EDIT (AkelPad, plain EDIT, KakaoTalk) | class name has `edit` | **`EM_REPLACESEL`** |
+  | Self-rendering terminal (PuTTY) | not EDIT-class | `InsertTextAtSelection` (works via IMM bridge) |
+
+- **Lesson**: "it returned `S_OK`" is **not** "it happened." When output silently fails in
+  one app family, stop trusting the API's return and **verify by observing document/caret
+  movement** — then drive that family with its own native mechanism (`EM_REPLACESEL`).
+
+### 13.2 Composing + an app shortcut (Ctrl/Alt/Win) — flush *in the test phase*
+
+- **Problem**: pressing Ctrl+S mid-composition saved the document **without the last
+  syllable** — the commit-only engine had it in the FSM, not in the document.
+- **First (wrong) fix**: eat the combo in `OnTestKeyDown`, then in `OnKeyDown` flush the
+  syllable and **re-send the key** with `SendInput`. On device, hammering Ctrl+C/Ctrl+V in
+  Notepad produced **ㅊ and ㅍ** — the injected `C`/`V` landed *behind* already-queued user
+  input (the Ctrl-up, the next key), so it was processed **without Ctrl** and interpreted as
+  a jamo. Synthetic re-send fundamentally races subsequent user input; it is **wrong for
+  modifier combos.**
+- **Final fix — flush-in-test, no injection**: if a composition is active and Ctrl/Alt/Win
+  is down, **commit the syllable right there in `OnTestKeyDown` (synchronous edit session)
+  and do *not* eat the key.** The app then handles the shortcut natively, on its own timing,
+  with the original event. No injection ⇒ no race. The only side effect is an early commit.
+
+```c
+// OnTestKeyDown
+if (HasCtrlAltWin()){
+    if (fsm.state != EMPTY){                 // composing → finalize now, synchronously
+        FsmResult r = { Fsm_Flush(&fsm), 0 };
+        OutputResult(obj, pic, r);           // commit via §13.1 CommitText
+    }
+    *pfEaten = FALSE;                         // pass the shortcut through untouched
+    return S_OK;
+}
+```
+
+### 13.3 Boundary-key resend — PostMessage to the app queue, not SendInput
+
+- **Problem**: a boundary key that *must* be a real key (Enter, arrows — terminals need
+  them, EDIT controls auto-indent on them) still lost the preceding syllable in CUAS apps,
+  **even after delaying the `SendInput` resend by 30 ms**.
+- **Cause**: `SendInput` posts to the **system input queue**; CUAS delivers the committed
+  character into the **app's message queue**. They are different queues with **no ordering
+  guarantee** — delay does not fix ordering.
+- **Fix**: for an EDIT-family focus window, **post the key straight to that window's message
+  queue** with `PostMessage(WM_KEYDOWN/WM_KEYUP)`. Same queue, FIFO ⇒ the key lands *after*
+  the committed character. Terminals (non-EDIT) keep `SendInput` (verified in PuTTY).
+
+```c
+void ResendKey(WPARAM vk, LPARAM lp){
+    HWND edit = FocusEditWindow();
+    if (edit){
+        LPARAM base = lp & 0x01FF0000;                        // scancode + extended bit
+        PostMessageW(edit, WM_KEYDOWN, vk, base | 1);
+        PostMessageW(edit, WM_KEYUP,   vk, base | 0xC0000001);
+    } else SendKeyThrough(vk, lp);                            // terminal: system queue
+}
+```
+- **Lesson**: a CUAS ordering race is fixed by using the **same queue**, not by *delaying*
+  the other queue. (Space is still handled as §12.3 — "syllable+space" in one insert — which
+  sidesteps the resend entirely.)
+
+### 13.4 Reading and replacing a selection — the EM_EXGETSEL ladder
+
+Selection-based hanja (§12.5) reads the selection, and word conversion replaces a run before
+the caret. Both need the selection API — and **AkelEdit does not answer the classic
+`EM_GETSEL`; only the RichEdit `EM_EXGETSEL`.** So every selection op tries the RichEdit
+message first, then the plain-EDIT message:
+
+- **Read selection**: `EM_EXGETSEL`+`EM_GETSELTEXT` (the control copies the selected text
+  itself — offset-unit agnostic) → else `EM_GETSEL`+`WM_GETTEXT` (plain EDIT, char offsets).
+  The first path also fixed "대한민국 read as 대한": with `WM_GETTEXT` we sliced by an offset
+  whose unit the control disagreed about; `EM_GETSELTEXT` hands back the exact text.
+- **Replace a word before the caret** (CUAS-safe, replaces the classic native-only
+  `ShiftStart`): get the caret via `EM_EXGETSEL` (fallback `EM_GETSEL`), select the run with
+  `EM_EXSETSEL`/`EM_SETSEL`, **read it back and verify it equals the expected word** (don't
+  trust offset units — try char then UTF-16-unit spans), then `EM_REPLACESEL`.
+
+```c
+// caret position, RichEdit first
+CHARRANGE cr = {-2,-2}; LONG caret; BOOL rich;
+SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+if (cr.cpMin>=0 && cr.cpMin==cr.cpMax){ caret=cr.cpMin; rich=TRUE; }
+else { DWORD s,e; SendMessageW(h,EM_GETSEL,(WPARAM)&s,(LPARAM)&e);
+       if (s!=e) return FALSE; caret=e; rich=FALSE; }
+// select [caret-span, caret], verify text, then EM_REPLACESEL(h, TRUE, hanja)
+```
+- **Lesson**: RichEdit-family controls (incl. AkelEdit, modern Notepad, chat inputs) may
+  ignore the legacy EDIT messages — **probe `EM_EXGETSEL` before `EM_GETSEL`** for both
+  detection and selection, or you silently fall back to the broken path.
+
+### 13.5 The stuck-character ghost key (moa-chigi / chorded layouts)
+
+- **Problem**: one specific character (e.g. 대) became **permanently un-typable** — it was
+  eaten every time and the stale composition stayed pinned in the preview chip. Hiding the
+  preview didn't help; the character was stuck *somewhere*.
+- **Cause**: the simultaneous-input (moa-chigi) and chord state machines key off a per-vk
+  `keyDown[]` flag. If a **key-up is ever lost** (focus change during a chord, a swallowed
+  message), the flag stays set; the next press looks like **auto-repeat**, so the machine
+  eats the key and re-shows the old composition **forever**, never committing.
+- **Fix**: on the "repeat" branch, cross-check the **physical** key state and self-heal a
+  stale flag.
+
+```c
+if (c->keyDown[vk]){                       // looks like a repeat…
+    if (GetKeyState(vk) & 0x8000) return REPEAT;   // really held → genuine repeat
+    c->keyDown[vk] = false;                // key-up was lost → clear the ghost flag
+    if (c->activeKeys>0) c->activeKeys--;  // …and treat this as a fresh press
+}
+```
+- Plus two escape hatches, both routed through one reset function (§13.6): **Esc cancels the
+  composition** (MS-IME convention; sequential *and* moa-chigi), and **Backspace clears a
+  moa-chigi composition** (the old gate tested `fsm.state`, which moa-chigi never sets).
+
+### 13.6 Keep the original on cancel — commit *then* replace
+
+- **Problem**: type 가, press the Hanja key, leave the candidate window **without choosing**
+  → the 가 **disappeared**. The composing syllable was never in the document; the engine had
+  planned to *insert* the hanja over nothing.
+- **Fix**: on Hanja-key while composing, **commit the syllable to the document first**
+  (making it `replaceLen=1`, targeting that just-committed char), then convert by *replacing*
+  it. Cancelling leaves the committed original in place — the same pattern as word conversion.
+
+### 13.7 One reset choke point + a captured target window
+
+Two small structural fixes that prevented whole classes of the above:
+
+- **`ResetComposition()` — a single function** that clears the FSM, the chord state, the
+  chip state and hides the overlay. Focus change, Deactivate, Esc, backspace-clear and
+  hanja-commit all call it. Preview *show* stays solely in `OutputResult`. When cleanup is
+  scattered across many handlers, a broken composition leaves the chip pinned somewhere
+  (§13.5) — centralizing it kills that class of bug.
+- **Capture the target EDIT window at Hanja-key time.** The candidate callback fires *after*
+  focus has moved, so calling `GetGUIThreadInfo` inside the callback returns the wrong window
+  and the replacement falls back to the broken TSF path. Store the `HWND` when you show the
+  candidate window; use the stored one in the callback.
+
+> The overlay can hold **more than one character** — leave its buffer generous (jamotong
+> uses 64). Preview is not Korean-only: a multi-key romaji sequence or a word-level preedit
+> in another language may need several characters shown at once.
+
+---
+
 ## Appendix: jamotong source map
 
 | Concept | File |
@@ -664,6 +869,8 @@ fix", all verified with on-device logging (v0.9–v0.11).
 | Settings UI, persistence | `src/settings_ui.c`, `src/config.c` |
 | Composition preview overlay (§12.1–12.2) | `src/preedit_overlay.c`, `OutputResult` in `text_service.c` |
 | Tray mode icon (§12.4) | `src/langbar.c` |
+| Per-app-class injection (§13.1), EDIT selection ops (§13.4) | `EditCtl_*` / `CommitText` in `src/edit_session.c`, `text_service.c` |
+| Ghost-key self-heal (§13.5), reset choke point (§13.7) | `src/chord.c`, `src/chord_layout.c`, `ResetComposition` in `text_service.c` |
 | Codepoint input popup | `src/code_input.c` |
 | Tray monitor / settings app | `src/tray_app.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |

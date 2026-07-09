@@ -17,8 +17,9 @@ Framework) text service with no frameworks and no external libraries.
   tap-hold and mouse actions — see the [.jmt reference](#custom-keyboard-layouts-jmt)).
 - **Hanja conversion**: compose a syllable and press the Hanja key — or **select text
   first, then press Hanja** (works in legacy apps too). The candidate window shows
-  meaning/reading (hunum). Reading data: Unicode Unihan-derived (8,900+ characters,
-  educational-basic-hanja first ordering) + 331 curated words + 1,784 hunum entries.
+  meaning/reading (hunum). Reading data: ~9,525 unique characters (Unicode Unihan plus
+  the Supreme Court personal-name hanja set — 100% coverage of standard name hanja,
+  educational-basic-hanja first ordering) + ~2,200 words + 1,784 hunum entries.
 - **Special characters**: consonant + Hanja key (Mieum = symbols, Siot = Greek,
   Jieut = Roman numerals, etc. — the familiar Korean IME convention).
 - **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live preview) → Enter.
@@ -346,5 +347,7 @@ Unicode License, install/uninstall scripts, and sample `.jmt` layouts.
 ## License
 
 Code: [MIT License](LICENSE). Hanja reading data is derived from the Unicode Unihan
-Database (Unicode License v3; notice bundled in the distribution). No GPL/LGPL/CC BY-SA
-material is used.
+Database (Unicode License v3; notice bundled in the distribution), the Supreme Court
+personal-name hanja public data (rutopio/Korean-Name-Hanja-Charset, MIT), and word
+mappings from jemdiggity/hanja-wordlist (MIT; Korean↔hanja mappings only, no
+definitions). No GPL/LGPL/CC BY-SA material is used.

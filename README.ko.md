@@ -14,8 +14,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 - **자판**: 2벌식·세벌식(최종) 내장, `.jmt` 파일로 사용자 자판 추가 — 정적 리맵/한글 조합
   자판/코드(조합) 자판(레이어·탭-홀드·마우스 동작 지원, [.jmt 문법](#사용자-자판-jmt) 참조).
 - **한자 변환**: 조합 중 음절 + 한자키 → 후보창(훈음 표시) — 또는 **텍스트를 블록 선택하고
-  한자키**(레거시 앱에서도 동작). 독음 데이터 = Unicode Unihan(8,900+자, 교육용 기초한자
-  우선 정렬) + 단어 331개 + 훈음 1,784자.
+  한자키**(레거시 앱에서도 동작). 독음 데이터 = 고유 한자 약 9,525자(Unicode Unihan + 대법원
+  인명용 한자, 인명용 표준 한자 100% 커버, 교육용 기초한자 우선 정렬) + 단어 약 2,200개 + 훈음 1,784자.
 - **특수문자**: 자음 + 한자키 (ㅁ=기호, ㅅ=그리스, ㅈ=로마숫자 등 관례).
 - **유니코드 직접 입력**: `Ctrl+Alt+U` → 16진 코드포인트 입력(실시간 미리보기) → Enter.
 - **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기)에
@@ -327,5 +327,7 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립
 
 ## 라이선스
 
-코드: [MIT License](LICENSE). 한자 독음 데이터는 Unicode Unihan DB 파생(Unicode License v3,
-배포 zip에 고지 동봉). GPL/LGPL/CC BY-SA 자료는 사용하지 않음.
+코드: [MIT License](LICENSE). 한자 독음 데이터는 Unicode Unihan DB(Unicode License v3, 배포 zip에
+고지 동봉), 대법원 인명용 한자 공공데이터(rutopio/Korean-Name-Hanja-Charset, MIT), 단어 매핑
+(jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. GPL/LGPL/CC BY-SA
+자료는 사용하지 않음.
