@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <stdbool.h>
+#include "klay.h"   // KlayDiag (로드 진단)
 
 // 일반 코드(조합) 자판 — ARTSEY.io 처럼 글쇠 조합(chord)이 출력/동작에 대응한다. 눌린 글쇠가
 // 모두 떨어질 때, 현재 레이어에서 그 조합의 동작을 수행한다. 동작은 SendInput 으로 실제 키/마우스
@@ -68,7 +69,7 @@ typedef struct {
     int oneshotMod;      // 대기 중 원샷 모디파이어 비트마스크
 } ChordKbContext;
 
-ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path);
+ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);

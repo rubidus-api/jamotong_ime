@@ -643,7 +643,8 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     ofn.nFilterIndex = 1; ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
                     if (GetOpenFileNameW(&ofn)) {
                         LayoutConfig lc; memset(&lc, 0, sizeof(lc));
-                        if (Klay_Load(szFile, &lc)) {
+                        KlayDiag diag = {0};
+                        if (Klay_Load(szFile, &lc, &diag)) {
                             lc.enabled = true;
                             g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
                             RefreshLists(hwnd);
@@ -666,9 +667,15 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                                     L"%APPDATA%\\Jamotong\\layouts or next to jamotong.dll.",
                                     L"Warning", MB_ICONWARNING);
                         } else {
-                            MessageBoxW(hwnd, L"Failed to load the layout (.jmt) file.\n"
-                                              L"Check its Type/Key/Combine lines (invalid entries reject the file).",
-                                        L"Error", MB_ICONERROR);
+                            // 파서 진단(줄 번호 + 영어 사유)을 그대로 보여준다.
+                            wchar_t msg[320];
+                            if (diag.line > 0)
+                                _snwprintf(msg, 320, L"Failed to load the layout (.jmt) file.\n\nLine %d: %ls",
+                                           diag.line, diag.message);
+                            else
+                                _snwprintf(msg, 320, L"Failed to load the layout (.jmt) file.\n\n%ls",
+                                           diag.message[0] ? diag.message : L"invalid or empty file");
+                            MessageBoxW(hwnd, msg, L"Error", MB_ICONERROR);
                         }
                     }
                     break;

@@ -27,17 +27,23 @@ static bool ValidIdx(JamoType t, int idx) {
     }
 }
 
-HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path) {
+// 첫 오류만 기록(diag NULL 허용). bad=true로 표시.
+#define FAIL(msg) do { if (diag && !bad) { diag->line = lineno; \
+    lstrcpynW(diag->message, (msg), 160); } bad = true; } while (0)
+
+HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) return NULL;
+    if (!fp) { if (diag) { diag->line = 0; lstrcpynW(diag->message, L"cannot open file", 160); } return NULL; }
 
     HangulLayout *hl = (HangulLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(HangulLayout));
     if (!hl) { fclose(fp); return NULL; }
     wcscpy_s(hl->name, 64, L"custom");
     bool bad = false;   // 잘못된 Key/Combine 발견 시 파일 전체 거부
+    int lineno = 0;
 
     wchar_t line[256];
     while (fgetws(line, 256, fp)) {
+        lineno++;
         TrimCrLf(line);
         // 앞 공백 스킵
         wchar_t *p = line;
@@ -57,7 +63,7 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path) {
             wchar_t lhs[64] = {0};
             int consumed = 0;
             swscanf(p, L"Key %63ls = %n", lhs, &consumed);
-            if (consumed <= 0) { bad = true; continue; }   // '=' 없는 기형 Key 줄
+            if (consumed <= 0) { FAIL(L"malformed Key line (missing '=')"); continue; }
             const wchar_t *q = p + consumed;
             size_t nk = wcslen(lhs), ki = 0;
             for (; ki < nk; ki++) {
@@ -66,20 +72,23 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path) {
                 int adv = 0;
                 if (swscanf(q, L"%lc%d%n", &typec, &idx, &adv) != 2) break;
                 JamoType t = TypeFromChar(typec);
-                if (t == JAMO_NONE || (unsigned)lhs[ki] >= 128 || !ValidIdx(t, idx)) break;
+                if (t == JAMO_NONE) { FAIL(L"Key: type must be C, M or T"); break; }
+                if ((unsigned)lhs[ki] >= 128) { FAIL(L"Key: key must be an ASCII character"); break; }
+                if (!ValidIdx(t, idx)) { FAIL(L"Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27)"); break; }
                 hl->keymap[(int)lhs[ki]].type = t;
                 hl->keymap[(int)lhs[ki]].index = idx;
                 q += adv;
             }
             while (*q == L' ' || *q == L'\t') q++;
-            if (ki != nk || (*q != L'\0' && *q != L'#')) bad = true;   // 개수 불일치/잘못된 스펙
+            if (!bad && (ki != nk || (*q != L'\0' && *q != L'#')))
+                FAIL(L"Key: number of specs must equal number of keys");
         } else if (swscanf(p, L"Combine %lc %d %d = %d", &typec, &a, &b, &val) == 4) {
             JamoType t = TypeFromChar(typec);
-            if (t != JAMO_NONE && ValidIdx(t, a) && ValidIdx(t, b) && ValidIdx(t, val) &&
-                hl->combineCount < HL_MAX_COMBINE) {
-                HangulCombine *c = &hl->combines[hl->combineCount++];
-                c->type = t; c->a = a; c->b = b; c->result = val;
-            } else bad = true;   // 잘못된 타입/범위 또는 규칙 초과(HL_MAX_COMBINE)
+            if (t == JAMO_NONE) FAIL(L"Combine: type must be C, M or T");
+            else if (!ValidIdx(t, a) || !ValidIdx(t, b) || !ValidIdx(t, val)) FAIL(L"Combine: jamo index out of range");
+            else if (hl->combineCount >= HL_MAX_COMBINE) FAIL(L"too many Combine rules (max 256)");
+            else { HangulCombine *c = &hl->combines[hl->combineCount++];
+                   c->type = t; c->a = a; c->b = b; c->result = val; }
         }
         // 알 수 없는 줄은 무시 (향후 확장 여지)
     }
@@ -87,6 +96,7 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path) {
     if (bad) { HeapFree(GetProcessHeap(), 0, hl); return NULL; }   // 부분 로드 대신 명시적 실패
     return hl;
 }
+#undef FAIL
 
 void HangulLayout_Free(HangulLayout *hl) {
     if (hl) HeapFree(GetProcessHeap(), 0, hl);

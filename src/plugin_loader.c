@@ -20,7 +20,7 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
         swprintf(fullPath, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
         LayoutConfig lc;
         memset(&lc, 0, sizeof(lc));
-        if (!Klay_Load(fullPath, &lc)) continue;
+        if (!Klay_Load(fullPath, &lc, NULL)) continue;
         bool dup = false;
         for (int i = 0; i < config->layoutCount; i++) {
             if (config->layouts[i].name && lc.name && wcscmp(config->layouts[i].name, lc.name) == 0) { dup = true; break; }

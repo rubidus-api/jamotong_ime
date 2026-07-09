@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <stdbool.h>
 #include "layout.h"   // LayoutResult, JamoType
+#include "klay.h"     // KlayDiag (로드 진단)
 
 // 설정파일(.jmt)로 정의하는 사용자 한글 자판. 세벌식 계열(초/중/종성 분리, 직접 종성)과
 // 그 결합 규칙(거센소리/된소리/겹모음/겹받침)을 데이터로 표현한다. moachigi=1 이면 동시치기
@@ -25,7 +26,7 @@ typedef struct HangulLayout {
 } HangulLayout;
 
 // .jmt 파일에서 로드 (heap 할당, 실패 시 NULL). 소유자가 HangulLayout_Free 로 해제.
-HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path);
+HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
 void HangulLayout_Free(HangulLayout *hl);
 
 // (type, a, b) 결합 조회 — 대응 규칙의 result, 없으면 -1. 모아치기 자판은 순서무관으로 (b,a)도 시도.

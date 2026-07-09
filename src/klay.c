@@ -23,14 +23,16 @@ static void PeekType(const wchar_t *path, wchar_t *type, size_t n) {
 // Type = static: Map <키…> = <출력…>
 //   좌변에 키를 여러 개 쓰면 배열 지정 — 좌우 같은 길이, 위치 대응 (예: Map qwe = ',.).
 //   단건(Map q = ')은 길이 1의 특수형. 길이 불일치·범위 밖 키는 파일 거부.
-static bool LoadStatic(const wchar_t *path, LayoutConfig *out) {
+static bool LoadStatic(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) return false;
+    if (!fp) { if (diag) { diag->line = 0; lstrcpynW(diag->message, L"cannot open file", 160); } return false; }
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
     wchar_t nameBuf[64]; wcscpy_s(nameBuf, 64, L"static");
     wchar_t line[256];
-    bool bad = false;
+    bool bad = false; int lineno = 0;
+    #define SFAIL(msg) do { if (diag && !bad) { diag->line = lineno; lstrcpynW(diag->message, (msg), 160); } bad = true; } while (0)
     while (fgetws(line, 256, fp)) {
+        lineno++;
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'#' || *p == L'\0') continue;
@@ -42,13 +44,14 @@ static bool LoadStatic(const wchar_t *path, LayoutConfig *out) {
         }
         if (swscanf(p, L"Map %63ls = %63ls", lhs, rhs) == 2) {
             size_t n = wcslen(lhs);
-            if (n == 0 || n != wcslen(rhs)) { bad = true; continue; }   // 키 수 ≠ 출력 수
+            if (n == 0 || n != wcslen(rhs)) { SFAIL(L"Map: left and right sides must have the same length"); continue; }
             for (size_t i = 0; i < n; i++) {
                 if ((unsigned)lhs[i] < 256) out->charMap[lhs[i]] = rhs[i];
-                else bad = true;
+                else SFAIL(L"Map: key must be a Latin-1 character (code < 256)");
             }
         }
     }
+    #undef SFAIL
     fclose(fp);
     if (bad) return false;
     out->type = LAYOUT_TYPE_STATIC_MAP;
@@ -76,23 +79,24 @@ static void ReadAbbrev(const wchar_t *path, wchar_t *abbrev, const wchar_t *name
     if (!abbrev[0]) lstrcpynW(abbrev, (name && name[0]) ? name : L"??", 4);   // 앞 3글자 파생
 }
 
-bool Klay_Load(const wchar_t *path, LayoutConfig *out) {
+bool Klay_Load(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
+    if (diag) { diag->line = 0; diag->message[0] = L'\0'; }
     wchar_t type[32] = L"";
     PeekType(path, type, 32);
     memset(out, 0, sizeof(*out));
     bool ok = false;
 
     if (!_wcsicmp(type, L"static")) {
-        ok = LoadStatic(path, out);
+        ok = LoadStatic(path, out, diag);
     } else if (!_wcsicmp(type, L"chord")) {
-        ChordLayout *cl = ChordLayout_LoadFromFile(path);
+        ChordLayout *cl = ChordLayout_LoadFromFile(path, diag);
         if (cl) {
             out->type = LAYOUT_TYPE_CHORD; out->pChordLayout = cl;
             out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
             if (out->name) ok = true; else ChordLayout_Free(cl);
         }
     } else {   // 기본: hangul (Type 생략 시)
-        HangulLayout *hl = HangulLayout_LoadFromFile(path);
+        HangulLayout *hl = HangulLayout_LoadFromFile(path, diag);
         if (hl) {
             out->type = LAYOUT_TYPE_HANGUL_CUSTOM; out->kbdVariant = KBD_SEBEOL; out->pHangulLayout = hl;
             out->name = _wcsdup(hl->name[0] ? hl->name : L"custom");

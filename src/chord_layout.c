@@ -171,9 +171,12 @@ static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
     return e->text[0] != L'\0';
 }
 
-ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
+#define FAIL(msg) do { if (diag && !bad) { diag->line = lineno; \
+    lstrcpynW(diag->message, (msg), 160); } bad = true; } while (0)
+
+ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) return NULL;
+    if (!fp) { if (diag) { diag->line = 0; lstrcpynW(diag->message, L"cannot open file", 160); } return NULL; }
     ChordLayout *cl = (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
     if (!cl) { fclose(fp); return NULL; }
     wcscpy_s(cl->name, 64, L"chord");
@@ -182,9 +185,11 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
     cl->layerCount = 1;
     int curLayer = 0;
     bool bad = false;   // 잘못된 글쇠/동작 참조 발견 시 파일 전체 거부 (RFC-0004 P1-3)
+    int lineno = 0;
 
     wchar_t line[256];
     while (fgetws(line, 256, fp)) {
+        lineno++;
         TrimEnds(line);
         wchar_t *p = line;
         while (*p==L' '||*p==L'\t') p++;
@@ -202,15 +207,16 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
             for (size_t i = 0; i < nk; i++) {
                 int b = bit + (int)i;
                 if ((unsigned)keys[i] < 128 && b >= 0 && b < 32) cl->keyBit[(int)keys[i]] = b;
-                else { bad = true; break; }
+                else { FAIL(L"Key: bit out of range (0..31) or non-ASCII key"); break; }
             }
         }
         else if (swscanf(p, L"Layer %31ls", name) == 1) {
             int idx = LayerFindOrAdd(cl, name);
             if (idx >= 0) curLayer = idx;
-            else bad = true;   // 레이어 정원(CL_MAX_LAYERS) 초과
+            else FAIL(L"too many layers (max 16)");
         }
-        else if ((!wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)) && cl->chordCount < CL_MAX_CHORDS) {
+        else if (!wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)) {
+            if (cl->chordCount >= CL_MAX_CHORDS) { FAIL(L"too many chords (max 2048)"); continue; }
             int isHold = (p[0] == L'H' || p[0] == L'h');
             const wchar_t *fmt = isHold ? L"Hold %31ls = %63l[^\n]" : L"Chord %31ls = %63l[^\n]";
             if (swscanf(p, fmt, keys, rhs) == 2) {
@@ -226,15 +232,16 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path) {
                     e->mask = mask; e->layer = curLayer; e->targetLayer = -1; e->isHold = isHold;
                     TrimEnds(rhs);
                     if (ParseAction(cl, e, rhs)) cl->chordCount++;
-                    else bad = true;   // 미지의 key/mod/하위동작 이름 → 무음 no-op 대신 실패
-                } else bad = true;     // Key로 선언 안 된 글쇠를 조합이 참조
-            }
+                    else FAIL(L"unknown action (key/mod/layer name or mouse sub-action)");
+                } else FAIL(L"chord references a key not declared with 'Key'");
+            } else FAIL(L"malformed Chord/Hold line (missing '=')");
         }
     }
     fclose(fp);
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
     return cl;
 }
+#undef FAIL
 
 void ChordLayout_Free(ChordLayout *cl) { if (cl) HeapFree(GetProcessHeap(), 0, cl); }
 
