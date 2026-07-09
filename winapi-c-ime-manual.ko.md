@@ -249,6 +249,9 @@ mgr->lpVtbl->RegisterProfile(mgr, &CLSID_Ours, LANGID_KO /*0x0412*/, &GUID_Profi
   `-1`은 특수값이라 피할 것. 아이콘은 DLL에 `.rc`로 임베드(`100 ICON "app.ico"`).
 - Win11 트레이 입력 표시기에 우리 아이콘이 뜨려면 **구식 `AddLanguageProfile`이 아니라
   `RegisterProfile`(ProfileMgr)** 을 써야 한다(실측).
+- **아이콘이 두 종류다, 헷갈리지 말 것.** 여기 것은 **프로파일 브랜딩 아이콘** — 언어 목록·입력
+  전환기에서 IME를 식별하는 *정적* 아이콘으로, 등록 때 한 번 설정한다. 트레이에 떠서 상태(한/A,
+  현재 자판)에 따라 바뀌는 **실시간 모드 아이콘**은 별개의 런타임 요소 — §12.4의 언어바 아이템이다.
 
 ### 4.3 카테고리 등록 (능력 선언)
 ```c
@@ -546,23 +549,54 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
   CUAS에서는 그 둘의 순서가 보장되지 않는다.
 
 ### 12.4 트레이 입력 표시기의 모드 아이콘 (MS IME의 한/A 같은 것)
-- **문제**: `ITfLangBarItemButton`을 만들어 AddItem 해도 트레이에 아무것도 안 뜬다.
-- **원인**: **Win8+는 랭바 아이템의 guidItem이 `GUID_LBI_INPUTMODE`가 아니면 무시한다**
-  (TF_LANGBARITEMINFO 문서에 명시). 커스텀 GUID 아이템은 레거시 데스크톱 언어바 전용.
-  - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — MinGW 헤더에 없어 직접 정의.
-- **우클릭의 진실**: `TF_LBI_STYLE_BTN_BUTTON`이면 **우클릭도 `OnClick(TF_LBI_CLK_RIGHT)`으로
-  온다** — `InitMenu`/`ITfMenu` COM 메뉴는 `BTN_MENU` 전용이고, BTN_MENU면 좌클릭도 메뉴가 떠서
-  "좌클릭=동작"이 불가능해진다. 좌클릭 동작+우클릭 메뉴를 원하면:
-  ```
-  OnClick(RIGHT, point):
-      CreatePopupMenu + InsertMenuItem            // 메뉴를 직접 구성
-      point.x를 모니터 work-area로 클램프
-      cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
-                           point, owner=GetFocus())   // ★owner 필수, NONOTIFY 필수
-      cmd에 따라 실행
-  ```
-- 아이콘 지침(MS 요구): **흑백 전용**(흰 글리프+검정 외곽/검정 배지), 기본 16px에 DPI 스케일.
-  아이콘 갱신은 `ITfLangBarItemSink::OnUpdate(TF_LBI_ICON)`.
+
+트레이에 떠서 IME의 현재 상태를 보여주고 실시간으로 갱신되는 작은 아이콘이다. §4.2의 프로파일
+브랜딩 아이콘과는 **다르다** — 이건 TIP이 활성인 동안 추가하는 런타임 *언어바 아이템*이다.
+문서만 보면 겁나지만, 실제로는 다섯 조각이다.
+
+**레시피 — 아이콘이 실제로 뜨게 하는 것:**
+
+1. **언어바 아이템 하나를 구현** — `ITfLangBarItemButton`(= `ITfLangBarItem` + 버튼 메서드)을
+   노출하는 객체. 실제로 일하는 메서드는 몇 개뿐이고 나머지는 `S_OK`/`E_NOTIMPL` 반환.
+2. **TIP 활성화 때 추가하고, 비활성화 때 제거한다.** `ActivateEx`에서 thread manager로부터
+   `ITfLangBarItemMgr`를 얻어 `AddItem`, `Deactivate`에서 `RemoveItem`.
+   ```c
+   ITfLangBarItemMgr *mgr;
+   ptim->lpVtbl->QueryInterface(ptim, &IID_ITfLangBarItemMgr, (void**)&mgr);
+   mgr->lpVtbl->AddItem(mgr, (ITfLangBarItem*)myLangBarItem);   // Deactivate: RemoveItem
+   ```
+3. **`GetInfo`에서 중요한 건 딱 두 개** — 아이템의 정체(GUID)와 스타일:
+   ```c
+   pInfo->guidItem = GUID_LBI_INPUTMODE;                          // ★반드시 이 GUID
+   pInfo->dwStyle  = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;  // ★트레이 표시
+   pInfo->clsidService = CLSID_Ours;  lstrcpyW(pInfo->szDescription, L"...");
+   ```
+   - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — **MinGW 헤더에 없으니
+     직접 정의한다.** Win8+ 트레이 표시기는 **guidItem이 이 값인 아이템만 호스팅**하고, 다른
+     GUID는 레거시 데스크톱 언어바에만 뜬다(사람들이 하루를 날리는 지점: `AddItem`은 성공하는데
+     아무것도 안 뜸).
+   - 트레이 표시기에 실제로 올리는 것은 `TF_LBI_STYLE_SHOWNINTRAY` 스타일이다.
+4. **`GetIcon`에서 현재 `HICON`을 반환한다.** 셸이 소유·파괴하므로 호출마다 새 아이콘을 만들어
+   돌려준다(예: 현재 자판 축약을 그려서). 아직 없으면(예: Deactivate 후) `*phIcon=NULL`+`S_FALSE`.
+5. **상태가 바뀌면 셸에 재조회를 요청한다** — `AdviseSink`에서 받은 sink로
+   `sink->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT)`. 이 한 번의 호출이 "아이콘 갱신"의 전부다.
+
+이게 전부다: 아이템 하나, 활성/비활성에서 add/remove, 올바른 GUID+스타일, 요청 시 아이콘,
+바뀔 때 OnUpdate.
+
+**우클릭 메뉴(선택).** `TF_LBI_STYLE_BTN_BUTTON`이면 **우클릭도 `OnClick(TF_LBI_CLK_RIGHT)`으로
+온다** — 메뉴는 직접 구성한다. (`InitMenu`/`ITfMenu` COM 메뉴는 `BTN_MENU` 전용인데, `BTN_MENU`면
+좌클릭에도 메뉴가 떠서 "좌클릭=토글" UX가 깨진다. 그래서 `BTN_BUTTON`을 쓰고 우클릭을 직접 처리.)
+```
+OnClick(RIGHT, point):
+    CreatePopupMenu + InsertMenuItem            // 메뉴를 직접 구성
+    point.x를 모니터 work-area로 클램프
+    cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
+                         point, owner=GetFocus())   // ★owner 필수, NONOTIFY 필수
+    cmd에 따라 실행
+```
+
+**아이콘 지침(MS 요구)**: **흑백 전용**(흰 글리프+검정 외곽/검정 배지), 기본 16px에 DPI 스케일.
 
 ### 12.5 선택(블록) 텍스트 한자 변환 — range 편집 없이 '교체'하기
 - **통찰**: 선택이 활성인 상태의 `InsertTextAtSelection`은 **선택을 교체**한다 — 이는 앱이

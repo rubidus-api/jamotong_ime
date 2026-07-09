@@ -263,6 +263,10 @@ mgr->lpVtbl->RegisterProfile(mgr, &CLSID_Ours, LANGID_KO /*0x0412*/, &GUID_Profi
   Avoid `-1` (special value). Embed the icon in the DLL via `.rc` (`100 ICON "app.ico"`).
 - For your icon to show in the Win11 tray input indicator you must use
   **`RegisterProfile` (ProfileMgr), not the old `AddLanguageProfile`** (measured).
+- **Two different icons, don't confuse them.** This one is the **profile branding icon** —
+  a *static* icon that identifies the IME in the language list and input switcher, set once
+  at registration. The **live mode icon** that sits in the tray and changes with state
+  (한/A, current layout) is a separate, run-time thing — the language-bar item in §12.4.
 
 ### 4.3 Category registration (capability declaration)
 ```c
@@ -612,28 +616,59 @@ fix", all verified with on-device logging (v0.9–v0.11).
   a single key event.** CUAS gives you no ordering guarantee between them.
 
 ### 12.4 The tray input-indicator mode icon (MS IME's 한/A)
-- **Problem**: you implement `ITfLangBarItemButton`, AddItem succeeds — and nothing shows
-  in the tray.
-- **Cause**: **on Win8+ the input indicator ignores any language-bar item whose guidItem
-  is not `GUID_LBI_INPUTMODE`** (stated in the TF_LANGBARITEMINFO docs). Custom-GUID items
-  only appear in the legacy desktop language bar.
-  - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — not in MinGW headers;
-    define it yourself.
-- **The truth about right-click**: with `TF_LBI_STYLE_BTN_BUTTON`, **right-clicks also
-  arrive as `OnClick(TF_LBI_CLK_RIGHT)`** — the `InitMenu`/`ITfMenu` COM path is
-  BTN_MENU-only, and BTN_MENU opens the menu on left-click too (killing "left-click =
-  action"). For left-click action + right-click menu:
-  ```
-  OnClick(RIGHT, point):
-      CreatePopupMenu + InsertMenuItem            // build the menu yourself
-      clamp point.x to the monitor work area
-      cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
-                           point, owner=GetFocus())   // ★owner required, NONOTIFY required
-      dispatch cmd
-  ```
-- Icon guidelines (MS requirement): **black & white only** (white glyph with dark
-  outline / dark badge), 16px base with DPI scaling. Refresh via
-  `ITfLangBarItemSink::OnUpdate(TF_LBI_ICON)`.
+
+This is the small icon in the tray that shows the IME's current state and updates live. It
+is **not** the profile branding icon (§4.2) — it is a run-time *language-bar item* your TIP
+adds while active. The mechanism looks intimidating in the docs, but it's five small pieces.
+
+**The recipe — what actually makes the icon appear:**
+
+1. **Implement one language-bar item** — an object exposing `ITfLangBarItemButton`
+   (which is `ITfLangBarItem` + the button methods). Only a handful of methods do real work;
+   the rest return `S_OK`/`E_NOTIMPL`.
+2. **Add it when the TIP activates, remove it when it deactivates.** In `ActivateEx`, get
+   `ITfLangBarItemMgr` from the thread manager and `AddItem`; in `Deactivate`, `RemoveItem`.
+   ```c
+   ITfLangBarItemMgr *mgr;
+   ptim->lpVtbl->QueryInterface(ptim, &IID_ITfLangBarItemMgr, (void**)&mgr);
+   mgr->lpVtbl->AddItem(mgr, (ITfLangBarItem*)myLangBarItem);   // Deactivate: RemoveItem
+   ```
+3. **In `GetInfo`, set exactly two things that matter** — the item's identity and style:
+   ```c
+   pInfo->guidItem = GUID_LBI_INPUTMODE;                          // ★must be this GUID
+   pInfo->dwStyle  = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;  // ★shown in tray
+   pInfo->clsidService = CLSID_Ours;  lstrcpyW(pInfo->szDescription, L"...");
+   ```
+   - `GUID_LBI_INPUTMODE = {2C77A81E-41CC-4178-A3A7-5F8A987568E6}` — **not in MinGW headers,
+     define it yourself.** On Win8+ the tray indicator **hosts only an item with this
+     guidItem**; any other GUID appears only in the legacy desktop language bar (this is the
+     one thing that silently costs people a day: `AddItem` succeeds, nothing shows).
+   - `TF_LBI_STYLE_SHOWNINTRAY` is what puts it in the tray indicator.
+4. **In `GetIcon`, return the current `HICON`.** The shell takes ownership and destroys it,
+   so hand back a fresh icon each call (e.g. draw the current layout's abbreviation). Return
+   `S_FALSE` with `*phIcon = NULL` if you have nothing yet (e.g. after Deactivate).
+5. **When state changes, tell the shell to re-query** via the sink you were handed in
+   `AdviseSink`: `sink->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT)`. That single call is the entire
+   "refresh the icon" path.
+
+That's the whole thing: one item, add/remove around activation, the right GUID+style, an
+icon on demand, and an OnUpdate when it changes.
+
+**Right-click menu (optional).** With `TF_LBI_STYLE_BTN_BUTTON`, **right-clicks arrive as
+`OnClick(TF_LBI_CLK_RIGHT)`** — you build the menu yourself. (The `InitMenu`/`ITfMenu` COM
+path is `BTN_MENU`-only, and `BTN_MENU` also opens the menu on *left*-click, which kills the
+"left-click = toggle" UX. So use `BTN_BUTTON` and handle right-click yourself.)
+```
+OnClick(RIGHT, point):
+    CreatePopupMenu + InsertMenuItem
+    clamp point.x to the monitor work area
+    cmd = TrackPopupMenu(TPM_NONOTIFY|TPM_RETURNCMD|TPM_LEFTBUTTON,
+                         point, owner=GetFocus())   // ★owner required, NONOTIFY required
+    dispatch cmd
+```
+
+**Icon guidelines (MS requirement)**: **black & white only** (white glyph with a dark
+outline / dark badge), 16px base with DPI scaling.
 
 ### 12.5 Hanja conversion on selected text — "replacement" without range editing
 - **Insight**: with an active selection, `InsertTextAtSelection` **replaces the
