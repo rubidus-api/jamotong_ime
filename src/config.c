@@ -251,10 +251,33 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
 // 설정 파일 [Shortcuts] 섹션의 기능별 키 이름 (ShortcutFn 인덱스)
 static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings" };
 
-bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath) {
+// 사용자 자판 저장소의 모든 .jmt를 [LayoutFile:name] … [EndLayoutFile] 로 인라인 (Export용).
+static void BundleUserLayouts(FILE *fp) {
+    wchar_t dir[MAX_PATH];
+    if (!Config_UserLayoutDir(dir, MAX_PATH)) return;
+    wchar_t pat[MAX_PATH];
+    _snwprintf(pat, MAX_PATH, L"%ls\\*.jmt", dir);
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pat, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        wchar_t full[MAX_PATH];
+        _snwprintf(full, MAX_PATH, L"%ls\\%ls", dir, fd.cFileName);
+        FILE *lf = _wfopen(full, L"r, ccs=UTF-8");
+        if (!lf) continue;
+        fwprintf(fp, L"\n[LayoutFile:%ls]\n", fd.cFileName);
+        wchar_t line[512];
+        while (fgetws(line, 512, lf)) fputws(line, fp);
+        fwprintf(fp, L"\n[EndLayoutFile]\n");
+        fclose(lf);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+
+bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts) {
     FILE *fp = _wfopen(filepath, L"w, ccs=UTF-8");
     if (!fp) return false;
-    
+
     fwprintf(fp, L"[Layouts]\nCount=%d\n", config->layoutCount);
     for (int i = 0; i < config->layoutCount; i++) {
         fwprintf(fp, L"%d_Type=%d\n", i, config->layouts[i].type);
@@ -279,6 +302,8 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath) {
     fwprintf(fp, L"ShowPreview=%d\n", config->options.showPreview ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
+
+    if (bundleLayouts) BundleUserLayouts(fp);   // Export: 사용자 자판 .jmt 본문 인라인
 
     fclose(fp);
     return true;
@@ -315,6 +340,26 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
 
     while (fgetws(line, 256, fp)) {
         TrimCrLf(line);
+        // [LayoutFile:name] … [EndLayoutFile] : Export 번들의 사용자 자판 본문 복원(P0-2 남은 절반).
+        //   layouts 폴더에 파일이 없을 때만 쓴다(기존 자판 덮어쓰기 방지). 다음 시작 시 자동 로드.
+        wchar_t lfName[128];
+        if (swscanf(line, L"[LayoutFile:%127l[^]]", lfName) == 1) {
+            wchar_t dir[MAX_PATH], dst[MAX_PATH];
+            FILE *out = NULL;
+            if (Config_UserLayoutDir(dir, MAX_PATH)) {
+                _snwprintf(dst, MAX_PATH, L"%ls\\%ls", dir, lfName);
+                if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
+                    out = _wfopen(dst, L"w, ccs=UTF-8");
+            }
+            while (fgetws(line, 256, fp)) {   // [EndLayoutFile]까지 본문 (있으면 파일에 씀)
+                TrimCrLf(line);
+                if (wcscmp(line, L"[EndLayoutFile]") == 0) break;
+                if (out) fwprintf(out, L"%ls\n", line);
+            }
+            if (out) fclose(out);
+            section = 0;
+            continue;
+        }
         if (wcscmp(line, L"[Layouts]") == 0) section = 1;
         else if (wcscmp(line, L"[Shortcuts]") == 0) section = 2;
         else if (wcscmp(line, L"[Options]") == 0) section = 3;

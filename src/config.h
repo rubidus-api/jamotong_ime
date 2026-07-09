@@ -115,7 +115,10 @@ void Config_RotateLayout(JamotongConfig *config);
 LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config);
 
 // 설정 내보내기 및 가져오기 (텍스트 형식)
-bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath);
+// bundleLayouts=true 면 사용자 자판 저장소(%APPDATA%\Jamotong\layouts)의 모든 .jmt 본문을
+// 파일 끝에 [LayoutFile:name] 섹션으로 인라인한다(Export 이식성 — 단일 파일로 자판까지 이동).
+// Apply(자동 저장)는 false. Load는 그 섹션을 만나면 layouts 폴더에 복원한다(다음 시작 시 로드).
+bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts);
 bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath);
 bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini (자동 저장/로드용)
 // 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시

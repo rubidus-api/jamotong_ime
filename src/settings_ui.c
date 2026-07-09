@@ -598,7 +598,13 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         // (리소스 포인터는 재배열만 되고 해제/생성이 없어 누수·빈 껍데기 자판이 없음)
                         if (Config_LoadFromFile(&g_TempConfig, szFile)) {
                             RefreshLists(hwnd);
-                            MessageBoxW(hwnd, L"Configuration imported successfully.", L"Success", MB_OK);
+                            // 번들된 사용자 자판 .jmt는 %APPDATA%\Jamotong\layouts에 복원됨(없던 것만).
+                            // 새로 복원된 자판은 다음 IME 시작 시 로드된다.
+                            MessageBoxW(hwnd,
+                                L"Configuration imported successfully.\n"
+                                L"Any bundled user layouts were restored to %APPDATA%\\Jamotong\\layouts\n"
+                                L"and will be available after the IME restarts (sign out / in).",
+                                L"Success", MB_OK);
                         } else {
                             MessageBoxW(hwnd, L"Failed to import configuration.", L"Error", MB_ICONERROR);
                         }
@@ -618,7 +624,7 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     if (GetSaveFileNameW(&ofn)) {
                         // 기본 확장자 추가 (.ini)
                         if (!wcschr(szFile, L'.')) wcscat(szFile, L".ini");
-                        if (Config_SaveToFile(&g_TempConfig, szFile)) {
+                        if (Config_SaveToFile(&g_TempConfig, szFile, true)) {
                             MessageBoxW(hwnd, L"Configuration exported successfully.", L"Success", MB_OK);
                         } else {
                             MessageBoxW(hwnd, L"Failed to export configuration.", L"Error", MB_ICONERROR);
@@ -783,7 +789,7 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         g_LastSavedConfig = *g_pRealConfig;
                         // 사용자 설정 파일에 저장 → 다음 활성화/다른 프로세스·"옵션" 버튼에 반영.
                         wchar_t cfgPath[MAX_PATH];
-                        if (Config_UserPath(cfgPath, MAX_PATH)) Config_SaveToFile(g_pRealConfig, cfgPath);
+                        if (Config_UserPath(cfgPath, MAX_PATH)) Config_SaveToFile(g_pRealConfig, cfgPath, false);
                         LeaveCriticalSection(&g_configLock);
                     }
                     DestroyWindow(hwnd);
