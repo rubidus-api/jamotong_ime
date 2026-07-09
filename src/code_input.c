@@ -1,4 +1,5 @@
 #include "code_input.h"
+#include "hanja_dict.h"   // 한자 코드포인트 → 훈음/음 이름 표시
 #include <stdio.h>
 
 extern HINSTANCE g_hInst;
@@ -9,8 +10,37 @@ static wchar_t g_hex[8];      // 입력 중 16진수 (최대 6자리)
 static int     g_hexLen = 0;
 static HFONT   g_fontUi = NULL, g_fontBig = NULL;
 
-#define CI_W 240
-#define CI_H 96
+#define CI_W 300
+#define CI_H 118
+
+// 코드포인트의 사람이 읽는 이름: 한자면 훈음("집 가")·음("가"), 아니면 유니코드 블록명.
+//   out 은 32자 이상. 빈 문자열이면 표시 생략.
+static void CodepointName(unsigned cp, wchar_t *out, int cap) {
+    out[0] = L'\0';
+    bool cjk = (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0xF900 && cp <= 0xFAFF);
+    if (cjk && cp <= 0xFFFF) {
+        const wchar_t *hn = HunumDict_Find((wchar_t)cp);   // "집 가"
+        if (hn && hn[0]) { lstrcpynW(out, hn, cap); return; }
+        wchar_t rd = HanjaDict_ReadingOf((wchar_t)cp);      // 훈음 미수록 → 음만
+        if (rd) { out[0] = rd; out[1] = L'\0'; return; }
+    }
+    const wchar_t *b =
+        ((cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3130 && cp <= 0x318F)) ? L"Hangul" :
+        (cjk) ? L"CJK (hanja)" :
+        (cp < 0x80) ? L"Basic Latin" :
+        (cp <= 0x24F) ? L"Latin" :
+        (cp >= 0x3040 && cp <= 0x30FF) ? L"Kana" :
+        (cp >= 0x2000 && cp <= 0x206F) ? L"Punctuation" :
+        (cp >= 0x2190 && cp <= 0x21FF) ? L"Arrows" :
+        (cp >= 0x2200 && cp <= 0x22FF) ? L"Math operators" :
+        (cp >= 0x2460 && cp <= 0x24FF) ? L"Enclosed alphanumerics" :
+        (cp >= 0x2500 && cp <= 0x257F) ? L"Box drawing" :
+        (cp >= 0x2600 && cp <= 0x27BF) ? L"Symbols" :
+        (cp >= 0x3000 && cp <= 0x303F) ? L"CJK symbols/punctuation" :
+        (cp >= 0xFF00 && cp <= 0xFFEF) ? L"Fullwidth forms" :
+        (cp >= 0x1F300 && cp <= 0x1FAFF) ? L"Emoji" : L"";
+    lstrcpynW(out, b, cap);
+}
 
 static unsigned CurCodepoint(void) {
     if (g_hexLen < 2) return 0;                     // 최소 2자리
@@ -48,10 +78,19 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
             SetTextColor(hdc, RGB(0, 0, 0));
             TextOutW(hdc, 10, 8, line, (int)wcslen(line));
             SetTextColor(hdc, RGB(128, 128, 128));
-            TextOutW(hdc, 10, CI_H - 24, L"hex 2-6 digits, then Enter", 26);
+            TextOutW(hdc, 10, CI_H - 22, L"hex 2-6 digits, then Enter", 26);
+
+            unsigned cp = CurCodepoint();
+            // 문자명 (한자면 훈음/음, 아니면 블록명) — hex 아래 회색 한 줄
+            if (cp) {
+                wchar_t name[40]; CodepointName(cp, name, 40);
+                if (name[0]) {
+                    SetTextColor(hdc, RGB(90, 90, 90));
+                    TextOutW(hdc, 10, 32, name, (int)wcslen(name));
+                }
+            }
 
             // 실시간 미리보기 (팝업 안에서 — 문서 range 편집 불필요)
-            unsigned cp = CurCodepoint();
             SelectObject(hdc, g_fontBig);
             if (cp) {
                 wchar_t prev[3];
@@ -61,7 +100,7 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
                     prev[0] = (wchar_t)(0xD800 + (v >> 10)); prev[1] = (wchar_t)(0xDC00 + (v & 0x3FF)); prev[2] = 0;
                 }
                 SetTextColor(hdc, RGB(0, 60, 160));
-                TextOutW(hdc, CI_W - 70, 24, prev, (int)wcslen(prev));
+                TextOutW(hdc, CI_W - 66, 20, prev, (int)wcslen(prev));
             }
             SelectObject(hdc, of);
             EndPaint(hwnd, &ps);
