@@ -174,9 +174,9 @@ STDAPI DllUnregisterServer(void);             // 등록 해제 (regsvr32 /u)
 
 | 앱 부류 | 예 | TSF 조합(밑줄 미리보기) | range 편집(넣은 글자 교체) | 단순 삽입 |
 |---|---|:---:|:---:|:---:|
-| **네이티브 TSF** | 최신 메모장, WordPad, 브라우저 | ✅ | ✅ | ✅ |
-| **CUAS EDIT 컨트롤** | AkelPad, 옛 Win32 EDIT, 카톡 | ❌ 세션 직후 잘림 | ❌ 누적됨 | ✅ |
-| **터미널(자체 렌더)** | PuTTY | ❌ | ❌ | ✅(대략) |
+| **네이티브 TSF** | TSF를 온전히 지원하는 에디터·웹 콘텐츠 컨트롤 | ✅ | ✅ | ✅ |
+| **CUAS EDIT 컨트롤** | CUAS 브리지로 접근되는 고전 Win32 EDIT·RichEdit 계열 컨트롤 | ❌ 세션 직후 잘림 | ❌ 누적됨 | ✅ |
+| **터미널(자체 렌더)** | 표준 에디트 컨트롤 없이 텍스트를 직접 그리는 앱 | ❌ | ❌ | ✅(대략) |
 
 - **네이티브 TSF**만 조합·교체가 다 된다.
 - **CUAS/터미널**은 **"커서에 삽입"만** 된다. 이미 넣은 글자를 지우거나 교체하는 건 안 된다.
@@ -390,7 +390,7 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 
 ### 8.2 CUAS 앱은 "range 편집"이 안 된다 (미리보기 불가의 진짜 이유)
 - 조합 없이 "제자리 교체"(넣은 `ㄱ`을 지우고 `가`로 바꾸기)로 미리보기를 시도 → **네이티브
-  (메모장)만 되고 CUAS EDIT 컨트롤(AkelPad)은 교체가 안 돼 `ㄱ가간가나낟...`처럼 누적.**
+  TSF 앱만 되고 CUAS EDIT 컨트롤은 교체가 안 돼 `ㄱ가간가나낟...`처럼 누적.**
 - 즉 CUAS 앱은 `ITfRange::ShiftStart`로 뒤로 확장해 `SetText`로 덮는 걸 지원하지 않는다.
   **오직 커서 위치 삽입만 된다.**
 - **∴ CUAS 앱에서 인라인 조합 미리보기는 TSF로 구조적으로 불가능하다.**
@@ -418,8 +418,8 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 필요하고, 그건 첫 입력을 망가뜨린다(orphan). jamotong은 그 orphan이 싫어 커밋 전용을 택했다.
 
 ### 8.5 시행착오 연대기 (요약)
-1. TSF 조합 인라인 → CUAS 앱(PuTTY·AkelPad)에서 매 키 종료. "CUAS 한계"로 판단.
-2. `SendInput` 유니코드 append 폴백 → PuTTY는 됐으나 EDIT 컨트롤은 합성입력이 조합처럼 덮어써짐.
+1. TSF 조합 인라인 → CUAS 앱·터미널에서 매 키 종료. "CUAS 한계"로 판단.
+2. `SendInput` 유니코드 append 폴백 → 터미널은 됐으나 EDIT 컨트롤은 합성입력이 조합처럼 덮어써짐.
 3. IMM32 IME 정식 구현 → Win11 봉쇄(§8.3).
 4. NULL-sink 사고로 "조합 없이 삽입"이 CUAS서 됨을 발견.
 5. 제자리 교체 미리보기 → CUAS는 range 편집 불가(누적, §8.2).
@@ -515,7 +515,7 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
   - 반투명은 **균일 알파**(`SetLayeredWindowAttributes`) + 일반 WM_PAINT로. 퍼픽셀 알파
     (`UpdateLayeredWindow`)는 GDI 텍스트가 알파를 안 채워 글자가 사라진다.
   - 캐럿 좌표 폴백 체인: 커밋 삽입과 **같은 편집 세션에서** `GetActiveView`→`GetTextExt` →
-    실패 시 `GetGUIThreadInfo`(시스템 캐럿; 옛 EDIT·PuTTY가 이걸 설정) → 둘 다 실패면 미리보기만 생략.
+    실패 시 `GetGUIThreadInfo`(시스템 캐럿; 옛 EDIT·상당수 터미널이 이걸 설정) → 둘 다 실패면 미리보기만 생략.
   - 입력 스레드에서 lazy 생성, 포커스 이동·Deactivate에서 숨김/파괴.
 
 ### 12.2 ★CUAS의 GetTextExt는 "성공하되 낡은 좌표"를 준다
@@ -589,14 +589,14 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 넣으려면 앱 클래스별 주입 전략과 그에 딸린 수정 묶음이 필요했다. 이 장이 그 전략과, 그것을
 낳은 사건들이다.
 
-### 13.1 ★★핵심 반전 — AkelEdit는 TSF 삽입을 hr=0으로 받고도 버린다
+### 13.1 ★★핵심 반전 — RichEdit 계열 컨트롤은 TSF 삽입을 hr=0으로 받고도 버린다
 
-- **증상**: AkelPad(에디터가 RichEdit 계열 컨트롤 *AkelEdit*)에서 한글을 치면 처음 몇 글자는
+- **증상**: **CUAS 브리지로 접근되는 RichEdit 계열 에디터 컨트롤**에서 한글을 치면 처음 몇 글자는
   되다가 어떤 음절은 **아예 안 나오고**, 같은 글자를 반복하면 **통째로 씹히고**, 4글자 단어를
-  블록 선택해 한자 변환하면 **앞 두 글자만** 교체됐다. 메모장·카톡은 정상.
+  블록 선택해 한자 변환하면 **앞 두 글자만** 교체됐다. TSF를 온전히 지원하는 네이티브 에디터는 정상.
 - **진단(로그)**: 모든 `INSERT` 줄이 `hr=0x00000000`(성공)인데 캐럿 rect가 **고정**돼 있었다
   (`CHIP raw=(14,825…)`가 세 번의 삽입 내내 그대로, adv 보정만 29→58→87). 네이티브 앱은 rect가
-  전진한다. AkelEdit는 성공을 보고하고 아무것도 안 움직였다. **삽입이 no-op였다.**
+  전진한다. 이 컨트롤은 성공을 보고하고 아무것도 안 움직였다. **삽입이 no-op였다.**
 - **원인**: `InsertTextAtSelection`은 네이티브 TSF 앱과 터미널(IMM 브리지 경유)에서는 잘 되지만,
   **일부 CUAS EDIT 컨트롤은 `S_OK`를 반환하면서 조용히 무시한다.** 분기할 에러가 없다.
 - **해법 — 앱 클래스로 주입 방법을 가른다.** EDIT 계열 컨트롤은 `EM_REPLACESEL`(EDIT 표준
@@ -604,7 +604,7 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 
 ```c
 // 포커스 컨트롤이 EDIT 계열이면 HWND, 아니면 NULL.
-// 클래스명에 "edit"가 있어야 인정 — 자체 렌더링 터미널(PuTTY)이 우연히 EM_GETSEL에 응답해도
+// 클래스명에 "edit"가 있어야 인정 — 자체 렌더링 터미널이 우연히 EM_GETSEL에 응답해도
 // 에디터로 오판하지 않게 한다(§13.3).
 HWND FocusEditWindow(void){
     GUITHREADINFO gti = { sizeof gti };
@@ -613,9 +613,9 @@ HWND FocusEditWindow(void){
     wchar_t cls[64]; int n = GetClassNameW(h, cls, 64);
     if (n<=0) return NULL;
     for (int i=0;i<n;i++) cls[i]=towlower(cls[i]);
-    if (!wcsstr(cls, L"edit")) return NULL;          // Edit / RICHEDIT50W / AkelEditW
+    if (!wcsstr(cls, L"edit")) return NULL;          // 예: Edit, RICHEDIT50W, RichEdit 계열
     CHARRANGE cr = {-2,-2};
-    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);     // RichEdit/AkelEdit가 응답
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);     // RichEdit 계열 컨트롤이 응답
     if (cr.cpMin >= 0) return h;
     DWORD s=~0u,e=~0u; SendMessageW(h, EM_GETSEL,(WPARAM)&s,(LPARAM)&e);  // 플레인 EDIT
     return (s!=~0u) ? h : NULL;
@@ -634,9 +634,9 @@ void CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
 
   | 앱 클래스 | 판정 | 확정 텍스트 주입 |
   |---|---|---|
-  | 네이티브 TSF (메모장·모던) | EDIT 클래스 아님 | `InsertTextAtSelection` (TSF 세션) |
-  | CUAS EDIT (AkelPad·플레인 EDIT·카톡) | 클래스명에 `edit` | **`EM_REPLACESEL`** |
-  | 자체 렌더링 터미널 (PuTTY) | EDIT 클래스 아님 | `InsertTextAtSelection` (IMM 브리지로 통함) |
+  | 네이티브 TSF (TSF 완전 지원 에디터) | EDIT 클래스 아님 | `InsertTextAtSelection` (TSF 세션) |
+  | CUAS EDIT (플레인 EDIT·RichEdit 계열, 브리지 경유) | 클래스명에 `edit` | **`EM_REPLACESEL`** |
+  | 자체 렌더링 터미널 (자체 렌더러) | EDIT 클래스 아님 | `InsertTextAtSelection` (IMM 브리지로 통함) |
 
 - **교훈**: "`S_OK`를 반환했다"는 "반영됐다"가 **아니다.** 한 앱 계열에서 출력이 조용히 실패하면
   API 반환값 신뢰를 멈추고 **문서·캐럿 이동을 관찰해 검증**하라 — 그리고 그 계열은 그 계열의
@@ -647,7 +647,7 @@ void CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
 - **증상**: 조합 중 Ctrl+S를 누르면 **마지막 음절 없이** 저장됐다 — 커밋 전용 엔진은 그 음절을
   FSM에만 가지고 있고 문서엔 안 넣었다.
 - **1차(오답) 수정**: OnTestKeyDown에서 조합을 eat하고 OnKeyDown에서 음절을 확정한 뒤 **키를
-  재전달**(SendInput). 실기에서 메모장에 Ctrl+C/V를 연타하니 **ㅊ, ㅍ**이 찍혔다 — 주입한
+  재전달**(SendInput). 실기에서 네이티브 에디터에 Ctrl+C/V를 연타하니 **ㅊ, ㅍ**이 찍혔다 — 주입한
   `C`/`V`가 이미 큐에 쌓인 사용자 입력(Ctrl 뗌, 다음 키) *뒤에* 붙어 **Ctrl 없이** 처리돼
   자모로 해석됐다. 합성 재전달은 이후 사용자 입력과 근본적으로 경합한다 — **모디파이어 조합에
   절대 부적합.**
@@ -675,7 +675,7 @@ if (HasCtrlAltWin()){
   다른 큐라 **순서 보장이 없다** — 지연은 순서를 못 고친다.
 - **해법**: EDIT 계열 포커스 창엔 **그 창의 메시지 큐로 키를 직접 게시**(`PostMessage`,
   WM_KEYDOWN/UP). 같은 큐 FIFO ⇒ 키가 확정 문자 *뒤에* 도착. 터미널(비-EDIT)은 SendInput 유지
-  (PuTTY 검증).
+  (자체 렌더링 터미널에서 검증).
 
 ```c
 void ResendKey(WPARAM vk, LPARAM lp){
@@ -693,8 +693,8 @@ void ResendKey(WPARAM vk, LPARAM lp){
 ### 13.4 선택 읽기·교체 — EM_EXGETSEL 사다리
 
 선택 기반 한자(§12.5)는 선택을 읽고, 단어 변환은 캐럿 앞 구간을 교체한다. 둘 다 선택 API가
-필요한데 — **AkelEdit는 고전 `EM_GETSEL`에 응답하지 않고 RichEdit의 `EM_EXGETSEL`에만 응답한다.**
-그래서 모든 선택 연산은 RichEdit 메시지를 먼저, 플레인 EDIT 메시지를 나중에 시도한다:
+필요한데 — **일부 RichEdit 계열 컨트롤은 고전 `EM_GETSEL`에 응답하지 않고 RichEdit의 `EM_EXGETSEL`에만
+응답한다.** 그래서 모든 선택 연산은 RichEdit 메시지를 먼저, 플레인 EDIT 메시지를 나중에 시도한다:
 
 - **선택 읽기**: `EM_EXGETSEL`+`EM_GETSELTEXT`(컨트롤이 선택 텍스트를 직접 복사 — 오프셋 단위
   무관) → 실패 시 `EM_GETSEL`+`WM_GETTEXT`(플레인 EDIT, 문자 오프셋). 첫 경로가 "대한민국이
@@ -713,7 +713,7 @@ else { DWORD s,e; SendMessageW(h,EM_GETSEL,(WPARAM)&s,(LPARAM)&e);
        if (s!=e) return FALSE; caret=e; rich=FALSE; }
 // [caret-span, caret] 선택 → 텍스트 검증 → EM_REPLACESEL(h, TRUE, hanja)
 ```
-- **교훈**: RichEdit 계열(AkelEdit·모던 메모장·채팅 입력창 등)은 레거시 EDIT 메시지를 무시할 수
+- **교훈**: RichEdit 계열(모던 리치텍스트 에디터·채팅 입력창 등)은 레거시 EDIT 메시지를 무시할 수
   있다 — **판정도 선택도 `EM_EXGETSEL`을 `EM_GETSEL`보다 먼저** 시도하라. 안 그러면 조용히
   깨진 경로로 폴백한다.
 
@@ -803,8 +803,9 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | 트레이 모드 아이콘 (§12.4) | `src/langbar.c` |
 | 앱 클래스별 주입 (§13.1)·EDIT 선택 연산 (§13.4) | `src/edit_session.c`의 `EditCtl_*`/`CommitText`, `text_service.c` |
 | 유령 키 자가치유 (§13.5)·리셋 진입점 (§13.7) | `src/chord.c`, `src/chord_layout.c`, `text_service.c`의 `ResetComposition` |
-| 코드포인트 입력 팝업 | `src/code_input.c` |
-| 트레이 모니터링/설정 앱 | `src/tray_app.c` |
+| 코드포인트 입력 팝업 (문자명 표시) | `src/code_input.c` |
+| 관리 앱 (`.jmt` 편집/검증/설정/TSF 없는 입력 테스트) | `src/tray_app.c` |
+| `.jmt` 로더 + 파싱 진단 (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
 | (사망) IMM32 IME 시도 | `src/imm/` |
 
 

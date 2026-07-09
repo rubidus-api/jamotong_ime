@@ -16,13 +16,15 @@ Framework) text service with no frameworks and no external libraries.
   layouts via `.jmt` files (static remap / hangul automata / chord keyboard with layers,
   tap-hold and mouse actions — see the [.jmt reference](#custom-keyboard-layouts-jmt)).
 - **Hanja conversion**: compose a syllable and press the Hanja key — or **select text
-  first, then press Hanja** (works in legacy apps too). The candidate window shows
-  meaning/reading (hunum). Reading data: ~9,525 unique characters (Unicode Unihan plus
+  first, then press Hanja** (works in legacy apps too). The candidate window shows the
+  meaning+reading (hunum), or the reading alone when a character has no hunum entry (never a
+  bare `U+XXXX`). Reading data: ~9,525 unique characters (Unicode Unihan plus
   the Supreme Court personal-name hanja set — 100% coverage of standard name hanja,
   educational-basic-hanja first ordering) + ~2,200 words + 1,784 hunum entries.
 - **Special characters**: consonant + Hanja key (Mieum = symbols, Siot = Greek,
   Jieut = Roman numerals, etc. — the familiar Korean IME convention).
-- **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live preview) → Enter.
+- **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live glyph preview and character
+  name — hunum/reading for hanja, otherwise the Unicode block) → Enter.
 - **Configurable shortcuts**: every trigger (layout switch, Hanja, Unicode input,
   settings) accepts **multiple bindings** (up to 8 per function).
 - **Manager app** (`jamotong.exe`): a normal desktop app (appears in the taskbar and Task
@@ -81,7 +83,7 @@ Default keys — every function is configurable and accepts multiple bindings
 - **Special characters**: type a single consonant (e.g. `ㅁ`, `ㅅ`, `ㅈ`) and press the
   Hanja key for the conventional symbol tables.
 - **Unicode input**: press `Ctrl+Alt+U`, type a 2–6 digit hex codepoint (live glyph
-  preview), press `Enter`.
+  preview and character name), press `Enter`.
 - **Settings window**: `Ctrl+Alt+K`, or run `jamotong.exe` (Layout ▸ Settings).
   Tabs: *Layouts* (enable/disable, reorder, add `.jmt`), *Shortcuts* (pick a function,
   then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview
@@ -97,7 +99,9 @@ All settings are stored in a plain-text INI file:
 
 (usually `C:\Users\<you>\AppData\Roaming\Jamotong\config.ini`). It is written when you
 press **Apply & Save** in the settings window and loaded whenever the IME starts in any
-app. Use *General → Export/Import* to move settings between machines; delete the file to
+app. Use *General → Export/Import* to move settings between machines — **Export also bundles
+your user `.jmt` layouts** into the file, so a single exported `.ini` carries both settings
+and custom keyboards; Import restores the layouts on the other machine. Delete the file to
 return to factory defaults. Uninstalling does not remove it.
 
 ## Custom keyboard layouts (.jmt)

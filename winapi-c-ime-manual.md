@@ -182,11 +182,11 @@ Implement `IClassFactory` in C the same way as §1.2
 
 ### 2.2 ★Apps come in three kinds, and each supports different things (the heart of this document)
 
-| App class | Examples | TSF composition (underline preview) | Range editing (replace inserted text) | Plain insertion |
+| App class | What it is | TSF composition (underline preview) | Range editing (replace inserted text) | Plain insertion |
 |---|---|:---:|:---:|:---:|
-| **Native TSF** | new Notepad, WordPad, browsers | ✅ | ✅ | ✅ |
-| **CUAS EDIT controls** | AkelPad, old Win32 EDIT, KakaoTalk | ❌ killed right after the session | ❌ accumulates | ✅ |
-| **Terminals (own renderer)** | PuTTY | ❌ | ❌ | ✅ (roughly) |
+| **Native TSF** | fully TSF-aware editors and web content controls | ✅ | ✅ | ✅ |
+| **CUAS EDIT controls** | classic Win32 EDIT and RichEdit-family controls reached via the CUAS bridge | ❌ killed right after the session | ❌ accumulates | ✅ |
+| **Terminals (own renderer)** | apps that draw their own text with no standard edit control | ❌ | ❌ | ✅ (roughly) |
 
 - Only **native TSF** apps support composition and replacement.
 - **CUAS/terminals** support **"insert at the caret" only.** You cannot delete or replace
@@ -423,7 +423,7 @@ of on-device testing.**
 
 ### 8.2 CUAS apps can't do "range editing" (the real reason preview is impossible)
 - We tried composition-less "in-place replacement" (delete the inserted `ㄱ`, write `가`)
-  → **works only in native apps (Notepad); in CUAS EDIT controls (AkelPad) the
+  → **works only in native TSF apps; in CUAS EDIT controls the
   replacement doesn't happen and text accumulates like `ㄱ가간가나낟...`.**
 - That is, CUAS apps do not support extending a range backwards with
   `ITfRange::ShiftStart` and overwriting with `SetText`. **Only insertion at the caret works.**
@@ -457,14 +457,14 @@ detection ("start a composition and watch it die"), which mangles the first keys
 
 > **Update (v0.12, see §13).** "Insertion is universal" turned out to be *almost* true.
 > `InsertTextAtSelection` works everywhere for **native TSF apps and terminals**, but some
-> CUAS EDIT controls (AkelPad's AkelEdit) accept it with `hr=0` and **silently do nothing**.
-> The final engine therefore picks the injection method **by app class** — TSF insert /
-> `EM_REPLACESEL` / `SendInput`. Read §13 before you trust a single path.
+> CUAS EDIT controls (RichEdit-family editors) accept it with `hr=0` and **silently do
+> nothing**. The final engine therefore picks the injection method **by app class** — TSF
+> insert / `EM_REPLACESEL` / `SendInput`. Read §13 before you trust a single path.
 
 ### 8.5 Chronicle of trial and error (summary)
-1. Inline TSF composition → terminated on every key in CUAS apps (PuTTY, AkelPad).
+1. Inline TSF composition → terminated on every key in CUAS apps and terminals.
    Judged "CUAS limitation."
-2. `SendInput` unicode-append fallback → worked in PuTTY, but EDIT controls overwrote
+2. `SendInput` unicode-append fallback → worked in terminals, but EDIT controls overwrote
    synthetic input as if it were composition.
 3. Proper IMM32 IME → blocked by Win11 (§8.3).
 4. The NULL-sink accident revealed that composition-less insertion works in CUAS.
@@ -575,7 +575,7 @@ fix", all verified with on-device logging (v0.9–v0.11).
     Per-pixel alpha (`UpdateLayeredWindow`) makes GDI text vanish — GDI doesn't write alpha.
   - Caret-rect fallback chain: `GetActiveView`→`GetTextExt` **inside the same edit session**
     as the commit insert → on failure `GetGUIThreadInfo` (system caret; old EDIT controls
-    and PuTTY set it) → if both fail, just skip the preview.
+    and many terminals set it) → if both fail, just skip the preview.
   - Create lazily on the input thread; hide on focus change, destroy on Deactivate.
 
 ### 12.2 ★CUAS's GetTextExt "succeeds with a stale rect"
@@ -665,15 +665,15 @@ testing (v0.12) forced a sharper conclusion: **even `InsertTextAtSelection` is n
 universal.** Getting text reliably into *every* app took a per-app-class strategy plus a
 cluster of related fixes. This chapter is that strategy and the incidents that produced it.
 
-### 13.1 ★★The core reversal — AkelEdit accepts a TSF insert with hr=0 and drops it
+### 13.1 ★★The core reversal — a RichEdit-family control accepts a TSF insert with hr=0 and drops it
 
-- **Problem**: in AkelPad (whose editor is the RichEdit-family control *AkelEdit*), typing
+- **Problem**: in a **RichEdit-family editor control reached via the CUAS bridge**, typing
   Hangul worked for the first few characters, then some syllables simply **never appeared**;
   a repeated character was **swallowed entirely**; a selected 4-char word converted to hanja
-  came out with only its **first two characters** replaced. Notepad and KakaoTalk were fine.
+  came out with only its **first two characters** replaced. Fully native TSF editors were fine.
 - **Diagnosis (from the log)**: every `INSERT` line showed `hr=0x00000000` — success — yet
   the captured caret rect **stayed frozen** (`CHIP raw=(14,825…)` across three inserts while
-  the "advance" compensation ran up 29→58→87). Native apps advance the rect; AkelEdit
+  the "advance" compensation ran up 29→58→87). Native apps advance the rect; this control
   reported success and moved nothing. **The insert was a no-op.**
 - **Cause**: `InsertTextAtSelection` is honored by native TSF apps and by terminals (via the
   IMM bridge), but **some CUAS EDIT controls silently ignore it** while returning `S_OK`.
@@ -684,7 +684,7 @@ cluster of related fixes. This chapter is that strategy and the incidents that p
 
 ```c
 // Is the focused control an EDIT-family control? Return its HWND, else NULL.
-// Require the class name to contain "edit" so a self-rendering terminal (PuTTY) that
+// Require the class name to contain "edit" so a self-rendering terminal that
 // happens to answer EM_GETSEL is not mistaken for an editor (see §13.3).
 HWND FocusEditWindow(void){
     GUITHREADINFO gti = { sizeof gti };
@@ -693,9 +693,9 @@ HWND FocusEditWindow(void){
     wchar_t cls[64]; int n = GetClassNameW(h, cls, 64);
     if (n<=0) return NULL;
     for (int i=0;i<n;i++) cls[i]=towlower(cls[i]);
-    if (!wcsstr(cls, L"edit")) return NULL;          // Edit / RICHEDIT50W / AkelEditW
+    if (!wcsstr(cls, L"edit")) return NULL;          // e.g. Edit, RICHEDIT50W, RichEdit-family
     CHARRANGE cr = {-2,-2};
-    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);     // RichEdit/AkelEdit answer this
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);     // RichEdit-family controls answer this
     if (cr.cpMin >= 0) return h;
     DWORD s=~0u,e=~0u; SendMessageW(h, EM_GETSEL,(WPARAM)&s,(LPARAM)&e);  // plain EDIT
     return (s!=~0u) ? h : NULL;
@@ -714,9 +714,9 @@ void CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
 
   | App class | Detect | Inject finalized text |
   |---|---|---|
-  | Native TSF (Notepad, modern) | not EDIT-class | `InsertTextAtSelection` (TSF session) |
-  | CUAS EDIT (AkelPad, plain EDIT, KakaoTalk) | class name has `edit` | **`EM_REPLACESEL`** |
-  | Self-rendering terminal (PuTTY) | not EDIT-class | `InsertTextAtSelection` (works via IMM bridge) |
+  | Native TSF (fully TSF-aware editor) | not EDIT-class | `InsertTextAtSelection` (TSF session) |
+  | CUAS EDIT (plain EDIT / RichEdit-family via the bridge) | class name has `edit` | **`EM_REPLACESEL`** |
+  | Self-rendering terminal (own renderer) | not EDIT-class | `InsertTextAtSelection` (works via IMM bridge) |
 
 - **Lesson**: "it returned `S_OK`" is **not** "it happened." When output silently fails in
   one app family, stop trusting the API's return and **verify by observing document/caret
@@ -728,7 +728,7 @@ void CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
   syllable** — the commit-only engine had it in the FSM, not in the document.
 - **First (wrong) fix**: eat the combo in `OnTestKeyDown`, then in `OnKeyDown` flush the
   syllable and **re-send the key** with `SendInput`. On device, hammering Ctrl+C/Ctrl+V in
-  Notepad produced **ㅊ and ㅍ** — the injected `C`/`V` landed *behind* already-queued user
+  a native editor produced **ㅊ and ㅍ** — the injected `C`/`V` landed *behind* already-queued user
   input (the Ctrl-up, the next key), so it was processed **without Ctrl** and interpreted as
   a jamo. Synthetic re-send fundamentally races subsequent user input; it is **wrong for
   modifier combos.**
@@ -759,7 +759,7 @@ if (HasCtrlAltWin()){
   guarantee** — delay does not fix ordering.
 - **Fix**: for an EDIT-family focus window, **post the key straight to that window's message
   queue** with `PostMessage(WM_KEYDOWN/WM_KEYUP)`. Same queue, FIFO ⇒ the key lands *after*
-  the committed character. Terminals (non-EDIT) keep `SendInput` (verified in PuTTY).
+  the committed character. Terminals (non-EDIT) keep `SendInput` (verified on a self-rendering terminal).
 
 ```c
 void ResendKey(WPARAM vk, LPARAM lp){
@@ -778,8 +778,8 @@ void ResendKey(WPARAM vk, LPARAM lp){
 ### 13.4 Reading and replacing a selection — the EM_EXGETSEL ladder
 
 Selection-based hanja (§12.5) reads the selection, and word conversion replaces a run before
-the caret. Both need the selection API — and **AkelEdit does not answer the classic
-`EM_GETSEL`; only the RichEdit `EM_EXGETSEL`.** So every selection op tries the RichEdit
+the caret. Both need the selection API — and **some RichEdit-family controls do not answer the
+classic `EM_GETSEL`; only the RichEdit `EM_EXGETSEL`.** So every selection op tries the RichEdit
 message first, then the plain-EDIT message:
 
 - **Read selection**: `EM_EXGETSEL`+`EM_GETSELTEXT` (the control copies the selected text
@@ -800,7 +800,7 @@ else { DWORD s,e; SendMessageW(h,EM_GETSEL,(WPARAM)&s,(LPARAM)&e);
        if (s!=e) return FALSE; caret=e; rich=FALSE; }
 // select [caret-span, caret], verify text, then EM_REPLACESEL(h, TRUE, hanja)
 ```
-- **Lesson**: RichEdit-family controls (incl. AkelEdit, modern Notepad, chat inputs) may
+- **Lesson**: RichEdit-family controls (modern rich-text editors, chat inputs) may
   ignore the legacy EDIT messages — **probe `EM_EXGETSEL` before `EM_GETSEL`** for both
   detection and selection, or you silently fall back to the broken path.
 
@@ -898,8 +898,9 @@ Rules that keep it correct:
 | Tray mode icon (§12.4) | `src/langbar.c` |
 | Per-app-class injection (§13.1), EDIT selection ops (§13.4) | `EditCtl_*` / `CommitText` in `src/edit_session.c`, `text_service.c` |
 | Ghost-key self-heal (§13.5), reset choke point (§13.7) | `src/chord.c`, `src/chord_layout.c`, `ResetComposition` in `text_service.c` |
-| Codepoint input popup | `src/code_input.c` |
-| Tray monitor / settings app | `src/tray_app.c` |
+| Codepoint input popup (with character name) | `src/code_input.c` |
+| Manager app (`.jmt` editor / validate / settings / TSF-less input test) | `src/tray_app.c` |
+| `.jmt` loaders + parse diagnostics (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |
 
 
