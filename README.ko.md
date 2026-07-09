@@ -325,6 +325,11 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립
 - 상세 설계 노트·RFC·데이터 출처 명세는 내부 저장소에서 관리 (배포 zip에는
   Unicode License 사본 등 필요한 고지가 동봉됨)
 
+**확장 정책**: 사용자 자판은 코드 없는 `.jmt` 데이터 형식(static/hangul/chord)으로 정의된다 —
+자판이 네이티브 코드를 실행하지 않는다. `src/jamotong_plugin.h`의 DLL 플러그인 인터페이스는
+**실험적·비활성**(자동 로드 안 함): TIP는 모든 호스트 프로세스에 로드되므로 거기서 서드파티
+코드를 실행하는 것은 안전하지 않다. 부활한다면 명시 설치·서명 검증·아웃오브프로세스 모델이 전제.
+
 ## 라이선스
 
 코드: [MIT License](LICENSE). 한자 독음 데이터는 Unicode Unihan DB(Unicode License v3, 배포 zip에

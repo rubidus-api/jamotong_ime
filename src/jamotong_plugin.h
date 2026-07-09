@@ -2,6 +2,23 @@
 #include <windows.h>
 #include <stdbool.h>
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠ EXPERIMENTAL / DISABLED — NOT a stable public API.
+//
+// This DLL-plugin interface (`LAYOUT_TYPE_DLL_PLUGIN`) is retained for reference
+// but is NOT loaded by the shipping product. `PluginLoader_LoadAll` deliberately
+// does NOT auto-load `plugin_*.dll`: a TIP is loaded into *every* host process
+// (Explorer, ctfmon, …), so LoadLibrary-ing an arbitrary third-party DLL and
+// calling its init there would crash the host if the plugin misbehaved (taskbar
+// gone). User keyboards are fully expressed by the code-free data format
+// (`.jmt`: static / hangul / chord), so this code-injection path stays off.
+//
+// Do NOT treat this header as a supported extension point. If native-code
+// plugins are ever revived, it must be behind explicit install, signature/hash
+// verification, privilege separation and an out-of-process model — a separate
+// RFC, not this header. See `plugin_loader.c` for the rationale.
+// ─────────────────────────────────────────────────────────────────────────────
+
 #ifdef __cplusplus
 extern "C" {
 #endif

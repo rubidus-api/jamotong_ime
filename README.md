@@ -345,6 +345,12 @@ Unicode License, install/uninstall scripts, and sample `.jmt` layouts.
 - Detailed design notes, RFCs, and data-provenance documents are maintained in an
   internal repository. The distribution zip bundles all required license notices.
 
+**Extensibility policy**: user keyboards are defined by the code-free `.jmt` data format
+(static / hangul / chord) — no native code runs from a layout. The DLL-plugin interface in
+`src/jamotong_plugin.h` is **experimental and disabled** (never auto-loaded): a TIP loads
+into every host process, so injecting third-party code there is unsafe. If revived it would
+require explicit install, signature verification and an out-of-process model.
+
 ## License
 
 Code: [MIT License](LICENSE). Hanja reading data is derived from the Unicode Unihan
