@@ -854,6 +854,33 @@ Two small structural fixes that prevented whole classes of the above:
 > uses 64). Preview is not Korean-only: a multi-key romaji sequence or a word-level preedit
 > in another language may need several characters shown at once.
 
+### 13.8 State ownership — what is process-global vs per-service, and who frees it
+
+The popup windows and dictionaries are **process-global, input-thread-only** singletons — one
+chip window, one candidate window, one dictionary per process, regardless of how many
+`CTextService` instances the process has. This is deliberate (a process shows one composition
+at a time) but the ownership rules must be explicit or you get the stuck-chip / stale-pointer
+class of bug (§13.5, §13.7). The contract jamotong uses:
+
+| State | Scope | Created | Destroyed | Notes |
+|---|---|---|---|---|
+| FSM / chord context | per `CTextService` | `Create` | `Deactivate` (`ResetComposition`) | one composition per service |
+| Preedit overlay window/font | process-global | lazily on first `Show` | `Deactivate` (`Uninitialize`) | input thread only; `Hide` reuses it |
+| Candidate window + `g_CandCtx` | process-global | first Hanja key | **`Cancel` on focus change / Deactivate** | `pic` is AddRef'd; `obj`/`targetHwnd` are raw — must be cleared on Cancel |
+| Code-input popup | process-global | first `Ctrl+Alt+U` | `Deactivate` (`Uninitialize`) | input thread only |
+| Hanja / hunum dictionaries | process-global | **first hanja use** (lazy) | process exit | shared read-only; load once |
+| Settings window (separate thread) | process-global | `SettingsUI_Show` | `Deactivate` joins the thread | edits the live config under `g_configLock` |
+
+Rules that keep it correct:
+- **One create, one destroy.** Every popup has an `Uninitialize`/`Cancel` reached from
+  `Deactivate`; a callback context that stores a raw service pointer (`g_CandCtx.obj`) **must**
+  be cleared when the popup closes, or a later callback dereferences a freed service.
+- **Input-thread affinity.** All popup windows live on the input (TIP) thread; never touch them
+  from the settings thread. Cross-thread config access is the *only* thing `g_configLock` guards.
+- **AddRef what outlives the call.** The candidate callback fires later, so its `pic` is
+  AddRef'd at show time and Released in the callback; the target `HWND` is captured then too
+  (§13.7), because focus has moved by the time the callback runs.
+
 ---
 
 ## Appendix: jamotong source map

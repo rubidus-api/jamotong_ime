@@ -760,6 +760,32 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 > 한국어 전용이 아니다: 다른 언어의 여러 키 로마자 시퀀스나 단어 단위 preedit는 한 번에 여러
 > 글자를 표시해야 할 수 있다.
 
+### 13.8 상태 소유권 — 전역 vs 서비스별, 그리고 누가 해제하나
+
+팝업 창들과 사전은 **프로세스 전역·입력 스레드 전용** 싱글턴이다 — 한 프로세스에 `CTextService`
+인스턴스가 몇 개든 칩 창 하나·후보창 하나·사전 하나. 의도적(한 프로세스는 한 번에 한 조합만
+보인다)이지만 소유권 규칙이 명시적이지 않으면 갇힌 칩·stale 포인터 부류의 버그(§13.5·§13.7)가
+난다. jamotong의 계약:
+
+| 상태 | 범위 | 생성 | 파괴 | 비고 |
+|---|---|---|---|---|
+| FSM / chord 컨텍스트 | `CTextService`별 | `Create` | `Deactivate`(`ResetComposition`) | 서비스당 조합 하나 |
+| 프리에딧 오버레이 창/글꼴 | 전역 | 첫 `Show` 시 지연 | `Deactivate`(`Uninitialize`) | 입력 스레드 전용; `Hide`는 재사용 |
+| 후보창 + `g_CandCtx` | 전역 | 첫 한자키 | **포커스 이동/Deactivate 시 `Cancel`** | `pic`는 AddRef, `obj`/`targetHwnd`는 raw — Cancel 시 반드시 클리어 |
+| 코드 입력 팝업 | 전역 | 첫 `Ctrl+Alt+U` | `Deactivate`(`Uninitialize`) | 입력 스레드 전용 |
+| 한자/훈음 사전 | 전역 | **첫 한자 사용**(지연) | 프로세스 종료 | 공유 읽기전용; 1회 로드 |
+| 설정창(별도 스레드) | 전역 | `SettingsUI_Show` | `Deactivate`가 스레드 조인 | `g_configLock` 아래 live config 편집 |
+
+정확성을 지키는 규칙:
+- **한 번 생성, 한 번 파괴.** 모든 팝업은 `Deactivate`에서 도달하는 `Uninitialize`/`Cancel`을
+  가진다. raw 서비스 포인터(`g_CandCtx.obj`)를 저장하는 콜백 컨텍스트는 팝업이 닫힐 때 **반드시**
+  클리어해야 — 안 그러면 나중 콜백이 해제된 서비스를 역참조한다.
+- **입력 스레드 친화성.** 모든 팝업 창은 입력(TIP) 스레드에 산다. 설정 스레드에서 절대 만지지
+  마라. 스레드 간 config 접근만이 `g_configLock`이 지키는 유일한 것.
+- **호출보다 오래 사는 것은 AddRef.** 후보 콜백은 나중에 발화하므로 그 `pic`을 show 시점에
+  AddRef하고 콜백에서 Release한다. 대상 `HWND`도 그 시점에 캡처한다(§13.7) — 콜백이 돌 땐 이미
+  포커스가 옮겨갔기 때문.
+
 ---
 
 ## 부록: jamotong 소스 매핑
