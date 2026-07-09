@@ -57,6 +57,14 @@ typedef struct {
 } CharIndex;
 static CharIndex g_CharIndex[65536];
 
+// 한자 → 대표 독음 역인덱스 (음절 항목에서 구축, 코드포인트 정렬 + 이진 탐색)
+typedef struct { wchar_t hanja; wchar_t reading; } ReadingEntry;
+static ReadingEntry *g_Reading = NULL;
+static int g_ReadingCount = 0;
+static int CompareReading(const void *a, const void *b) {
+    return (int)((const ReadingEntry*)a)->hanja - (int)((const ReadingEntry*)b)->hanja;
+}
+
 // 이진 탐색을 위한 정렬 비교기
 static int CompareHanjaEntry(const void *a, const void *b) {
     return wcscmp(((HanjaEntry*)a)->hangul, ((HanjaEntry*)b)->hangul);
@@ -224,15 +232,51 @@ bool HanjaDict_Load(const wchar_t *filepath) {
                 g_CharIndex[idx].count++;
             }
         }
+
+        // 한자 → 대표 독음 역인덱스: 음절 항목(hangul 1글자)에서 각 후보 한자에 그 음을 매핑.
+        //   상한 = 전체 후보 수. 첫 매핑만 유지(다음자는 대표 음 하나). 후보창 음 폴백용.
+        int cap = 0;
+        for (int i = 0; i < g_HanjaCount; i++)
+            if (g_HanjaDict[i].hangul[0] && !g_HanjaDict[i].hangul[1]) cap += g_HanjaDict[i].candidateCount;
+        g_Reading = (ReadingEntry*)Arena_Alloc(&g_Arena, (size_t)(cap > 0 ? cap : 1) * sizeof(ReadingEntry));
+        if (g_Reading) {
+            for (int i = 0; i < g_HanjaCount; i++) {
+                const HanjaEntry *e = &g_HanjaDict[i];
+                if (!e->hangul[0] || e->hangul[1]) continue;   // 음절(1글자) 항목만
+                for (int c = 0; c < e->candidateCount; c++) {
+                    const wchar_t *cand = e->candidates[c];
+                    if (cand && cand[0] && !cand[1])           // 단일 한자 후보만
+                        g_Reading[g_ReadingCount++] = (ReadingEntry){ cand[0], e->hangul[0] };
+                }
+            }
+            qsort(g_Reading, (size_t)g_ReadingCount, sizeof(ReadingEntry), CompareReading);
+            // 중복 한자(다음자) 제거 — 정렬 후 첫 항목만 유지
+            int w = 0;
+            for (int r = 0; r < g_ReadingCount; r++)
+                if (w == 0 || g_Reading[w-1].hanja != g_Reading[r].hanja) g_Reading[w++] = g_Reading[r];
+            g_ReadingCount = w;
+        }
     }
-    
+
     return true;
+}
+
+wchar_t HanjaDict_ReadingOf(wchar_t hanja) {
+    int lo = 0, hi = g_ReadingCount - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (g_Reading[mid].hanja == hanja) return g_Reading[mid].reading;
+        if (g_Reading[mid].hanja < hanja) lo = mid + 1; else hi = mid - 1;
+    }
+    return 0;
 }
 
 void HanjaDict_Free(void) {
     Arena_FreeAll(&g_Arena);
     g_HanjaDict = NULL;
     g_HanjaCount = 0;
+    g_Reading = NULL;
+    g_ReadingCount = 0;
 }
 
 bool HanjaDict_Find(const wchar_t *hangul, wchar_t ***pppCandidates, int *pCount) {

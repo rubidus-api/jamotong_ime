@@ -28,12 +28,15 @@ static void EnsureCandFont(void) {
                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
 }
 
-// i번째 후보의 표시 문자열: "N. 家  집 가" (훈음 있으면), 없으면 단일 문자는 "N. ★  U+2605".
+// i번째 후보의 표시 문자열. 단일 한자면 훈음(뜻·음) → 음만 → 코드포인트 순으로 폴백한다:
+//   훈음 있음: "N. 家  집 가" / 훈음 없고 음만: "N. 特  특" / 둘 다 없음: "N. ★  U+2605".
 static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
     const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
-    if (cand[0] && !cand[1]) {   // 단일 문자 후보 → 훈음(뜻·음) 우선, 미수록이면 코드포인트
+    if (cand[0] && !cand[1]) {   // 단일 문자 후보
         const wchar_t *hunum = HunumDict_Find(cand[0]);
-        if (hunum) swprintf(buf, cap, L"%d. %s  %s", numberInPage, cand, hunum);
+        if (hunum) { swprintf(buf, cap, L"%d. %s  %s", numberInPage, cand, hunum); return; }
+        wchar_t rd = HanjaDict_ReadingOf(cand[0]);   // 훈음 미수록 → 음(kHangul)이라도 표시
+        if (rd)    swprintf(buf, cap, L"%d. %s  %c", numberInPage, cand, rd);
         else       swprintf(buf, cap, L"%d. %s  U+%04X", numberInPage, cand, (unsigned)cand[0]);
     } else {
         swprintf(buf, cap, L"%d. %s", numberInPage, cand);

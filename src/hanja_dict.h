@@ -19,6 +19,11 @@ void HanjaDict_Free(void);
 // 찾으면 true 반환 및 ppCandidates와 pCount 설정
 bool HanjaDict_Find(const wchar_t *hangul, wchar_t ***pppCandidates, int *pCount);
 
+// 한자 → 대표 독음(음) 한 글자. 로드 시 음절 항목에서 역인덱스를 구축한다.
+// 훈음이 없는 한자도 후보창에 최소한 음은 표시하기 위함(예: 훈음 미수록 → "特 특").
+// 미수록(hanja.txt에도 없는) 한자면 0.
+wchar_t HanjaDict_ReadingOf(wchar_t hanja);
+
 // ── 훈음(뜻·음) 표 (hanja_hunum.txt, "字:훈 음" 형식) ─────────────────────────────
 bool HunumDict_Load(const wchar_t *filepath);
 void HunumDict_Free(void);
