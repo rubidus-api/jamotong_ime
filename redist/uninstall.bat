@@ -21,7 +21,7 @@ if not "%errorlevel%"=="0" (
   exit /B 1
 )
 
-REM ---- 1) Stop the tray monitor (releases jamotong.exe) ------------
+REM ---- 1) Close jamotong.exe if running (releases the exe) ---------
 taskkill /F /IM jamotong.exe >nul 2>&1
 
 REM ---- 2) Unregister TSF DLLs --------------------------------------

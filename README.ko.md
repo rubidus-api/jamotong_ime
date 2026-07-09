@@ -20,8 +20,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 - **유니코드 직접 입력**: `Ctrl+Alt+U` → 16진 코드포인트 입력(실시간 미리보기) → Enter.
 - **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기)에
   **복수 단축키**(기능당 최대 8개) 지정 가능.
-- **트레이 모니터**(`jamotong.exe`): 현재 자판을 트레이에 표시(파랑=자모통 활성,
-  회색=비활성); 좌클릭=설정, 우클릭=메뉴.
+- **관리 앱**(`jamotong.exe`): 트레이 상주가 아니라 작업 표시줄·작업 관리자에 나오는 일반 앱.
+  `.jmt` 자판 파일 열기/편집/검증, TSF 없이 입력 테스트, 설정 창 열기를 한곳에서.
 - 32/64비트 앱 모두 지원(각각의 DLL), Win11 입력 표시기 브랜딩 아이콘.
 
 ## 설치
@@ -69,7 +69,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
   **음절/단어를 블록 선택하고 한자키**를 눌러도 된다.
 - **특수문자**: 자음 하나(ㅁ, ㅅ, ㅈ 등)를 입력하고 한자키.
 - **유니코드 입력**: `Ctrl+Alt+U` → 16진 2~6자리 입력(글리프 미리보기) → `Enter`.
-- **설정 창**: `Ctrl+Alt+K`, 트레이 아이콘, 또는 `jamotong.exe` 실행.
+- **설정 창**: `Ctrl+Alt+K`, 또는 `jamotong.exe` 실행(Layout ▸ Settings).
   탭: *Layouts*(자판 켜기/끄기·순서·`.jmt` 추가), *Shortcuts*(기능 선택 후 단축키
   추가/편집/삭제), *IME Options*(전각·자소삭제·미리보기 글꼴/크기), *General*(DPI·
   Import/Export·초기화).
@@ -309,7 +309,7 @@ MinGW-w64 크로스 컴파일 (Linux에서):
 ```sh
 make            # dist/jamotong.dll (x64)
 make win32      # dist/jamotong32.dll (x86)
-make configapp  # dist/jamotong.exe (트레이 모니터링/설정 앱)
+make configapp  # dist/jamotong.exe (관리 앱: .jmt 편집/설정/입력 테스트)
 make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립트) 를 dist/에 복사
                 #  → dist/ 가 곧 설치 폴더 (install.bat 를 관리자 권한으로 실행)
 ```

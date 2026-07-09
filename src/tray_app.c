@@ -1,28 +1,27 @@
-// jamotest.c — Jamotong 자판/오토마타 독립 테스트 하네스 (TSF 없이 순수 로직 검증)
+// jamotong.exe — Jamotong 종합 관리 앱 (외부 실행 관리 도구)
 //
-// TSF(msctf) 계층을 빼고 핵심 입력 로직(config/layout/fsm/hangul_layout/chord/klay)만 링크한
-// Win32 GUI. 실제 편집 감각을 위해 멀티라인 EDIT 컨트롤에 직접 입력한다. 에디트를 서브클래스해
-// KES_OnKeyDown과 같은 자판 디스패치를 돌리고, 결과(확정/조합)를 조합 구간 치환으로 반영한다.
-//  - 조합 중 글자는 선택 하이라이트로 표시(=IME의 preedit), 다음 키에서 치환/확정된다.
-//  - 백스페이스: 조합 중이면 마지막 자모 제거, 아니면 에디트가 평범히 지움.
-//  - 자판 순환: Right Alt / 한/영(VK_HANGUL) / Shift+Space / [다음 자판] 버튼 (좌우 구분 매칭).
-//  - 영문 패스스루는 에디트가 직접 입력, 정적맵/한글FSM/모아치기는 오토마타가 처리.
-//    (CHORD/ARTSEY는 SendInput 기반 → 실제 앱에서 확인)
+// TSF(msctf) 계층 없이 핵심 입력 로직(config/layout/fsm/hangul_layout/chord/klay)만 링크한
+// 일반 Win32 창 앱. 트레이 상주가 아니라 작업 표시줄·작업 관리자에 일반 앱으로 나온다. 기능:
+//   - .jmt 자판 파일 열기/편집/저장 + 로드 검증(파서 진단 = 줄+사유 표시)
+//   - 같은 에디터가 '입력 테스트' 모드도 겸함: 자판/오토마타를 TSF 없이 직접 검증
+//   - 설정 창(자판/단축키/옵션) 열기, 정보
+// 자판 순환: Right Alt / 한/영 / Shift+Space / 메뉴 [Next layout] (테스트 모드에서).
 
 #define COBJMACROS
 #define CINTERFACE
 #include <windows.h>
-#include <msctf.h>     // 트레이 모니터링: 활성 입력기 프로파일 조회
-#include <shellapi.h>  // Shell_NotifyIconW (시스템 트레이 아이콘)
+#include <commdlg.h>   // GetOpenFileName / GetSaveFileName
 #include <imm.h>       // (구버전 IMM32 잔재 정리용 /uninstallime)
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include "config.h"
 #include "layout.h"
 #include "fsm.h"
 #include "hangul_layout.h"
 #include "chord.h"
 #include "chord_layout.h"
+#include "klay.h"      // Klay_Load + KlayDiag (레이아웃 검증)
 #include "settings_ui.h"
 #include "version.h"
 
@@ -37,16 +36,23 @@ static WNDPROC g_editOrigProc;
 static int g_compStart = 0, g_compLen = 0;   // 조합(preedit) 구간 [start, start+len)
 static int g_dpi = 96;
 #define S(x) MulDiv((x), g_dpi, 96)
-static HFONT g_uiFont = NULL;
-// 오너드로 버튼 3개 (자식 BUTTON 대신 부모 창이 직접 그리고 클릭 처리 — WM_COMMAND 라우팅 의존 제거)
-static RECT g_btnRect[3];
-static const wchar_t *g_btnLabel[3] = { L"Next layout", L"Settings", L"Clear" };
+static bool g_testMode = true;                 // true=입력 테스트(오토마타), false=.jmt 편집(raw)
+static wchar_t g_curFile[MAX_PATH] = L"";      // 현재 편집 중인 .jmt 경로 ("" = 없음)
 
-#define ID_NEXT 1001
-#define ID_SETTINGS 1002
-#define ID_CLEAR 1003
+// ── 메뉴 명령 ID ──
+#define IDM_OPEN     1101
+#define IDM_SAVE     1102
+#define IDM_SAVEAS   1103
+#define IDM_EXIT     1104
+#define IDM_CLEAR    1201
+#define IDM_SELALL   1202
+#define IDM_NEXT     1301
+#define IDM_SETTINGS 1302
+#define IDM_VALIDATE 1401
+#define IDM_TESTMODE 1402
+#define IDM_ABOUT    1501
 
-// 물리 키 vk+shift → US-QWERTY 산출 문자
+// ── QWERTY/모디파이어 헬퍼 (오토마타 테스트용) ──
 static wchar_t GetQwertyChar(WPARAM vk, bool shift) {
     if (vk >= 'A' && vk <= 'Z') return shift ? (wchar_t)vk : (wchar_t)(vk + 32);
     if (vk >= '0' && vk <= '9') { if (!shift) return (wchar_t)vk; const wchar_t s[] = L")!@#$%^&*("; return s[vk - '0']; }
@@ -82,20 +88,22 @@ static bool IsModifierOrLock(UINT vk) {
 
 static void UpdateStatus(void) {
     LayoutConfig *L = Config_GetCurrentLayout(&g_config);
-    wchar_t s[160];
-    wsprintfW(s, L"Layout: %s    (switch: Right Alt / Hangul key / Shift+Space / [Next layout])",
-              (L && L->name) ? L->name : L"?");
-    SetWindowTextW(g_hStatus, s);
-    // 창 제목에도 현재 자판명을 표시 — "다음 자판" 버튼이 동작하면 제목이 바뀌므로 클릭 도달 진단도 된다.
-    wchar_t t[128];
-    wsprintfW(t, L"Jamotong Input Test - [%s]", (L && L->name) ? L->name : L"?");
+    const wchar_t *fname = g_curFile[0] ? (wcsrchr(g_curFile, L'\\') ? wcsrchr(g_curFile, L'\\') + 1 : g_curFile) : L"(none)";
+    wchar_t s[256];
+    if (g_testMode)
+        wsprintfW(s, L"Mode: INPUT TEST  |  Layout: %ls  (switch: Right Alt / Hangul / Shift+Space)",
+                  (L && L->name) ? L->name : L"?");
+    else
+        wsprintfW(s, L"Mode: EDIT .jmt  |  File: %ls  (Tools ▸ Validate to check, Tools ▸ Test input to type)", fname);
+    if (g_hStatus) SetWindowTextW(g_hStatus, s);
+    wchar_t t[160];
+    wsprintfW(t, L"Jamotong Manager%ls%ls", g_curFile[0] ? L" — " : L"", g_curFile[0] ? fname : L"");
     if (g_hMain) SetWindowTextW(g_hMain, t);
 }
 
 static void ResetComp(void) { g_compLen = 0; }
 
-// 자모 결과를 에디트에 반영: 조합 구간을 (commit+preedit)로 치환, 새 조합 구간=preedit(선택 하이라이트).
-// preedit==0 이면 조합 구간을 지운다(백스페이스로 비움에도 재사용).
+// 자모 결과를 에디트에 반영: 조합 구간을 (commit+preedit)로 치환, 새 조합 구간=preedit(하이라이트).
 static void ApplyResult(wchar_t commit, wchar_t preedit) {
     wchar_t rep[4]; int n = 0;
     if (commit) rep[n++] = commit;
@@ -110,20 +118,18 @@ static void ApplyResult(wchar_t commit, wchar_t preedit) {
     SendMessageW(g_hEdit, EM_REPLACESEL, TRUE, (LPARAM)rep);
     g_compStart += (commit ? 1 : 0);
     g_compLen = preedit ? 1 : 0;
-    if (g_compLen > 0) SendMessageW(g_hEdit, EM_SETSEL, g_compStart, g_compStart + g_compLen); // 조합 하이라이트
+    if (g_compLen > 0) SendMessageW(g_hEdit, EM_SETSEL, g_compStart, g_compStart + g_compLen);
     else { int c = g_compStart; SendMessageW(g_hEdit, EM_SETSEL, c, c); }
 }
 
-// 키다운 처리. true=우리가 소비(에디트 기본처리 생략), false=에디트에 위임(패스스루·스페이스 등).
+// 키다운 처리(테스트 모드). true=소비(에디트 기본처리 생략), false=에디트에 위임.
 static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
     UINT rvk = Config_ResolveVK(vk, lParam);
     if (Config_IsShortcut(&g_config, SC_FN_ROTATE, rvk, Config_CurrentMods())) {
-        ResetComp();   // 조합은 이미 텍스트에 있으므로 확정 처리만
-        Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+        ResetComp(); Fsm_Init(&g_fsm); Chord_Init(&g_chord);
         Config_RotateLayout(&g_config); UpdateStatus();
         return true;
     }
-    // Ctrl/Alt/Win 조합(Ctrl+A/C/V 등 앱 단축키)은 소비하지 않고 에디트에 위임. 조합 중이면 먼저 확정.
     if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
         (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000)) {
         if (g_fsm.state != STATE_EMPTY) { ApplyResult(Fsm_Flush(&g_fsm), 0); ResetComp(); }
@@ -136,7 +142,7 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
     switch (L->type) {
         case LAYOUT_TYPE_PASSTHROUGH:
             ResetComp();
-            return false;                       // 에디트가 직접 입력(WM_CHAR)
+            return false;
         case LAYOUT_TYPE_STATIC_MAP: {
             wchar_t qc = GetQwertyChar(vk, shift);
             if (qc > 0 && qc < 256 && L->charMap[qc]) { ApplyResult(L->charMap[qc], 0); ResetComp(); return true; }
@@ -156,7 +162,7 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
             if (vk == VK_BACK) {
                 if (g_fsm.state != STATE_EMPTY) { wchar_t pe = 0; Fsm_Backspace(&g_fsm, &pe); ApplyResult(0, pe); return true; }
                 ResetComp();
-                return false;                   // 조합 없음 → 에디트가 지움
+                return false;
             }
             wchar_t kc = GetQwertyChar(vk, shift);
             LayoutResult lr = { JAMO_NONE, 0 };
@@ -166,11 +172,10 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
                 ApplyResult(r.commitChar, r.preeditChar);
                 return true;
             }
-            // 비자모 키: 모디파이어가 아니면 조합 확정(부분 상태도 Fsm_Flush로 올바르게) 후 에디트에 위임
             if (!IsModifierOrLock(vk) && g_fsm.state != STATE_EMPTY) {
                 ApplyResult(Fsm_Flush(&g_fsm), 0); ResetComp();
             }
-            return false;   // 에디트가 스페이스/기호/방향키 입력·이동 처리
+            return false;
         }
         case LAYOUT_TYPE_CHORD:
             return false;   // ARTSEY류 SendInput 기반 — 하네스 미지원
@@ -180,18 +185,16 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
 }
 
 static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN) {
-        // 소비한 키는 WM_CHAR를 아예 만들지 않는다(이중 입력 원천 차단, 플래그 경쟁 없음).
-        // 소비하지 않은 키(패스스루·스페이스·기호)만 이 자리에서 WM_CHAR로 번역해 에디트가 입력.
+    // .jmt 편집 모드에서는 오토마타를 끄고 일반 텍스트 편집(raw)만 한다.
+    if (g_testMode && (m == WM_KEYDOWN || m == WM_SYSKEYDOWN)) {
         if (AutomataKeyDown((UINT)w, l)) return 0;
-        // 클래식 EDIT은 Ctrl+A(전체선택)를 기본 지원하지 않으므로 직접 처리 (C/V/X/Z는 내장)
         if ((UINT)w == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) {
             SendMessageW(h, EM_SETSEL, 0, (LPARAM)-1);
             return 0;
         }
         MSG mm = { h, m, w, l, 0, { 0, 0 } };
         TranslateMessage(&mm);
-    } else if (m == WM_KEYUP || m == WM_SYSKEYUP) {
+    } else if (g_testMode && (m == WM_KEYUP || m == WM_SYSKEYUP)) {
         LayoutConfig *L = Config_GetCurrentLayout(&g_config);
         if (L && (L->type == LAYOUT_TYPE_KOREAN_FSM || L->type == LAYOUT_TYPE_HANGUL_CUSTOM)) {
             const HangulLayout *hl = (const HangulLayout*)L->pHangulLayout;
@@ -206,57 +209,200 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 static void Relayout(void) {
+    if (!g_hMain) return;
     RECT rc; GetClientRect(g_hMain, &rc);
-    MoveWindow(g_hStatus, S(12), S(44), rc.right - S(24), S(24), TRUE);
-    MoveWindow(g_hEdit, S(12), S(74), rc.right - S(24), rc.bottom - S(86), TRUE);
+    MoveWindow(g_hStatus, S(10), S(8), rc.right - S(20), S(22), TRUE);
+    MoveWindow(g_hEdit, S(10), S(36), rc.right - S(20), rc.bottom - S(46), TRUE);
 }
 
-static void InitButtons(void) {
-    int x = S(12), y = S(8), ht = S(32);
-    int w[3] = { S(170), S(150), S(90) };
-    for (int i = 0; i < 3; i++) { SetRect(&g_btnRect[i], x, y, x + w[i], y + ht); x += w[i] + S(8); }
+// ── 파일 IO (UTF-8 ↔ wide) ──
+static bool ReadFileUtf8(const wchar_t *path, wchar_t **outText) {
+    *outText = NULL;
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    DWORD sz = GetFileSize(f, NULL);
+    if (sz == INVALID_FILE_SIZE || sz > 8 * 1024 * 1024) { CloseHandle(f); return false; }
+    char *raw = (char*)malloc(sz + 1); if (!raw) { CloseHandle(f); return false; }
+    DWORD rd = 0; ReadFile(f, raw, sz, &rd, NULL); CloseHandle(f); raw[rd] = '\0';
+    char *p = raw; int n = (int)rd;
+    if (n >= 3 && (unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBB && (unsigned char)p[2] == 0xBF) { p += 3; n -= 3; }
+    int wl = MultiByteToWideChar(CP_UTF8, 0, p, n, NULL, 0);
+    wchar_t *w = (wchar_t*)malloc(((size_t)wl + 1) * sizeof(wchar_t));
+    if (w) { MultiByteToWideChar(CP_UTF8, 0, p, n, w, wl); w[wl] = L'\0'; }
+    free(raw);
+    if (!w) return false;
+    // EDIT 컨트롤은 \n을 줄바꿈으로 안 그림 — \r\n 정규화는 EM_SETTEXT가 알아서 하지만
+    // 안전하게 로드 텍스트의 홑 \n을 그대로 두고, 에디트가 표시. (대부분 .jmt는 \n)
+    *outText = w;
+    return true;
 }
 
-static void DoCommand(int idx) {
-    switch (idx) {
-        case 0: ResetComp(); Fsm_Init(&g_fsm); Chord_Init(&g_chord); Config_RotateLayout(&g_config); UpdateStatus(); break;
-        case 1: SettingsUI_Show(&g_config); break;
-        case 2: SetWindowTextW(g_hEdit, L""); ResetComp(); Fsm_Init(&g_fsm); Chord_Init(&g_chord); break;
+static bool WriteFileUtf8FromEdit(const wchar_t *path) {
+    int len = GetWindowTextLengthW(g_hEdit);
+    wchar_t *w = (wchar_t*)malloc(((size_t)len + 1) * sizeof(wchar_t));
+    if (!w) return false;
+    GetWindowTextW(g_hEdit, w, len + 1);
+    // EDIT은 줄바꿈을 \r\n으로 준다 — 파일엔 \n만 남기도록 정규화(.jmt는 LF 기준).
+    int u8 = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char *buf = (char*)malloc(u8 > 0 ? u8 : 1);
+    if (!buf) { free(w); return false; }
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, buf, u8, NULL, NULL);
+    free(w);
+    // \r\n → \n
+    int wn = 0; for (int i = 0; buf[i]; i++) if (buf[i] != '\r') buf[wn++] = buf[i];
+    HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) { free(buf); return false; }
+    DWORD wr = 0; WriteFile(f, buf, (DWORD)wn, &wr, NULL); CloseHandle(f);
+    free(buf);
+    return true;
+}
+
+static void SetEditText(const wchar_t *text) {
+    g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+    SetWindowTextW(g_hEdit, text ? text : L"");
+}
+
+static bool BrowseFile(bool save, wchar_t *path, int cch) {
+    OPENFILENAMEW ofn = {0};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hMain;
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = cch;
+    ofn.lpstrFilter = L"Jamotong Layout (*.jmt)\0*.jmt\0All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt = L"jmt";
+    ofn.Flags = save ? OFN_OVERWRITEPROMPT : (OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST);
+    return save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
+}
+
+static void SetTestMode(bool on) {
+    g_testMode = on;
+    HMENU menu = GetMenu(g_hMain);
+    if (menu) CheckMenuItem(menu, IDM_TESTMODE, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
+    g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+    UpdateStatus();
+    SetFocus(g_hEdit);
+}
+
+// 현재 에디터 내용을 임시 .jmt로 저장 후 Klay_Load 로 검증 — 파서 진단(줄+사유) 표시.
+static void ValidateCurrent(void) {
+    wchar_t tmpDir[MAX_PATH], tmp[MAX_PATH];
+    if (!GetTempPathW(MAX_PATH, tmpDir)) { MessageBoxW(g_hMain, L"No temp path.", L"Validate", MB_ICONERROR); return; }
+    _snwprintf(tmp, MAX_PATH, L"%lsjamotong_validate.jmt", tmpDir);
+    if (!WriteFileUtf8FromEdit(tmp)) { MessageBoxW(g_hMain, L"Could not write a temporary file.", L"Validate", MB_ICONERROR); return; }
+    LayoutConfig lc; memset(&lc, 0, sizeof(lc));
+    KlayDiag diag = {0};
+    bool ok = Klay_Load(tmp, &lc, &diag);
+    DeleteFileW(tmp);
+    if (ok) {
+        const wchar_t *type = lc.type == LAYOUT_TYPE_STATIC_MAP ? L"static"
+                            : lc.type == LAYOUT_TYPE_CHORD ? L"chord" : L"hangul";
+        wchar_t msg[256];
+        _snwprintf(msg, 256, L"OK — loads as a valid %ls layout.\nName: %ls",
+                   type, lc.name ? lc.name : L"?");
+        Config_FreeLayoutResources(&lc);
+        MessageBoxW(g_hMain, msg, L"Validate — OK", MB_ICONINFORMATION);
+    } else {
+        wchar_t msg[320];
+        if (diag.line > 0) _snwprintf(msg, 320, L"Invalid layout.\n\nLine %d: %ls", diag.line, diag.message);
+        else _snwprintf(msg, 320, L"Invalid layout.\n\n%ls", diag.message[0] ? diag.message : L"empty or unreadable");
+        MessageBoxW(g_hMain, msg, L"Validate — error", MB_ICONERROR);
     }
     SetFocus(g_hEdit);
-    InvalidateRect(g_hMain, NULL, FALSE);
+}
+
+static void ShowAbout(void) {
+    wchar_t msg[512];
+    _snwprintf(msg, 512,
+        L"Jamotong Manager\nVersion %ls\n\n"
+        L"Pure C23 + WinAPI Korean IME (TSF).\n"
+        L"Author: %ls\n%ls\n\n"
+        L"This app manages layouts and settings, edits/validates .jmt files, "
+        L"and tests input without TSF.",
+        JAMOTONG_VERSION, JAMOTONG_AUTHOR, JAMOTONG_HOMEPAGE);
+    MessageBoxW(g_hMain, msg, L"About Jamotong", MB_ICONINFORMATION);
+}
+
+static void DoOpen(void) {
+    wchar_t path[MAX_PATH] = L"";
+    if (!BrowseFile(false, path, MAX_PATH)) return;
+    wchar_t *text = NULL;
+    if (!ReadFileUtf8(path, &text)) { MessageBoxW(g_hMain, L"Could not read the file.", L"Open", MB_ICONERROR); return; }
+    SetEditText(text); free(text);
+    wcsncpy(g_curFile, path, MAX_PATH - 1); g_curFile[MAX_PATH - 1] = L'\0';
+    SetTestMode(false);   // 파일을 열면 편집 모드로
+}
+
+static void DoSave(bool saveAs) {
+    wchar_t path[MAX_PATH];
+    if (saveAs || !g_curFile[0]) {
+        path[0] = L'\0';
+        if (g_curFile[0]) wcsncpy(path, g_curFile, MAX_PATH - 1);
+        if (!BrowseFile(true, path, MAX_PATH)) return;
+    } else {
+        wcsncpy(path, g_curFile, MAX_PATH - 1); path[MAX_PATH - 1] = L'\0';
+    }
+    if (!WriteFileUtf8FromEdit(path)) { MessageBoxW(g_hMain, L"Could not save the file.", L"Save", MB_ICONERROR); return; }
+    wcsncpy(g_curFile, path, MAX_PATH - 1); g_curFile[MAX_PATH - 1] = L'\0';
+    UpdateStatus();
+}
+
+static void OnCommand(int id) {
+    switch (id) {
+        case IDM_OPEN:     DoOpen(); break;
+        case IDM_SAVE:     DoSave(false); break;
+        case IDM_SAVEAS:   DoSave(true); break;
+        case IDM_EXIT:     DestroyWindow(g_hMain); break;
+        case IDM_CLEAR:    SetEditText(L""); g_curFile[0] = L'\0'; UpdateStatus(); break;
+        case IDM_SELALL:   SendMessageW(g_hEdit, EM_SETSEL, 0, (LPARAM)-1); break;
+        case IDM_NEXT:     ResetComp(); Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+                           Config_RotateLayout(&g_config); UpdateStatus(); break;
+        case IDM_SETTINGS: SettingsUI_Show(&g_config); break;
+        case IDM_VALIDATE: ValidateCurrent(); break;
+        case IDM_TESTMODE: SetTestMode(!g_testMode); break;
+        case IDM_ABOUT:    ShowAbout(); break;
+    }
+    if (id != IDM_SETTINGS && id != IDM_ABOUT && id != IDM_VALIDATE) SetFocus(g_hEdit);
+}
+
+static HMENU BuildMenu(void) {
+    HMENU bar = CreateMenu();
+    HMENU file = CreatePopupMenu(), edit = CreatePopupMenu(),
+          lay = CreatePopupMenu(), tools = CreatePopupMenu(), help = CreatePopupMenu();
+    AppendMenuW(file, MF_STRING, IDM_OPEN,   L"&Open .jmt...\tCtrl+O");
+    AppendMenuW(file, MF_STRING, IDM_SAVE,   L"&Save\tCtrl+S");
+    AppendMenuW(file, MF_STRING, IDM_SAVEAS, L"Save &As...");
+    AppendMenuW(file, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(file, MF_STRING, IDM_EXIT,   L"E&xit");
+    AppendMenuW(edit, MF_STRING, IDM_SELALL, L"Select &All\tCtrl+A");
+    AppendMenuW(edit, MF_STRING, IDM_CLEAR,  L"&Clear");
+    AppendMenuW(lay,  MF_STRING, IDM_NEXT,     L"&Next layout");
+    AppendMenuW(lay,  MF_STRING, IDM_SETTINGS, L"&Settings...");
+    AppendMenuW(tools, MF_STRING, IDM_VALIDATE, L"&Validate layout");
+    AppendMenuW(tools, MF_STRING | MF_CHECKED, IDM_TESTMODE, L"&Test input (type Hangul)");
+    AppendMenuW(help, MF_STRING, IDM_ABOUT,  L"&About...");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)file,  L"&File");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)edit,  L"&Edit");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)lay,   L"&Layout");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)tools, L"&Tools");
+    AppendMenuW(bar, MF_POPUP, (UINT_PTR)help,  L"&Help");
+    return bar;
 }
 
 static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-        case WM_LBUTTONDOWN: {
-            POINT pt = { (short)LOWORD(l), (short)HIWORD(l) };
-            for (int i = 0; i < 3; i++) if (PtInRect(&g_btnRect[i], pt)) { DoCommand(i); break; }
-            return 0;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps; HDC hdc = BeginPaint(h, &ps);
-            HFONT of = (HFONT)SelectObject(hdc, g_uiFont ? g_uiFont : (HFONT)GetStockObject(DEFAULT_GUI_FONT));
-            SetBkMode(hdc, TRANSPARENT);
-            for (int i = 0; i < 3; i++) {
-                DrawFrameControl(hdc, &g_btnRect[i], DFC_BUTTON, DFCS_BUTTONPUSH);   // 네이티브 푸시버튼 모양
-                DrawTextW(hdc, g_btnLabel[i], -1, &g_btnRect[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            }
-            SelectObject(hdc, of);
-            EndPaint(h, &ps);
-            return 0;
-        }
-        case WM_SIZE: Relayout(); return 0;
+        case WM_COMMAND:
+            if (HIWORD(w) == 0) { OnCommand(LOWORD(w)); return 0; }   // 메뉴/액셀
+            break;
+        case WM_SIZE:     Relayout(); return 0;
         case WM_SETFOCUS: SetFocus(g_hEdit); return 0;
-        case WM_DESTROY: g_hMain = NULL; return 0;   // 에디터만 닫힘 — 앱 종료는 트레이 메뉴 '종료'
+        case WM_DESTROY:  g_hMain = NULL; PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(h, m, w, l);
 }
 
-// ── 구버전 IMM32 IME(.ime) 잔재 정리 (jamotong.exe /uninstallime — uninstall.bat이 호출) ──
-//   IMM32 경로는 폐기됨(Win11 봉쇄). 과거 버전이 설치했던 레지스트리/파일만 조용히 제거한다.
 static int UninstallIme(void) {
-    // Keyboard Layouts 에서 IME File==jamotong.ime 인 KLID 제거 + 파일 삭제.
+    // Keyboard Layouts 에서 IME File==jamotong.ime 인 KLID 제거 + 파일 삭제 (구버전 IMM32 잔재).
     HKEY hRoot;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts",
                       0, KEY_READ, &hRoot) == ERROR_SUCCESS) {
@@ -277,231 +423,7 @@ static int UninstallIme(void) {
     wchar_t sys[MAX_PATH], p[MAX_PATH];
     GetSystemDirectoryW(sys, MAX_PATH); _snwprintf(p, MAX_PATH, L"%ls\\jamotong.ime", sys); DeleteFileW(p);
     if (GetSystemWow64DirectoryW(sys, MAX_PATH)) { _snwprintf(p, MAX_PATH, L"%ls\\jamotong.ime", sys); DeleteFileW(p); }
-    return 0;   // 조용히 완료 — uninstall.bat의 구버전 잔재 정리 단계에서 호출됨
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 시스템 트레이 모니터링 (기본 실행 모드)
-//   - 자모통 IME 활성 여부(TSF 프로파일 조회) + 현재 자판(HKCU\Software\Jamotong, DLL이 발행)을
-//     1.5초 폴링해 자판 축약명을 트레이 아이콘으로 표시.
-//   - 좌클릭=설정창, 우클릭=메뉴(설정/입력 테스트/정보/종료).
-// ─────────────────────────────────────────────────────────────────────────────
-#define WM_TRAYICON   (WM_APP + 1)
-#define TRAY_TIMER_ID 1
-#define IDM_TRAY_SETTINGS 101
-#define IDM_TRAY_EDITOR   102
-#define IDM_TRAY_ABOUT    103
-#define IDM_TRAY_EXIT     104
-
-static const CLSID kCLSID_Jamotong =   // DLL의 CLSID (활성 프로파일 판별용)
-{ 0xc471bcf2, 0x343f, 0x4187, { 0xa1, 0x03, 0x24, 0x15, 0x1c, 0x3e, 0x20, 0xb9 } };
-
-static HWND    g_hTray = NULL;
-static NOTIFYICONDATAW g_nid;
-static bool    g_trayAdded = false;
-static bool    g_imeActive = false;
-static wchar_t g_trayAbbrev[8] = L"?";
-static int     g_editorShow = SW_SHOW;   // ShowEditorWindow용 (wWinMain의 show 보관)
-
-// 자판 축약명(1~4글자)을 2x2 격자로 렌더한 트레이 아이콘. active=파란 배지, 비활성=회색.
-// (langbar.c CreateAbbrevIcon과 같은 기법 — exe엔 langbar 미링크라 독립 구현)
-static HICON MakeTrayIcon(const wchar_t *text, bool active) {
-    int len = (int)wcslen(text); if (len < 1) { text = L"?"; len = 1; }
-    if (len > 4) len = 4;
-    int sz = 32, half = 16;   // 셸이 트레이 크기(16/24)로 축소
-    RECT cell[4]; int fontH;
-    if (len == 1)      { SetRect(&cell[0], 0, 0, sz, sz); fontH = 26; }
-    else if (len == 2) { SetRect(&cell[0], 0, 0, half, sz); SetRect(&cell[1], half, 0, sz, sz); fontH = 15; }
-    else if (len == 3) { SetRect(&cell[0], 0, 0, half, half); SetRect(&cell[1], half, 0, sz, half);
-                         SetRect(&cell[2], 8, half, 8 + half, sz); fontH = 15; }
-    else               { SetRect(&cell[0], 0, 0, half, half); SetRect(&cell[1], half, 0, sz, half);
-                         SetRect(&cell[2], 0, half, half, sz); SetRect(&cell[3], half, half, sz, sz); fontH = 15; }
-
-    HDC scr = GetDC(NULL);
-    if (!scr) return NULL;
-    HDC hdc = CreateCompatibleDC(scr);
-    HBITMAP bmC = CreateCompatibleBitmap(scr, sz, sz);
-    HBITMAP bmM = CreateBitmap(sz, sz, 1, 1, NULL);
-    HICON icon = NULL;
-    if (hdc && bmC && bmM) {
-        HGDIOBJ ob = SelectObject(hdc, bmC);
-        RECT full = { 0, 0, sz, sz };
-        HBRUSH bg = CreateSolidBrush(active ? RGB(0, 92, 200) : RGB(120, 120, 120));
-        FillRect(hdc, &full, bg); DeleteObject(bg);
-        SetBkMode(hdc, TRANSPARENT); SetTextColor(hdc, RGB(255, 255, 255));
-        HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                               DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
-        HGDIOBJ of = SelectObject(hdc, hf);
-        for (int i = 0; i < len; i++)
-            DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
-        SelectObject(hdc, of); DeleteObject(hf);
-        SelectObject(hdc, ob);
-        HDC hdcM = CreateCompatibleDC(scr);
-        if (hdcM) {
-            HGDIOBJ om = SelectObject(hdcM, bmM);
-            PatBlt(hdcM, 0, 0, sz, sz, BLACKNESS);
-            SelectObject(hdcM, om); DeleteDC(hdcM);
-            ICONINFO ii = { 0 }; ii.fIcon = TRUE; ii.hbmColor = bmC; ii.hbmMask = bmM;
-            icon = CreateIconIndirect(&ii);
-        }
-    }
-    if (bmC) DeleteObject(bmC);
-    if (bmM) DeleteObject(bmM);
-    if (hdc) DeleteDC(hdc);
-    ReleaseDC(NULL, scr);
-    return icon;
-}
-
-// 자모통이 현재 활성 입력기인가 (TSF 활성 프로파일 조회)
-static bool QueryImeActive(void) {
-    bool active = false;
-    ITfInputProcessorProfiles *pp = NULL;
-    if (SUCCEEDED(CoCreateInstance(&CLSID_TF_InputProcessorProfiles, NULL, CLSCTX_INPROC_SERVER,
-                                   &IID_ITfInputProcessorProfiles, (void**)&pp)) && pp) {
-        LANGID lid = 0; GUID prof;
-        if (pp->lpVtbl->GetActiveLanguageProfile(pp, &kCLSID_Jamotong, &lid, &prof) == S_OK)
-            active = true;
-        pp->lpVtbl->Release(pp);
-    }
-    return active;
-}
-
-// DLL이 발행한 현재 자판 축약명 읽기 (HKCU\Software\Jamotong\CurrentAbbrev)
-static void ReadPublishedAbbrev(wchar_t *out, int cch) {
-    lstrcpynW(out, L"?", cch);
-    HKEY hk;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
-        wchar_t buf[16]; DWORD sz = sizeof(buf), type = 0;
-        if (RegQueryValueExW(hk, L"CurrentAbbrev", NULL, &type, (BYTE*)buf, &sz) == ERROR_SUCCESS
-            && type == REG_SZ && sz >= sizeof(wchar_t)) {
-            buf[15] = L'\0';
-            lstrcpynW(out, buf, cch);
-        }
-        RegCloseKey(hk);
-    }
-}
-
-// 상태 폴링 → 변화 시 아이콘/툴팁 갱신
-static void TrayPoll(bool force) {
-    bool act = QueryImeActive();
-    wchar_t ab[8]; ReadPublishedAbbrev(ab, 8);
-    if (!force && act == g_imeActive && wcscmp(ab, g_trayAbbrev) == 0) return;
-    g_imeActive = act;
-    lstrcpynW(g_trayAbbrev, ab, 8);
-
-    HICON icon = MakeTrayIcon(g_trayAbbrev, g_imeActive);
-    if (!icon) return;
-    HICON old = g_nid.hIcon;
-    g_nid.hIcon = icon;
-    swprintf(g_nid.szTip, 128, L"Jamotong: %ls (%ls)",
-             g_imeActive ? L"active" : L"inactive", g_trayAbbrev);
-    Shell_NotifyIconW(g_trayAdded ? NIM_MODIFY : NIM_ADD, &g_nid);
-    g_trayAdded = true;
-    if (old) DestroyIcon(old);
-}
-
-static void ShowEditorWindow(void);   // 아래 정의
-
-static void ShowAbout(HWND owner) {
-    wchar_t msg[512];
-    swprintf(msg, 512,
-        L"Jamotong IME  %ls\n\n"
-        L"Korean IME for Windows in pure C23 + WinAPI (TSF).\n"
-        L"Author: %ls\n"
-        L"Homepage: %ls\n\n"
-        L"Tray icon = current layout (blue = active, gray = inactive)",
-        JAMOTONG_VERSION, JAMOTONG_AUTHOR, JAMOTONG_HOMEPAGE);
-    MessageBoxW(owner, msg, L"About Jamotong IME", MB_OK | MB_ICONINFORMATION);
-}
-
-static LRESULT CALLBACK TrayWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    switch (m) {
-        case WM_TRAYICON:
-            if (LOWORD(l) == WM_LBUTTONUP) {          // 좌클릭 = 설정창
-                SettingsUI_Show(&g_config);
-            } else if (LOWORD(l) == WM_RBUTTONUP) {   // 우클릭 = 메뉴
-                HMENU menu = CreatePopupMenu();
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_SETTINGS, L"&Settings...");
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_EDITOR,   L"Input &Test");
-                AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_ABOUT,    L"&About...");
-                AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT,     L"E&xit");
-                POINT pt; GetCursorPos(&pt);
-                SetForegroundWindow(h);   // 메뉴 밖 클릭 시 자동 닫힘 보장 (MSDN 관례)
-                int cmd = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-                                         pt.x, pt.y, 0, h, NULL);
-                DestroyMenu(menu);
-                switch (cmd) {
-                    case IDM_TRAY_SETTINGS: SettingsUI_Show(&g_config); break;
-                    case IDM_TRAY_EDITOR:   ShowEditorWindow(); break;
-                    case IDM_TRAY_ABOUT:    ShowAbout(h); break;
-                    case IDM_TRAY_EXIT:     DestroyWindow(h); break;
-                }
-            }
-            return 0;
-        case WM_TIMER:
-            if (w == TRAY_TIMER_ID) TrayPoll(false);
-            return 0;
-        case WM_DESTROY:
-            KillTimer(h, TRAY_TIMER_ID);
-            if (g_trayAdded) { Shell_NotifyIconW(NIM_DELETE, &g_nid); g_trayAdded = false; }
-            if (g_nid.hIcon) { DestroyIcon(g_nid.hIcon); g_nid.hIcon = NULL; }
-            PostQuitMessage(0);
-            return 0;
-    }
-    return DefWindowProcW(h, m, w, l);
-}
-
-// 입력 테스트(자판 검증) 에디터 창 — 트레이 메뉴에서 연다. 닫아도 앱은 트레이에 상주.
-static void ShowEditorWindow(void) {
-    if (g_hMain) { ShowWindow(g_hMain, SW_SHOW); SetForegroundWindow(g_hMain); return; }
-
-    UINT (WINAPI *pGetDpi)(HWND) = (void*)GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow");
-
-    static bool s_reg = false;
-    if (!s_reg) {
-        WNDCLASSW wc = {0};
-        wc.lpfnWndProc = WndProc;
-        wc.hInstance = g_hInst;
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-        wc.lpszClassName = L"JamotestMain";
-        RegisterClassW(&wc); s_reg = true;
-    }
-
-    g_hMain = CreateWindowW(L"JamotestMain", L"Jamotong Input Test",
-                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                            760, 520, NULL, NULL, g_hInst, NULL);
-    if (!g_hMain) return;
-    if (pGetDpi) g_dpi = (int)pGetDpi(g_hMain);
-    SetWindowPos(g_hMain, NULL, 0, 0, S(760), S(520), SWP_NOMOVE | SWP_NOZORDER);
-
-    static HFONT s_font = NULL, s_editFont = NULL;   // 재오픈 시 재사용 (핸들 누수 방지)
-    if (!s_font)
-        s_font = CreateFontW(-S(16), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    if (!s_editFont)
-        s_editFont = CreateFontW(-S(24), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
-                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                 DEFAULT_PITCH | FF_DONTCARE, L"Malgun Gothic");
-    g_uiFont = s_font;
-    InitButtons();
-
-    g_hStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP,
-                              S(12), S(44), S(700), S(24), g_hMain, NULL, g_hInst, NULL);
-    g_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                              WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
-                              S(12), S(74), S(720), S(400), g_hMain, NULL, g_hInst, NULL);
-    SendMessageW(g_hStatus, WM_SETFONT, (WPARAM)s_font, TRUE);
-    SendMessageW(g_hEdit, WM_SETFONT, (WPARAM)s_editFont, TRUE);
-    g_editOrigProc = (WNDPROC)SetWindowLongPtrW(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditProc);
-
-    UpdateStatus();
-    Relayout();
-    SetFocus(g_hEdit);
-    ShowWindow(g_hMain, g_editorShow);
+    return 0;
 }
 
 int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
@@ -509,12 +431,10 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     g_hInst = hI;
     if (cmd && wcsstr(cmd, L"/uninstallime")) return UninstallIme();   // 구버전 IMM32 잔재 정리 전용
 
-    // DPI 인식 (Per-Monitor V2)
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     BOOL (WINAPI *pSetCtx)(HANDLE) = (void*)GetProcAddress(u32, "SetProcessDpiAwarenessContext");
-    if (pSetCtx) pSetCtx((HANDLE)-4);
+    if (pSetCtx) pSetCtx((HANDLE)-4);   // Per-Monitor V2
 
-    CoInitialize(NULL);   // 활성 프로파일 조회(TSF COM)용
     InitializeCriticalSection(&g_configLock);
     Config_LoadDefault(&g_config);
     {   // 저장된 사용자 설정 병합 로드 (설정창이 이 실제 설정을 편집·저장)
@@ -523,33 +443,79 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     }
     Fsm_Init(&g_fsm);
     Chord_Init(&g_chord);
-    g_editorShow = show;
 
-    // 트레이 메시지 창 + 아이콘 + 폴링 타이머
-    WNDCLASSW twc = {0};
-    twc.lpfnWndProc = TrayWndProc;
-    twc.hInstance = hI;
-    twc.lpszClassName = L"JamotongTrayWnd";
-    RegisterClassW(&twc);
-    g_hTray = CreateWindowW(L"JamotongTrayWnd", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, hI, NULL);
-    if (!g_hTray) { CoUninitialize(); return 1; }
+    UINT (WINAPI *pGetDpi)(HWND) = (void*)GetProcAddress(u32, "GetDpiForWindow");
 
-    memset(&g_nid, 0, sizeof(g_nid));
-    g_nid.cbSize = sizeof(g_nid);
-    g_nid.hWnd = g_hTray;
-    g_nid.uID = 1;
-    g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    g_nid.uCallbackMessage = WM_TRAYICON;
-    TrayPoll(true);                          // 초기 아이콘 등록
-    SetTimer(g_hTray, TRAY_TIMER_ID, 1500, NULL);
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hI;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.lpszClassName = L"JamotongManager";
+    wc.hIcon = LoadIconW(hI, MAKEINTRESOURCEW(1));   // .rc의 프로파일 아이콘
+    RegisterClassW(&wc);
 
-    if (cmd && wcsstr(cmd, L"/editor")) ShowEditorWindow();   // 바로 에디터도 열기 (선택)
+    g_hMain = CreateWindowW(L"JamotongManager", L"Jamotong Manager",
+                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                            820, 560, NULL, BuildMenu(), hI, NULL);
+    if (!g_hMain) return 1;
+    if (pGetDpi) g_dpi = (int)pGetDpi(g_hMain);
+    SetWindowPos(g_hMain, NULL, 0, 0, S(820), S(560), SWP_NOMOVE | SWP_NOZORDER);
+
+    static HFONT s_font = NULL, s_editFont = NULL;
+    s_font = CreateFontW(-S(15), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+                         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                         DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    s_editFont = CreateFontW(-S(18), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                             FIXED_PITCH | FF_MODERN, L"Consolas");   // 편집·정렬에 고정폭
+
+    g_hStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP,
+                              S(10), S(8), S(780), S(22), g_hMain, NULL, hI, NULL);
+    g_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                              WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
+                              ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN,
+                              S(10), S(36), S(790), S(470), g_hMain, NULL, hI, NULL);
+    SendMessageW(g_hEdit, EM_LIMITTEXT, 1024 * 1024, 0);   // 큰 .jmt 편집 허용
+    SendMessageW(g_hStatus, WM_SETFONT, (WPARAM)s_font, TRUE);
+    SendMessageW(g_hEdit, WM_SETFONT, (WPARAM)s_editFont, TRUE);
+    g_editOrigProc = (WNDPROC)SetWindowLongPtrW(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditProc);
+
+    // 명령행에 .jmt 경로가 오면 열어서 편집 모드로 (관리 도구답게)
+    if (cmd && cmd[0]) {
+        wchar_t path[MAX_PATH] = L""; const wchar_t *q = cmd;
+        while (*q == L' ' || *q == L'"') q++;
+        if (*q && q[0] != L'/') {
+            wcsncpy(path, q, MAX_PATH - 1);
+            wchar_t *endq = wcschr(path, L'"'); if (endq) *endq = L'\0';
+            wchar_t *text = NULL;
+            if (path[0] && ReadFileUtf8(path, &text)) {
+                SetEditText(text); free(text);
+                wcsncpy(g_curFile, path, MAX_PATH - 1); g_testMode = false;
+            }
+        }
+    }
+
+    UpdateStatus();
+    Relayout();
+    ShowWindow(g_hMain, show == 0 ? SW_SHOWNORMAL : show);
+    SetFocus(g_hEdit);
+
+    // 액셀러레이터: Ctrl+O/S/A
+    ACCEL acc[] = {
+        { FCONTROL | FVIRTKEY, 'O', IDM_OPEN },
+        { FCONTROL | FVIRTKEY, 'S', IDM_SAVE },
+    };
+    HACCEL hacc = CreateAcceleratorTableW(acc, 2);
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
+        if (hacc && TranslateAcceleratorW(g_hMain, hacc, &msg)) continue;
+        if (IsDialogMessageW(g_hMain, &msg)) continue;
+        TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    SettingsUI_Shutdown();   // 설정창 스레드 정리
-    CoUninitialize();
+    if (hacc) DestroyAcceleratorTable(hacc);
+    SettingsUI_Shutdown();
     return 0;
 }

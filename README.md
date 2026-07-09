@@ -25,8 +25,9 @@ Framework) text service with no frameworks and no external libraries.
 - **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live preview) → Enter.
 - **Configurable shortcuts**: every trigger (layout switch, Hanja, Unicode input,
   settings) accepts **multiple bindings** (up to 8 per function).
-- **Tray monitor** (`jamotong.exe`): shows the current layout in the system tray
-  (blue = Jamotong active, gray = inactive); left-click = settings, right-click = menu.
+- **Manager app** (`jamotong.exe`): a normal desktop app (appears in the taskbar and Task
+  Manager) that opens/edits/validates `.jmt` layout files, tests input without TSF, and
+  opens the settings window. Not a tray/background process.
 - Both 64-bit and 32-bit applications are supported (separate DLLs).
   Windows 11 input-indicator branding icon included.
 
@@ -81,7 +82,7 @@ Default keys — every function is configurable and accepts multiple bindings
   Hanja key for the conventional symbol tables.
 - **Unicode input**: press `Ctrl+Alt+U`, type a 2–6 digit hex codepoint (live glyph
   preview), press `Enter`.
-- **Settings window**: `Ctrl+Alt+K`, the tray icon, or run `jamotong.exe`.
+- **Settings window**: `Ctrl+Alt+K`, or run `jamotong.exe` (Layout ▸ Settings).
   Tabs: *Layouts* (enable/disable, reorder, add `.jmt`), *Shortcuts* (pick a function,
   then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview
   font/size), *General* (DPI, import/export, reset).
@@ -310,7 +311,7 @@ table (e.g. the published ARTSEY map).
 ## Uninstall
 
 1. Right-click `uninstall.bat` → **"Run as administrator"**.
-   It unregisters the IME, stops the tray app and deletes every binary that is not in
+   It unregisters the IME, stops jamotong.exe and deletes every binary that is not in
    use.
 2. If some files were reported **locked**: sign out and back in, then run
    `uninstall.bat` once more (or just delete the folder). A full reboot is *not*
@@ -326,7 +327,7 @@ Cross-compiled with MinGW-w64 (on Linux):
 ```sh
 make            # dist/jamotong.dll (x64)
 make win32      # dist/jamotong32.dll (x86)
-make configapp  # dist/jamotong.exe (tray monitor / settings app)
+make configapp  # dist/jamotong.exe (manager: .jmt editor / settings / input test)
 make stage      # build everything + copy redist/ into dist/
                 #  -> dist/ becomes an installable folder (run install.bat as admin)
 ```
