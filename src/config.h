@@ -124,6 +124,12 @@ bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini 
 // 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시
 // 자동 로드된다(외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).
 bool Config_UserLayoutDir(wchar_t *out, int cch);
+// Import 번들 복원 시 [LayoutFile:name] 이름이 안전한지 검사한다(경로 조작 방어).
+//   경로 구분자 없음 + .jmt 확장자 + 예약 장치명 아님 + basename이 점/공백만은 아님일 때 true.
+bool Config_IsSafeLayoutFileName(const wchar_t *name);
+// 번들 헤더에 파일명을 안전하게 싣기 위한 최소 percent-encoding(']' 와 '%'만).
+void Config_EncodeLayoutName(const wchar_t *in, wchar_t *out, size_t cch);
+void Config_DecodeLayoutName(wchar_t *s);   // 제자리 역변환
 
 // 리소스 소유권 (플러그인 DLL/컨텍스트, heap name). live config만 소유 — 자세히는 config.c 참조.
 void Config_Free(JamotongConfig *cfg);                                       // live 파괴 시 전체 해제

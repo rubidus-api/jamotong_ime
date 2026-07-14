@@ -228,8 +228,10 @@ bool Config_UserPath(wchar_t *out, int cch) {
     if (n == 0 || n >= MAX_PATH) return false;
     wchar_t dir[MAX_PATH];
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
+    dir[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
     CreateDirectoryW(dir, NULL);   // 이미 있으면 조용히 실패(무시)
     _snwprintf(out, cch, L"%ls\\config.ini", dir);
+    out[cch - 1] = L'\0';
     return true;
 }
 
@@ -242,8 +244,10 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
     if (n == 0 || n >= MAX_PATH) return false;
     wchar_t dir[MAX_PATH];
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
+    dir[MAX_PATH - 1] = L'\0';
     CreateDirectoryW(dir, NULL);
     _snwprintf(out, cch, L"%ls\\layouts", dir);
+    out[cch - 1] = L'\0';
     CreateDirectoryW(out, NULL);
     return true;
 }
@@ -251,24 +255,118 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
 // 설정 파일 [Shortcuts] 섹션의 기능별 키 이름 (ShortcutFn 인덱스)
 static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings" };
 
+// Windows 예약 장치 기본 이름(확장자를 붙여도 여전히 장치로 해석됨: CON.jmt → CON 장치).
+static bool IsReservedDeviceBase(const wchar_t *name, size_t baseLen) {
+    static const wchar_t *dev3[] = { L"CON", L"PRN", L"AUX", L"NUL" };
+    static const wchar_t *dev4[] = { L"COM", L"LPT" };   // + 1~9 숫자
+    if (baseLen == 3) {
+        for (size_t i = 0; i < 4; i++)
+            if (_wcsnicmp(name, dev3[i], 3) == 0) return true;
+    } else if (baseLen == 4 && name[3] >= L'1' && name[3] <= L'9') {
+        for (size_t i = 0; i < 2; i++)
+            if (_wcsnicmp(name, dev4[i], 3) == 0) return true;
+    }
+    return false;
+}
+
+bool Config_IsSafeLayoutFileName(const wchar_t *name) {
+    if (!name || !name[0]) return false;
+    if (wcspbrk(name, L"\\/:")) return false;   // 경로 구분자/드라이브/ADS 금지 → 상위 이동 차단
+    size_t n = wcslen(name);
+    if (n < 5) return false;                    // "x.jmt" 최소 길이
+    if (_wcsicmp(name + n - 4, L".jmt") != 0) return false;   // .jmt 확장자 강제
+                                                             //   (끝이 't'라 후행 점/공백도 자동 배제)
+    size_t base = n - 4;
+    if (IsReservedDeviceBase(name, base)) return false;   // CON.jmt/COM1.jmt 등 장치명 금지
+    // 경로 구분자가 없으므로 파일명 내부의 '..'(예: v2..jmt)는 상위 이동을 못 해 안전 → 허용.
+    //   단 basename(확장자 제외)이 점/공백뿐이면 거부('.'/'..' 등 특수 항목 트릭 방지).
+    for (size_t i = 0; i < base; i++)
+        if (name[i] != L'.' && name[i] != L' ') return true;   // 정상 문자 하나라도 있으면 안전
+    return false;
+}
+
+// [LayoutFile:name] 헤더는 ']'에서 끝난다(파서 `%127l[^]]`). 파일명에 ']'가 있으면 헤더가
+//   잘리므로, ']'와 디코딩 마커 '%'를 percent-encode 해서 실어 라운드트립 가능하게 한다.
+//   그 밖의 문자(공백·'['·유니코드 등)는 그대로 둔다.
+void Config_EncodeLayoutName(const wchar_t *in, wchar_t *out, size_t cch) {
+    static const wchar_t *hex = L"0123456789ABCDEF";
+    size_t o = 0;
+    for (size_t i = 0; in[i]; i++) {
+        if (o + 4 >= cch) break;
+        if (in[i] == L'%' || in[i] == L']') {
+            out[o++] = L'%';
+            out[o++] = hex[(in[i] >> 4) & 0xF];
+            out[o++] = hex[in[i] & 0xF];
+        } else {
+            out[o++] = in[i];
+        }
+    }
+    out[o] = L'\0';
+}
+
+static int HexDigit(wchar_t c) {
+    if (c >= L'0' && c <= L'9') return c - L'0';
+    if (c >= L'A' && c <= L'F') return c - L'A' + 10;
+    if (c >= L'a' && c <= L'f') return c - L'a' + 10;
+    return -1;
+}
+
+// Config_EncodeLayoutName 의 역변환(제자리, 항상 축소되므로 안전). 임의의 %XX 를 디코드하되,
+//   결과 파일명은 반드시 Config_IsSafeLayoutFileName 으로 다시 검사한다(디코드가 만든 '\\' 등 차단).
+void Config_DecodeLayoutName(wchar_t *s) {
+    wchar_t *r = s, *w = s;
+    while (*r) {
+        int hi, lo;
+        if (r[0] == L'%' && (hi = HexDigit(r[1])) >= 0 && (lo = HexDigit(r[2])) >= 0) {
+            *w++ = (wchar_t)(hi * 16 + lo);
+            r += 3;
+        } else {
+            *w++ = *r++;
+        }
+    }
+    *w = L'\0';
+}
+
+static void TrimCrLf(wchar_t *str) {
+    size_t len = wcslen(str);
+    while (len > 0 && (str[len - 1] == L'\n' || str[len - 1] == L'\r')) {
+        str[len - 1] = L'\0';
+        len--;
+    }
+}
+
 // 사용자 자판 저장소의 모든 .jmt를 [LayoutFile:name] … [EndLayoutFile] 로 인라인 (Export용).
 static void BundleUserLayouts(FILE *fp) {
     wchar_t dir[MAX_PATH];
     if (!Config_UserLayoutDir(dir, MAX_PATH)) return;
     wchar_t pat[MAX_PATH];
     _snwprintf(pat, MAX_PATH, L"%ls\\*.jmt", dir);
+    pat[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW(pat, &fd);
     if (h == INVALID_HANDLE_VALUE) return;
     do {
+        // 복원 시 안전한 파일명만 번들(예약 장치명 등은 복원해도 위험하므로 제외). 파서를 깨는
+        //   ']'/'%'는 아래 Config_EncodeLayoutName 이 이스케이프하므로 여기서 드롭하지 않는다.
+        if (!Config_IsSafeLayoutFileName(fd.cFileName))
+            continue;
         wchar_t full[MAX_PATH];
         _snwprintf(full, MAX_PATH, L"%ls\\%ls", dir, fd.cFileName);
+        full[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
         FILE *lf = _wfopen(full, L"r, ccs=UTF-8");
         if (!lf) continue;
-        fwprintf(fp, L"\n[LayoutFile:%ls]\n", fd.cFileName);
+        wchar_t encName[MAX_PATH * 3];   // percent-encoding은 최대 3배
+        Config_EncodeLayoutName(fd.cFileName, encName, MAX_PATH * 3);
+        fwprintf(fp, L"\n[LayoutFile:%ls]\n", encName);
         wchar_t line[512];
-        while (fgetws(line, 512, lf)) fputws(line, fp);
-        fwprintf(fp, L"\n[EndLayoutFile]\n");
+        // 본문 각 줄 앞에 공백 마커를 붙인다 — 복원 시 첫 칸을 벗긴다. 본문 안의 '['로
+        //   시작하는 줄이 상위 config 파서의 섹션 헤더나 [EndLayoutFile] 센티넬로 오인되어
+        //   라운드트립이 깨지는 것을 막는다.
+        while (fgetws(line, 512, lf)) {
+            TrimCrLf(line);
+            fwprintf(fp, L" %ls\n", line);
+        }
+        fwprintf(fp, L"[EndLayoutFile]\n");
         fclose(lf);
     } while (FindNextFileW(h, &fd));
     FindClose(h);
@@ -309,14 +407,6 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     return true;
 }
 
-static void TrimCrLf(wchar_t *str) {
-    size_t len = wcslen(str);
-    while (len > 0 && (str[len - 1] == L'\n' || str[len - 1] == L'\r')) {
-        str[len - 1] = L'\0';
-        len--;
-    }
-}
-
 // 설정 파일 로드 = '병합(merge)'. 파일에는 메타데이터(자판 이름/켜짐/순서·단축키·옵션)만 있다.
 //   실제 자판 리소스(charMap·HangulLayout·플러그인 포인터)는 *config(기본+플러그인 로드본)의 것을
 //   그대로 쓰고, 파일의 순서/켜짐만 이름 매칭으로 반영한다.
@@ -338,23 +428,42 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     wchar_t fontBuf[32];
     int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options
 
+    // 번들 자판 복원용: 디렉터리는 한 번만 해석(섹션마다 env 읽기+CreateDirectory 반복 방지),
+    //   복원 개수는 자판 배열 크기(8)로 제한 — 적대적 config가 사용자 자판을 밀어내지 못하게.
+    wchar_t layoutDir[MAX_PATH];
+    bool haveLayoutDir = Config_UserLayoutDir(layoutDir, MAX_PATH);
+    int lfRestored = 0;
+
     while (fgetws(line, 256, fp)) {
         TrimCrLf(line);
         // [LayoutFile:name] … [EndLayoutFile] : Export 번들의 사용자 자판 본문 복원(P0-2 남은 절반).
         //   layouts 폴더에 파일이 없을 때만 쓴다(기존 자판 덮어쓰기 방지). 다음 시작 시 자동 로드.
         wchar_t lfName[128];
         if (swscanf(line, L"[LayoutFile:%127l[^]]", lfName) == 1) {
-            wchar_t dir[MAX_PATH], dst[MAX_PATH];
+            Config_DecodeLayoutName(lfName);   // Export 의 ']'/'%' percent-encoding 복원
+            wchar_t dst[MAX_PATH];
             FILE *out = NULL;
-            if (Config_UserLayoutDir(dir, MAX_PATH)) {
-                _snwprintf(dst, MAX_PATH, L"%ls\\%ls", dir, lfName);
-                if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
+            // 파일명 안전성 검사: 신뢰 못 할 config.ini 를 Import 할 때 [LayoutFile:...] 이름은
+            //   공격자가 100% 제어한다. basename + .jmt 인 경우에만 복원 — 이 검사가 없으면
+            //   `..\..\...\Startup\evil.bat` 같은 이름으로 %APPDATA%\Jamotong\layouts 밖
+            //   (예: 시작프로그램 폴더)에 임의 파일을 심을 수 있다. 복원 개수도 자판 배열
+            //   크기(8)로 제한 — 적대적 config가 사용자 자판을 목록에서 밀어내지 못하게.
+            if (haveLayoutDir && lfRestored < 8 && Config_IsSafeLayoutFileName(lfName)) {
+                _snwprintf(dst, MAX_PATH, L"%ls\\%ls", layoutDir, lfName);
+                dst[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
+                if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES) {   // 없을 때만 복원
                     out = _wfopen(dst, L"w, ccs=UTF-8");
+                    if (out) lfRestored++;
+                }
             }
-            while (fgetws(line, 256, fp)) {   // [EndLayoutFile]까지 본문 (있으면 파일에 씀)
-                TrimCrLf(line);
-                if (wcscmp(line, L"[EndLayoutFile]") == 0) break;
-                if (out) fwprintf(out, L"%ls\n", line);
+            // 본문은 Export 와 같은 512 버퍼로 읽어 긴 줄이 쪼개지지 않게 한다(마커 격리가
+            //   연속 청크에서 깨지는 것을 막음). 각 줄은 선두 공백 마커 — 첫 칸만 벗겨 복원.
+            //   본문에 '['로 시작하는 줄이 있어도 상위 섹션/센티넬로 오인되지 않는다.
+            wchar_t body[512];
+            while (fgetws(body, 512, fp)) {   // [EndLayoutFile]까지 본문 (있으면 파일에 씀)
+                TrimCrLf(body);
+                if (wcscmp(body, L"[EndLayoutFile]") == 0) break;
+                if (out) fwprintf(out, L"%ls\n", body[0] == L' ' ? body + 1 : body);
             }
             if (out) fclose(out);
             section = 0;
