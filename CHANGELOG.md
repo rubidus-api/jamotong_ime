@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-15
+
 ### Changed
 - **설정 Export 이식성**: 설정 Export가 사용자 자판(`.jmt`) 본문을 config.ini에 함께
   동봉(`[LayoutFile:...]` 섹션)한다. 다른 PC에서 Import하면 설정뿐 아니라 사용자 자판까지
