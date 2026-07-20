@@ -323,6 +323,8 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립
 
 ## 문서
 
+- **`examples/minimal-tip/`** — 동작하는 최소 TSF IME 예제(약 200줄). 처음 IME를
+  만드는 사람이 "COM 서버 → 등록 → 키 싱크 → 삽입"을 먼저 통과해 보라고 만든 것. 매뉴얼 §0.5가 안내한다.
 - **`winapi-c-ime-manual.ko.md`** — WinAPI+C만으로 IME를 만드는 종합 매뉴얼 ([English](winapi-c-ime-manual.md))
   (COM 기초부터, 시행착오와 결론 포함. 다른 IME를 만들려면 여기부터)
 - `CHANGELOG.md` — 버전별 변경 이력

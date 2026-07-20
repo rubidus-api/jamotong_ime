@@ -48,3 +48,5 @@ resources/cache/
 # ── Build output (전부 생성물 — 배포 데이터는 비공개 저장소에서 관리) ───────
 /dist/
 /jamotong-*.zip
+# 예제 빌드 산출물
+/examples/**/*.dll

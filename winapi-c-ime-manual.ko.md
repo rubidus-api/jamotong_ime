@@ -21,6 +21,7 @@
 
 ## 목차
 0. [준비물](#0-준비물)
+0.5 [★처음부터 따라하기 — 30분에 뜨는 최소 IME](#05-처음부터-따라하기--뜨고-키-하나를-먹는-ime-만들기)
 1. [COM 기초 — C로 COM 구현하기](#1-com-기초--c로-com-구현하기)
 2. [TSF 지형도 — TSF·IMM32·CUAS](#2-tsf-지형도)
 3. [TIP 골격 — 최소 텍스트 서비스](#3-tip-골격)
@@ -35,6 +36,9 @@
 12. [★커밋 전용 '이후'의 실전 교훈](#12-커밋-전용-이후의-실전-교훈)
 13. [★★텍스트 주입은 한 가지가 아니다 — 앱 클래스별 전략](#13-앱-클래스별-텍스트-주입)
 
+부록 A. [jamotong 소스 매핑](#부록-jamotong-소스-매핑)
+부록 B. [★참고 자료(공식 문서 링크)](#부록-b-참고-자료)
+
 ---
 
 ## 0. 준비물
@@ -46,6 +50,99 @@
 - **빌드 형태**: `gcc -shared -o jamotong.dll *.c jamotong.def -lole32 -luuid -lgdi32 ...`
   - `.def` 파일로 `DllGetClassObject`, `DllCanUnloadNow`, `DllRegisterServer`,
     `DllUnregisterServer`를 export (32비트는 이름 장식 때문에 `.def`가 사실상 필수).
+
+---
+
+## 0.5 처음부터 따라하기 — "뜨고, 키 하나를 먹는" IME 만들기
+
+TSF 문서는 방대해서 어디부터 손댈지 막막하다. 그래서 **동작하는 최소한**을 먼저 만든다.
+`examples/minimal-tip/` 에 그 코드가 있고, 이 저장소의 CI가 매번 빌드해 깨지지 않음을 확인한다.
+
+목표: **Windows 언어 목록에 뜨고, `a` 키를 먹어 문서에 `ㄱ`을 넣는다.** 그게 전부다.
+파일 두 개(`minimal.c` 약 200줄, `minimal.def` 6줄)면 된다.
+
+### 왜 이 순서인가
+
+IME는 "키를 받아 글자를 넣는 프로그램"이 아니라 **"OS가 로드하는 COM 서버"**다.
+그래서 글자를 넣기 전에 넘어야 할 관문이 셋이다.
+
+```
+① COM 서버가 되어야     → DllGetClassObject 로 객체를 내줄 수 있어야 한다
+② IME로 등록되어야      → 언어 목록에 떠야 사용자가 고를 수 있다
+③ 키를 받아야           → 키 싱크를 붙여야 키가 온다
+④ 그제서야 글자를 넣는다 → 편집 세션 안에서만
+```
+
+①~③ 중 하나라도 빠지면 **아무 일도 안 일어난다.** 그런데 오류 메시지도 안 뜬다 —
+이게 처음 하는 사람을 가장 괴롭히는 부분이다. 그래서 최소 예제로 ①~③을 먼저 통과시킨다.
+
+### 1단계 — 빌드
+
+```sh
+cd examples/minimal-tip
+make            # minimal.dll   (x64)
+make win32      # minimal32.dll (x86)
+```
+
+`.def` 파일이 왜 필요한가: 32비트에서 `DllRegisterServer`는 `_DllRegisterServer@0` 처럼
+장식된 이름으로 export된다. `regsvr32`는 장식 없는 이름을 찾으므로 못 만난다.
+`.def`로 이름을 고정해야 한다.
+
+### 2단계 — 등록
+
+**관리자 권한** 명령 프롬프트에서:
+
+```
+regsvr32 minimal.dll
+```
+
+성공하면 대화상자가 뜬다. 실패하면 대개 이 셋 중 하나다.
+
+| 증상 | 원인 |
+|---|---|
+| "모듈을 로드할 수 없습니다" | 비트수 불일치. 64비트 `regsvr32`로 32비트 DLL을 등록하려 함 |
+| "진입점을 찾을 수 없습니다" | `.def` 누락 또는 이름 불일치 |
+| 성공했는데 목록에 안 뜸 | **카테고리 등록 누락** — `GUID_TFCAT_TIP_KEYBOARD` |
+
+### 3단계 — 확인
+
+설정 → 시간 및 언어 → 언어 및 지역 → 한국어 → 옵션 → 키보드 에 **"Minimal TIP"**이 보이면
+①②가 통과한 것이다. 안 보이면 다음을 확인한다.
+
+```
+레지스트리에 CLSID가 있나:  HKCR\CLSID\{7B1F4C20-...}\InprocServer32
+그 값이 실제 DLL 경로인가:  (경로가 틀리면 조용히 실패한다)
+```
+
+### 4단계 — 쳐 보기
+
+메모장을 열고 입력기를 "Minimal TIP"으로 바꾼 뒤 `a`를 누른다. `ㄱ`이 나오면 성공이다.
+
+**안 나온다면** — 여기서부터가 진짜 시작이다. §2.2의 앱 분류표를 보라.
+메모장은 가장 관대한 축이고, 여기서 안 되면 대개 키 싱크가 안 붙은 것이다.
+`Activate`에 `OutputDebugStringW(L"activated\n")`를 넣고 DebugView로 확인하는 게 가장 빠르다
+(§12.6 진단 방법론).
+
+### 5단계 — 제거
+
+```
+regsvr32 /u minimal.dll
+```
+
+**개발 중에는 반드시 제거하고 다시 등록하라.** DLL 경로가 바뀌었는데 레지스트리가 옛 경로를
+가리키면, 이미 로드된 프로세스는 옛 DLL을 계속 쓴다. 증상이 "고쳤는데 안 고쳐진다"로 나타난다.
+
+### 이 예제가 일부러 안 하는 것
+
+| 안 하는 것 | 왜 | 어디서 |
+|---|---|---|
+| 한글 조합(오토마타) | 키 → 글자 경로만 보이려고 | §6 |
+| 조합 미리보기(밑줄) | **CUAS 앱에서 죽는다** — 이 매뉴얼의 핵심 결론 | §8 |
+| 한/영 전환 | 상태 관리가 붙으면 최소가 아니다 | §9.2 |
+| 앱 클래스별 분기 | 메모장만 되면 충분하다고 착각하기 쉬운데, 아니다 | §13 |
+
+**특히 §8을 반드시 읽어라.** "조합 미리보기를 넣었다가 CUAS 앱에서 전부 깨진다"가
+이 프로젝트가 20회 넘게 부딪힌 벽이고, 최소 예제가 그것을 처음부터 피해 가는 이유다.
 
 ---
 
@@ -822,7 +919,7 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 
 ---
 
-## 부록: jamotong 소스 매핑
+## 부록 A: jamotong 소스 매핑
 
 | 개념 | 파일 |
 |---|---|
@@ -842,6 +939,98 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | `.jmt` 로더 + 파싱 진단 (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
 | (사망) IMM32 IME 시도 | `src/imm/` |
 
+
+## 부록 B: 참고 자료
+
+모든 링크는 이 문서를 쓰는 시점에 접속을 확인했다. 공식 문서가 답을 주지 않는 부분은
+본문 §8·§12·§13에 실기로 얻은 내용을 적어 두었다 — **공식 문서와 실제 동작이 어긋나는
+지점이 이 매뉴얼의 존재 이유다.**
+
+### TSF 전반
+
+| 문서 | 링크 |
+|---|---|
+| Text Services Framework (개요) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework |
+| TSF Architecture (구조) | https://learn.microsoft.com/en-us/windows/win32/tsf/architecture |
+| Using Text Services Framework | https://learn.microsoft.com/en-us/windows/win32/tsf/using-text-services-framework |
+| TSF Reference (전체 목록) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework-reference |
+| msctf.h (인터페이스 색인) | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ |
+
+### 이 매뉴얼이 쓰는 인터페이스
+
+| 인터페이스 | 쓰임 | 링크 |
+|---|---|---|
+| `ITfTextInputProcessor` | TIP 본체(Activate/Deactivate) — §3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessor |
+| `ITfTextInputProcessorEx` | 활성화 플래그 확장 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessorex |
+| `ITfThreadMgr` | 스레드 관리자 — 모든 것의 시작점 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfthreadmgr |
+| `ITfKeystrokeMgr` | 키 싱크 붙이기(Advise) — §5 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfkeystrokemgr |
+| `ITfKeyEventSink` | 키 수신 — **vtbl 순서 주의** §5.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfkeyeventsink |
+| `ITfEditSession` | 편집 세션 — §7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfeditsession |
+| `ITfContext` | 문서 컨텍스트 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontext |
+| `ITfInsertAtSelection` | **삽입(커밋 전용의 핵심)** — §8.4 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinsertatselection |
+| `ITfRange` | 범위 — CUAS에서 편집이 막히는 그것 §8.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfrange |
+| `ITfComposition` | 조합 — **CUAS에서 죽는다** §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
+| `ITfCompositionSink` | 조합 종료 통보 — **NULL이면 실패** | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcompositionsink |
+| `ITfContextComposition` | 조합 시작 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
+| `ITfInputProcessorProfiles` | 프로파일 등록 — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
+| `ITfCategoryMgr` | 카테고리 등록 — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
+| `ITfCategoryMgr::RegisterCategory` | 빠뜨리면 목록에 떠도 활성화 안 됨 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
+| `ITfFnConfigure` | 설정창 — §9.3 | https://learn.microsoft.com/en-us/windows/win32/api/ctffunc/nn-ctffunc-itffnconfigure |
+| `ITfLangBarItemButton` | 언어바 — §9.4 | https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritembutton |
+| `ITfDisplayAttributeInfo` | 조합 표시 속성 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfdisplayattributeinfo |
+
+### 개념 문서
+
+| 문서 | 링크 |
+|---|---|
+| Compositions (조합) | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
+| Edit Sessions (편집 세션) | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
+| Text Stores (텍스트 저장소) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+
+### COM (C로 구현하기)
+
+| 문서 | 링크 |
+|---|---|
+| What Is a COM Interface? | https://learn.microsoft.com/en-us/windows/win32/learnwin32/what-is-a-com-interface- |
+| `IClassFactory` | https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nn-unknwn-iclassfactory |
+| `DllRegisterServer` | https://learn.microsoft.com/en-us/windows/win32/api/olectl/nf-olectl-dllregisterserver |
+
+### IMM32·앱 호환 (§8.3, §13)
+
+| 문서 | 링크 |
+|---|---|
+| Input Method Manager (IMM32) | https://learn.microsoft.com/en-us/windows/win32/intl/input-method-manager |
+| `WM_IME_STARTCOMPOSITION` | https://learn.microsoft.com/en-us/windows/win32/intl/wm-ime-startcomposition |
+| `EM_EXGETSEL` (선택 읽기 §13.4) | https://learn.microsoft.com/en-us/windows/win32/controls/em-exgetsel |
+| `SendInput` (§13.3 — 쓰지 말 것) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput |
+| `PostMessage` (§13.3 — 이쪽) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew |
+
+### 한글
+
+| 문서 | 링크 |
+|---|---|
+| 한글 음절 U+AC00–D7A3 (코드표) | https://www.unicode.org/charts/PDF/UAC00.pdf |
+| 한글 자모 U+1100–11FF (코드표) | https://www.unicode.org/charts/PDF/U1100.pdf |
+| 유니코드 표준 3장 — 한글 결합 규칙 | https://www.unicode.org/versions/latest/ch03.pdf |
+
+조합 공식은 §6에 있다: `0xAC00 + (초성×21 + 중성)×28 + 종성`.
+
+### 도구·예제
+
+| 항목 | 링크 |
+|---|---|
+| MinGW-w64 (이 프로젝트의 컴파일러) | https://www.mingw-w64.org/ |
+| Windows classic samples (TSF 예제 포함) | https://github.com/microsoft/Windows-classic-samples |
+
+### 이 저장소
+
+| 항목 | 위치 |
+|---|---|
+| 최소 동작 예제 (§0.5) | `examples/minimal-tip/` |
+| 전체 구현 | `src/` — 부록 A의 소스 매핑 참고 |
+| 변경 이력 | `CHANGELOG.md` |
+
+---
 
 *이 매뉴얼의 결론(커밋 전용)과 그 근거(§8)는 20+회 실기 검증으로 얻은 것이다. 다른 IME를
 만든다면 §2.2 표와 §8을 먼저 읽어라 — 그게 몇 주를 아껴 준다.*

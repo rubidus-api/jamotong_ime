@@ -23,6 +23,7 @@ Goal: to let you build another IME from the ground up using this document alone.
 
 ## Table of contents
 0. [Prerequisites](#0-prerequisites)
+0.5 [★Start Here — a minimal IME in 30 minutes](#05-start-here--build-an-ime-that-shows-up-and-eats-one-key)
 1. [COM basics — implementing COM in C](#1-com-basics)
 2. [The TSF landscape — TSF, IMM32, CUAS](#2-the-tsf-landscape)
 3. [TIP skeleton — a minimal text service](#3-tip-skeleton)
@@ -36,6 +37,9 @@ Goal: to let you build another IME from the ground up using this document alone.
 11. [Minimal IME checklist](#11-minimal-checklist)
 12. [★Field lessons after commit-only](#12-field-lessons-after-commit-only)
 13. [★★Text injection is not one thing — the per-app-class strategy](#13-text-injection-per-app-class)
+
+Appendix A. [jamotong source map](#appendix-a-jamotong-source-map)
+Appendix B. [★References (official docs)](#appendix-b-references)
 
 ---
 
@@ -51,6 +55,102 @@ Goal: to let you build another IME from the ground up using this document alone.
   - Export `DllGetClassObject`, `DllCanUnloadNow`, `DllRegisterServer`,
     `DllUnregisterServer` through a `.def` file (on 32-bit, name decoration makes the
     `.def` effectively mandatory).
+
+---
+
+## 0.5 Start Here — Build an IME That Shows Up and Eats One Key
+
+TSF documentation is vast and it is hard to know where to begin. So build **the smallest thing
+that works** first. The code lives in `examples/minimal-tip/` and this repository builds it on
+every change, so it cannot rot.
+
+Goal: **appear in the Windows language list, and turn the `a` key into `ㄱ` in the document.**
+That is all. Two files: `minimal.c` (~200 lines) and `minimal.def` (6 lines).
+
+### Why this order
+
+An IME is not "a program that receives keys and inserts text" — it is **a COM server that the
+OS loads**. Three gates stand before you can insert anything.
+
+```
+① Be a COM server   → DllGetClassObject must hand out an object
+② Be registered     → appear in the language list so the user can pick you
+③ Receive keys      → advise a key sink, or no keys arrive
+④ Only then insert  → and only inside an edit session
+```
+
+Miss any of ①–③ and **nothing happens — with no error message**. That silence is what hurts
+beginners most. The minimal example exists to get ①–③ working before anything else.
+
+### Step 1 — Build
+
+```sh
+cd examples/minimal-tip
+make            # minimal.dll   (x64)
+make win32      # minimal32.dll (x86)
+```
+
+Why the `.def` file: on 32-bit, `DllRegisterServer` is exported decorated as
+`_DllRegisterServer@0`. `regsvr32` looks for the undecorated name and will not find it.
+The `.def` pins the name.
+
+### Step 2 — Register
+
+From an **elevated** command prompt:
+
+```
+regsvr32 minimal.dll
+```
+
+A dialog confirms success. Failures are almost always one of these:
+
+| Symptom | Cause |
+|---|---|
+| "The module could not be loaded" | Bitness mismatch — 64-bit `regsvr32` on a 32-bit DLL |
+| "Entry point not found" | Missing `.def`, or name mismatch |
+| Succeeds but never appears | **Missing category registration** — `GUID_TFCAT_TIP_KEYBOARD` |
+
+### Step 3 — Verify
+
+Settings → Time & language → Language & region → Korean → Options → Keyboards should list
+**"Minimal TIP"**. That means ① and ② passed. If not:
+
+```
+Does the CLSID exist?   HKCR\CLSID\{7B1F4C20-...}\InprocServer32
+Is the path correct?    (a stale path fails silently)
+```
+
+### Step 4 — Type
+
+Open Notepad, switch to "Minimal TIP", press `a`. You should get `ㄱ`.
+
+**If nothing appears** — this is where the real work starts. See the app-class table in §2.2.
+Notepad is the most forgiving host; failing there usually means the key sink never attached.
+The fastest check is `OutputDebugStringW(L"activated\n")` in `Activate` plus DebugView
+(§12.6, diagnostics).
+
+### Step 5 — Unregister
+
+```
+regsvr32 /u minimal.dll
+```
+
+**During development, always unregister before re-registering.** If the DLL moves but the
+registry still points at the old path, already-loaded processes keep using the old DLL. The
+symptom reads as "I fixed it but it is not fixed."
+
+### What this example deliberately omits
+
+| Omitted | Why | Section |
+|---|---|---|
+| Hangul composition (automaton) | keep the key→text path visible | §6 |
+| Composition preview (underline) | **it dies in CUAS apps** — the core finding of this manual | §8 |
+| Hangul/English toggle | state management stops it being minimal | §9.2 |
+| Per-app-class strategies | Notepad working feels like "done". It is not. | §13 |
+
+**Read §8 before anything else.** "Add a composition preview, watch it break in every CUAS
+app" is the wall this project hit twenty-plus times, and the reason the minimal example
+sidesteps it from the start.
 
 ---
 
@@ -918,7 +1018,7 @@ Rules that keep it correct:
 
 ---
 
-## Appendix: jamotong source map
+## Appendix A: jamotong source map
 
 | Concept | File |
 |---|---|
@@ -938,6 +1038,98 @@ Rules that keep it correct:
 | `.jmt` loaders + parse diagnostics (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |
 
+
+## Appendix B: References
+
+Every link was checked at the time of writing. Where the official docs do not answer, §8,
+§12 and §13 record what field testing showed — **the gap between documented and actual
+behaviour is why this manual exists.**
+
+### TSF in general
+
+| Document | Link |
+|---|---|
+| Text Services Framework (개요) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework |
+| TSF Architecture (구조) | https://learn.microsoft.com/en-us/windows/win32/tsf/architecture |
+| Using Text Services Framework | https://learn.microsoft.com/en-us/windows/win32/tsf/using-text-services-framework |
+| TSF Reference (전체 목록) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework-reference |
+| msctf.h (인터페이스 색인) | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ |
+
+### Interfaces this manual uses
+
+| Interface | Used for | Link |
+|---|---|---|
+| `ITfTextInputProcessor` | TIP itself (Activate/Deactivate) — §3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessor |
+| `ITfTextInputProcessorEx` | activation flags extension | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessorex |
+| `ITfThreadMgr` | thread manager — the entry point to everything | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfthreadmgr |
+| `ITfKeystrokeMgr` | advise the key sink — §5 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfkeystrokemgr |
+| `ITfKeyEventSink` | receiving keys — **watch vtbl order** §5.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfkeyeventsink |
+| `ITfEditSession` | edit session — §7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfeditsession |
+| `ITfContext` | document context | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontext |
+| `ITfInsertAtSelection` | **insertion (the heart of commit-only)** — §8.4 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinsertatselection |
+| `ITfRange` | range — what CUAS blocks editing on §8.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfrange |
+| `ITfComposition` | composition — **dies under CUAS** §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
+| `ITfCompositionSink` | composition-end notification — **NULL makes it fail** | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcompositionsink |
+| `ITfContextComposition` | starting a composition | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
+| `ITfInputProcessorProfiles` | profile registration — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
+| `ITfCategoryMgr` | category registration — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
+| `ITfCategoryMgr::RegisterCategory` | omit it and the IME lists but never activates | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
+| `ITfFnConfigure` | configuration dialog — §9.3 | https://learn.microsoft.com/en-us/windows/win32/api/ctffunc/nn-ctffunc-itffnconfigure |
+| `ITfLangBarItemButton` | language bar — §9.4 | https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritembutton |
+| `ITfDisplayAttributeInfo` | composition display attributes | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfdisplayattributeinfo |
+
+### Concept pages
+
+| Document | Link |
+|---|---|
+| Compositions | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
+| Edit Sessions | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
+| Text Stores | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+
+### COM (implementing in C)
+
+| Document | Link |
+|---|---|
+| What Is a COM Interface? | https://learn.microsoft.com/en-us/windows/win32/learnwin32/what-is-a-com-interface- |
+| `IClassFactory` | https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nn-unknwn-iclassfactory |
+| `DllRegisterServer` | https://learn.microsoft.com/en-us/windows/win32/api/olectl/nf-olectl-dllregisterserver |
+
+### IMM32 and app compatibility (§8.3, §13)
+
+| Document | Link |
+|---|---|
+| Input Method Manager (IMM32) | https://learn.microsoft.com/en-us/windows/win32/intl/input-method-manager |
+| `WM_IME_STARTCOMPOSITION` | https://learn.microsoft.com/en-us/windows/win32/intl/wm-ime-startcomposition |
+| `EM_EXGETSEL` (reading selection, §13.4) | https://learn.microsoft.com/en-us/windows/win32/controls/em-exgetsel |
+| `SendInput` (§13.3 — do not use) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput |
+| `PostMessage` (§13.3 — use this) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew |
+
+### Hangul
+
+| Document | Link |
+|---|---|
+| Hangul Syllables U+AC00–D7A3 (chart) | https://www.unicode.org/charts/PDF/UAC00.pdf |
+| Hangul Jamo U+1100–11FF (chart) | https://www.unicode.org/charts/PDF/U1100.pdf |
+| Unicode Standard ch.3 — Hangul composition | https://www.unicode.org/versions/latest/ch03.pdf |
+
+The formula is in §6: `0xAC00 + (cho×21 + jung)×28 + jong`.
+
+### Tools and samples
+
+| Item | Link |
+|---|---|
+| MinGW-w64 (this project's compiler) | https://www.mingw-w64.org/ |
+| Windows classic samples (includes TSF samples) | https://github.com/microsoft/Windows-classic-samples |
+
+### This repository
+
+| Item | Location |
+|---|---|
+| Minimal working example (§0.5) | `examples/minimal-tip/` |
+| Full implementation | `src/` — see the source map in Appendix A |
+| Change history | `CHANGELOG.md` |
+
+---
 
 *This manual's conclusion (commit-only) and its rationale (§8) were earned through 20+
 rounds of on-device verification. If you are building another IME, read the table in

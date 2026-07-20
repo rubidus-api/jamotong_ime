@@ -342,6 +342,9 @@ Unicode License, install/uninstall scripts, and sample `.jmt` layouts.
 
 ## Documentation
 
+- **`examples/minimal-tip/`** — a minimal working TSF IME (~200 lines). Built for people
+  writing their first IME: get past "COM server → registration → key sink → insertion" before
+  anything else. Manual §0.5 walks through it.
 - **`winapi-c-ime-manual.md`** — a complete manual on building a Windows IME with
   nothing but WinAPI and C, starting from COM. Includes the trial-and-error record
   and its conclusions. ([한국어](winapi-c-ime-manual.ko.md))
