@@ -2,6 +2,8 @@
 #   make test    : portable test (Windows 불필요)
 #   make         : dist/jamotong-standard-lab.dll   (x64)
 #   make win32   : dist32/jamotong-standard-lab.dll (x86)
+#   make trace   : dist-trace/jamotong-tsf-trace-lab.dll   (x64, separate identity)
+#   make trace32 : dist32-trace/jamotong-tsf-trace-lab.dll (x86, separate identity)
 #   make all     : 위 전부
 CC      = x86_64-w64-mingw32-gcc
 CC32    = i686-w64-mingw32-gcc
@@ -9,6 +11,7 @@ HOSTCC  = cc
 
 # warning-as-error (RFC-0009 §15 완료 gate)
 CFLAGS  = -Wall -Wextra -Werror -std=c11 -D_UNICODE -DUNICODE -O2 -Iinclude
+TRACE_CFLAGS = $(CFLAGS) -DLAB_TRACE_BUILD
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
@@ -31,6 +34,19 @@ dist32/jamotong-standard-lab.dll: $(SRCS) $(DEF)
 	@mkdir -p dist32
 	$(CC32) $(CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
 
+# Always-on, separately registered diagnostic variant. It does not log text or key values.
+trace: dist-trace/jamotong-tsf-trace-lab.dll
+dist-trace/jamotong-tsf-trace-lab.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-trace
+	$(CC) $(TRACE_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+trace32: dist32-trace/jamotong-tsf-trace-lab.dll
+dist32-trace/jamotong-tsf-trace-lab.dll: $(SRCS) $(DEF)
+	@mkdir -p dist32-trace
+	$(CC32) $(TRACE_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+trace-all: trace trace32
+
 # portable test — Windows 없이 리눅스에서도 돈다 (RFC-0009 §21)
 test:
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_hangul2_test tests/hangul2_test.c src/hangul2.c
@@ -46,6 +62,6 @@ test-san:
 	/tmp/lab_kp_san
 
 clean:
-	rm -rf dist dist32
+	rm -rf dist dist32 dist-trace dist32-trace
 
-.PHONY: all dll win32 test test-san clean
+.PHONY: all dll win32 trace trace32 trace-all test test-san clean

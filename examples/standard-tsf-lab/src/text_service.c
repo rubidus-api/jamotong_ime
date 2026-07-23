@@ -9,6 +9,7 @@
 
 #define FROM_KEY(p)    ((LabTextService*)((char*)(p) - offsetof(LabTextService, key_sink)))
 #define FROM_THREAD(p) ((LabTextService*)((char*)(p) - offsetof(LabTextService, thread_sink)))
+#define FROM_TEXT_EDIT(p) ((LabTextService*)((char*)(p) - offsetof(LabTextService, text_edit_sink)))
 
 static STDMETHODIMP SVC_QI(ITfTextInputProcessor *me, REFIID riid, void **ppv);
 static STDMETHODIMP_(ULONG) SVC_AddRef(ITfTextInputProcessor *me) {
@@ -102,7 +103,11 @@ static STDMETHODIMP KS_QI(ITfKeyEventSink *me, REFIID riid, void **ppv) {
 }
 static STDMETHODIMP_(ULONG) KS_AddRef(ITfKeyEventSink *me)  { return SVC_AddRef((ITfTextInputProcessor*)FROM_KEY(me)); }
 static STDMETHODIMP_(ULONG) KS_Release(ITfKeyEventSink *me) { return SVC_Release((ITfTextInputProcessor*)FROM_KEY(me)); }
-static STDMETHODIMP KS_OnSetFocus(ITfKeyEventSink *me, BOOL granted) { (void)me;(void)granted; return S_OK; }
+static STDMETHODIMP KS_OnSetFocus(ITfKeyEventSink *me, BOOL granted) {
+    (void)me;
+    Lab_TraceEvent("key_sink.focus", NULL, S_OK, granted ? 1 : 0);
+    return S_OK;
+}
 
 /* OnTestKeyDown과 OnKeyDown이 같은 순수 함수를 쓴다 (RFC-0009 §8.1) */
 static LabKeyAction ClassifyForContext(LabTextService *svc, ITfContext *ctx,
@@ -141,8 +146,8 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
         if (st) Lab_FinalizeComposition(svc, st, LAB_FINALIZE);   /* 남은 조합을 흘리지 않는다 */
         bool was = Lab_IsKeyboardOpen(svc);
         Lab_SetKeyboardOpen(svc, !was);
-        Lab_Trace("toggle %d -> %d (compartment_usable=%d)",
-                  was ? 1 : 0, was ? 0 : 1, svc->compartment_usable ? 1 : 0);
+        Lab_TraceEvent("keyboard.toggle", st, S_OK,
+                       (was ? 1 : 0) | (svc->compartment_usable ? 2 : 0));
         *eaten = TRUE;
         return S_OK;
     }
@@ -156,8 +161,8 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
         LabSessionResult res;
         HRESULT hr = Lab_ApplyStep(svc, st, &step, &res);
         if (FAILED(hr)) {
-            Lab_Trace("hangul step failed hr=0x%08lX committed=%u preedit=%u -> pass key through",
-                      (unsigned long)hr, step.committed_len, step.preedit_len);
+            Lab_TraceEvent("hangul_step.failed", st, hr,
+                           ((LONG)step.committed_len << 16) | step.preedit_len);
             /* 이 호스트에서는 표준 composition이 성립하지 않는다.
                조합 상태를 남겨두면 다음 키가 그 위에 쌓여 낱자가 흩어진다
                (AkelPad에서 "ㄱㅏㄴㅏ" 로 나오던 증상).
@@ -216,6 +221,34 @@ static const ITfKeyEventSinkVtbl g_key_vtbl = {
     KS_OnSetFocus, KS_OnTestKeyDown, KS_OnTestKeyUp, KS_OnKeyDown, KS_OnKeyUp, KS_OnPreservedKey
 };
 
+/* ── 텍스트 편집 싱크: 호스트가 edit session 뒤에 무엇을 했는지 순서만 관측 ── */
+static STDMETHODIMP TE_QI(ITfTextEditSink *me, REFIID riid, void **ppv) {
+    return SVC_QI((ITfTextInputProcessor*)FROM_TEXT_EDIT(me), riid, ppv);
+}
+static STDMETHODIMP_(ULONG) TE_AddRef(ITfTextEditSink *me) {
+    return SVC_AddRef((ITfTextInputProcessor*)FROM_TEXT_EDIT(me));
+}
+static STDMETHODIMP_(ULONG) TE_Release(ITfTextEditSink *me) {
+    return SVC_Release((ITfTextInputProcessor*)FROM_TEXT_EDIT(me));
+}
+static STDMETHODIMP TE_OnEndEdit(ITfTextEditSink *me, ITfContext *ctx,
+                                 TfEditCookie read_cookie, ITfEditRecord *record) {
+    (void)read_cookie;
+    LabTextService *svc = FROM_TEXT_EDIT(me);
+    LabContextState *st = Lab_FindContext(svc, ctx);
+    BOOL selection_changed = FALSE;
+    HRESULT hr = record ? ITfEditRecord_GetSelectionStatus(record, &selection_changed) : E_POINTER;
+    Lab_TraceEvent("text_edit.end", st, hr, selection_changed ? 1 : 0);
+    return S_OK;
+}
+static const ITfTextEditSinkVtbl g_text_edit_vtbl = {
+    TE_QI, TE_AddRef, TE_Release, TE_OnEndEdit
+};
+
+void Lab_InitTextEditSink(LabTextService *svc) {
+    svc->text_edit_sink.lpVtbl = (ITfTextEditSinkVtbl*)&g_text_edit_vtbl;
+}
+
 /* ── 스레드 매니저 싱크: 컨텍스트 수명 추적 (RFC-0009 §9.4) ── */
 static STDMETHODIMP TS_QI(ITfThreadMgrEventSink *me, REFIID riid, void **ppv) {
     return SVC_QI((ITfTextInputProcessor*)FROM_THREAD(me), riid, ppv);
@@ -225,27 +258,21 @@ static STDMETHODIMP_(ULONG) TS_Release(ITfThreadMgrEventSink *me) { return SVC_R
 static STDMETHODIMP TS_OnInitDocumentMgr(ITfThreadMgrEventSink *me, ITfDocumentMgr *d) { (void)me;(void)d; return S_OK; }
 static STDMETHODIMP TS_OnUninitDocumentMgr(ITfThreadMgrEventSink *me, ITfDocumentMgr *d) { (void)me;(void)d; return S_OK; }
 static STDMETHODIMP TS_OnSetFocus(ITfThreadMgrEventSink *me, ITfDocumentMgr *in, ITfDocumentMgr *out) {
-    (void)me;(void)in;(void)out; return S_OK;
+    (void)me;(void)in;(void)out;
+    Lab_TraceEvent("thread_manager.focus", NULL, S_OK, 0);
+    return S_OK;
 }
 static STDMETHODIMP TS_OnPushContext(ITfThreadMgrEventSink *me, ITfContext *ctx) {
-    Lab_EnsureContext(FROM_THREAD(me), ctx);
+    LabContextState *st = Lab_EnsureContext(FROM_THREAD(me), ctx);
+    Lab_TraceEvent("context.push", st, st ? S_OK : E_OUTOFMEMORY, 0);
     return S_OK;
 }
 static STDMETHODIMP TS_OnPopContext(ITfThreadMgrEventSink *me, ITfContext *ctx) {
     /* 컨텍스트가 사라지면 그 상태도 버린다. generation이 바뀌므로 stale callback은 무효가 된다. */
     LabTextService *svc = FROM_THREAD(me);
-    LabContextState **pp = &svc->contexts;
-    while (*pp) {
-        if ((*pp)->context == ctx) {
-            LabContextState *dead = *pp;
-            *pp = dead->next;
-            if (dead->composition) ITfComposition_Release(dead->composition);
-            if (dead->context)     ITfContext_Release(dead->context);
-            free(dead);
-            return S_OK;
-        }
-        pp = &(*pp)->next;
-    }
+    LabContextState *st = Lab_FindContext(svc, ctx);
+    Lab_TraceEvent("context.pop", st, S_OK, 0);
+    Lab_RemoveContext(svc, ctx);
     return S_OK;
 }
 static const ITfThreadMgrEventSinkVtbl g_thread_vtbl = {
@@ -277,7 +304,7 @@ static STDMETHODIMP SVC_Activate(ITfTextInputProcessor *me, ITfThreadMgr *tm, Tf
     }
     /* 켜진 상태로 시작하지 않는다 — 사용자가 한/영으로 켠다 */
     Lab_SetKeyboardOpen(s, false);
-    Lab_Trace("activate client_id=%lu", (unsigned long)cid);
+    Lab_TraceEvent("service.activate", NULL, S_OK, 0);
     return S_OK;
 }
 static STDMETHODIMP SVC_Deactivate(ITfTextInputProcessor *me) {
@@ -319,6 +346,8 @@ static STDMETHODIMP SVC_QI(ITfTextInputProcessor *me, REFIID riid, void **ppv) {
         *ppv = &s->thread_sink;
     else if (IsEqualIID(riid, &IID_ITfCompositionSink))
         *ppv = &s->composition_sink;
+    else if (IsEqualIID(riid, &IID_ITfTextEditSink))
+        *ppv = &s->text_edit_sink;
     else if (IsEqualIID(riid, &IID_ITfDisplayAttributeProvider_Lab))
         *ppv = &s->attr_provider;
     else { *ppv = NULL; return E_NOINTERFACE; }
@@ -333,6 +362,7 @@ LabTextService *Lab_CreateService(void) {
     s->key_sink.lpVtbl    = (ITfKeyEventSinkVtbl*)&g_key_vtbl;
     s->thread_sink.lpVtbl = (ITfThreadMgrEventSinkVtbl*)&g_thread_vtbl;
     Lab_InitCompositionSink(s);
+    Lab_InitTextEditSink(s);
     Lab_InitDisplayAttribute(s);
     s->ref = 1;
     Lab_DllAddRef();

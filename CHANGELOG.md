@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added
+- 표준 TSF 실험체에 기존 등록과 공존하는 `Jamotong TSF Trace Lab` 빌드를 추가했다.
+  프로세스별 JSONL에 composition 단계·HRESULT·외부 종료·편집 종료 순서만 남기며,
+  입력 글자·키값·문서 내용·메모리 주소는 기록하지 않는다.
+
+### Fixed
+- 직접 선언한 `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` vtbl 함수에 공식
+  인터페이스에 없는 `BSTR *` 인자가 들어 있던 COM ABI 오류를 수정했다.
+
+### Changed
+- 한·영 매뉴얼에 64비트 AkelPad 자모 분리 현상의 미확정 실기 상태, composition 수명 추적
+  방법, COM vtbl 시그니처 검증 함정을 추가했다.
+
 ## [0.13.1] - 2026-07-20
 
 문서·예제 릴리스. IME 동작 변경 없음.

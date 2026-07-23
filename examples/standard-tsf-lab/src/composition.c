@@ -29,20 +29,28 @@ typedef struct LabEditSession {
     HRESULT inner_hr;
 } LabEditSession;
 
+static void SetTracePhase(LabContextState *st, LabTracePhase phase) {
+    st->trace_phase = phase;
+}
+
 /* ── caret을 range 끝에 명시적으로 둔다 (§7.2) ── */
-static HRESULT SetSelectionAtEnd(TfEditCookie ec, ITfContext *ctx, ITfRange *range) {
+static HRESULT SetSelectionAtEnd(LabEditSession *es, TfEditCookie ec, ITfRange *range) {
+    LabContextState *st = es->state;
+    SetTracePhase(st, LAB_TRACE_SET_SELECTION);
     ITfRange *clone = NULL;
     HRESULT hr = ITfRange_Clone(range, &clone);
-    if (FAILED(hr)) return hr;
-    hr = ITfRange_Collapse(clone, ec, TF_ANCHOR_END);
     if (SUCCEEDED(hr)) {
+        hr = ITfRange_Collapse(clone, ec, TF_ANCHOR_END);
+    }
+    if (SUCCEEDED(hr) && clone) {
         TF_SELECTION sel;
         sel.range = clone;
         sel.style.ase = TF_AE_END;
         sel.style.fInterimChar = FALSE;
-        hr = ITfContext_SetSelection(ctx, ec, 1, &sel);
+        hr = ITfContext_SetSelection(st->context, ec, 1, &sel);
     }
-    ITfRange_Release(clone);
+    if (clone) ITfRange_Release(clone);
+    Lab_TraceEvent("selection.set_end", st, hr, 0);
     return hr;
 }
 
@@ -50,8 +58,12 @@ static HRESULT SetSelectionAtEnd(TfEditCookie ec, ITfContext *ctx, ITfRange *ran
 static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange **range_out) {
     LabContextState *st = es->state;
     *range_out = NULL;
-    if (st->composition)
-        return ITfComposition_GetRange(st->composition, range_out);
+    if (st->composition) {
+        SetTracePhase(st, LAB_TRACE_GET_RANGE);
+        HRESULT existing_hr = ITfComposition_GetRange(st->composition, range_out);
+        Lab_TraceEvent("composition.get_range.existing", st, existing_hr, 0);
+        return existing_hr;
+    }
 
     ITfInsertAtSelection *insert = NULL;
     ITfRange *insert_range = NULL;
@@ -59,26 +71,35 @@ static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange *
     ITfComposition *created = NULL;          /* 전부 성공한 뒤에만 publish */
     HRESULT hr;
 
+    SetTracePhase(st, LAB_TRACE_INSERT_QUERY);
     hr = ITfContext_QueryInterface(st->context, &IID_ITfInsertAtSelection, (void**)&insert);
+    Lab_TraceEvent("insert_at_selection.query_interface", st, hr, 0);
     if (FAILED(hr)) goto done;
     /* TF_IAS_QUERYONLY: 텍스트를 넣지 않고 삽입 지점 range만 얻는다 */
     hr = ITfInsertAtSelection_InsertTextAtSelection(insert, ec, TF_IAS_QUERYONLY,
                                                     NULL, 0, &insert_range);
+    Lab_TraceEvent("insert_at_selection.query_range", st, hr, 0);
     if (FAILED(hr)) goto done;
     hr = ITfContext_QueryInterface(st->context, &IID_ITfContextComposition, (void**)&cc);
+    Lab_TraceEvent("context_composition.query_interface", st, hr, 0);
     if (FAILED(hr)) goto done;
+    SetTracePhase(st, LAB_TRACE_START_COMPOSITION);
+    Lab_TraceEvent("composition.start.before", st, S_OK, 0);
     hr = ITfContextComposition_StartComposition(cc, ec, insert_range,
                                                 &es->service->composition_sink, &created);
-    if (FAILED(hr)) Lab_Trace("StartComposition failed hr=0x%08lX", (unsigned long)hr);
+    Lab_TraceEvent("composition.start.after", st, hr, created ? 1 : 0);
     if (SUCCEEDED(hr) && created == NULL) {
-        Lab_Trace("StartComposition returned S_OK but NULL composition");
+        Lab_TraceEvent("composition.start.null", st, LAB_E_COMPOSITION_REJECTED, 0);
         hr = LAB_E_COMPOSITION_REJECTED; goto done;
     }
     if (FAILED(hr)) goto done;
 
     st->composition = created;               /* publish */
     created = NULL;
+    Lab_TraceEvent("composition.publish", st, S_OK, 0);
+    SetTracePhase(st, LAB_TRACE_GET_RANGE);
     hr = ITfComposition_GetRange(st->composition, range_out);
+    Lab_TraceEvent("composition.get_range.new", st, hr, 0);
 
 done:
     if (created) ITfComposition_Release(created);
@@ -91,11 +112,16 @@ done:
 /* ── preedit 갱신 (§7.2) ── */
 static HRESULT ReplacePreedit(LabEditSession *es, TfEditCookie ec, ITfRange *range,
                               const WCHAR *text, LONG len) {
+    SetTracePhase(es->state, LAB_TRACE_SET_TEXT);
+    Lab_TraceEvent("range.set_text.before", es->state, S_OK, len);
     HRESULT hr = ITfRange_SetText(range, ec, 0, text, len);   /* flag 0 = 일반 갱신 */
+    Lab_TraceEvent("range.set_text.after", es->state, hr, len);
     if (FAILED(hr)) return hr;
     /* 표시 속성 실패는 조합을 무효로 만들지 않는다 — 밑줄이 없을 뿐이다 */
-    Lab_ApplyInputAttribute(es->service, ec, es->state->context, range);
-    return SetSelectionAtEnd(ec, es->state->context, range);
+    SetTracePhase(es->state, LAB_TRACE_DISPLAY_ATTRIBUTE);
+    HRESULT attr_hr = Lab_ApplyInputAttribute(es->service, ec, es->state->context, range);
+    Lab_TraceEvent("display_attribute.apply", es->state, attr_hr, 0);
+    return SetSelectionAtEnd(es, ec, range);
 }
 
 /* ── 확정 prefix를 composition 밖으로 밀어낸다 (§7.3) ── */
@@ -103,7 +129,9 @@ static HRESULT CommitPrefix(LabEditSession *es, TfEditCookie ec, LONG committed_
     LabContextState *st = es->state;
     ITfRange *whole = NULL, *new_start = NULL;
     LONG moved = 0;
+    SetTracePhase(st, LAB_TRACE_COMMIT_PREFIX);
     HRESULT hr = ITfComposition_GetRange(st->composition, &whole);
+    Lab_TraceEvent("commit_prefix.get_range", st, hr, committed_len);
     if (FAILED(hr)) goto done;
 
     /* GUID_PROP_READING: 확정 prefix 구간에 reading segment를 명시한다.
@@ -149,6 +177,7 @@ static HRESULT CommitPrefix(LabEditSession *es, TfEditCookie ec, LONG committed_
     hr = ITfRange_Collapse(new_start, ec, TF_ANCHOR_START);
     if (FAILED(hr)) goto done;
     hr = ITfComposition_ShiftStart(st->composition, ec, new_start);
+    Lab_TraceEvent("commit_prefix.shift_start", st, hr, moved);
 
 done:
     if (new_start) ITfRange_Release(new_start);
@@ -163,11 +192,15 @@ static HRESULT DoWork(LabEditSession *es, TfEditCookie ec) {
     if (es->command == LAB_FINALIZE || es->command == LAB_CANCEL) {
         if (!st->composition) return S_OK;
         ITfRange *range = NULL;
+        SetTracePhase(st, LAB_TRACE_GET_RANGE);
         HRESULT hr = ITfComposition_GetRange(st->composition, &range);
+        Lab_TraceEvent("finalize.get_range", st, hr, es->command);
         if (SUCCEEDED(hr)) {
             if (es->command == LAB_CANCEL) {
                 /* 취소: 조합 텍스트를 지우고 끝낸다 */
-                ITfRange_SetText(range, ec, 0, L"", 0);
+                SetTracePhase(st, LAB_TRACE_SET_TEXT);
+                HRESULT set_hr = ITfRange_SetText(range, ec, 0, L"", 0);
+                Lab_TraceEvent("cancel.set_text", st, set_hr, 0);
             } else {
                 /* 확정: 텍스트는 그대로 두고 composition만 걷어낸다.
                    ShiftStart로 전체를 밖으로 밀어 빈 composition을 만든다(§7.4). */
@@ -181,12 +214,17 @@ static HRESULT DoWork(LabEditSession *es, TfEditCookie ec) {
                         len = (LONG)got;
                     ITfRange_Release(clone);
                 }
-                if (len > 0) ITfRange_ShiftStart(range, ec, len, &moved, NULL);
-                SetSelectionAtEnd(ec, st->context, range);
+                if (len > 0) {
+                    HRESULT shift_hr = ITfRange_ShiftStart(range, ec, len, &moved, NULL);
+                    Lab_TraceEvent("finalize.range_shift", st, shift_hr, moved);
+                }
+                SetSelectionAtEnd(es, ec, range);
             }
             ITfRange_Release(range);
         }
-        ITfComposition_EndComposition(st->composition, ec);
+        SetTracePhase(st, LAB_TRACE_END_COMPOSITION);
+        HRESULT end_hr = ITfComposition_EndComposition(st->composition, ec);
+        Lab_TraceEvent("composition.end", st, end_hr, es->command);
         Lab_ForgetComposition(st);
         return hr;
     }
@@ -207,7 +245,9 @@ static HRESULT DoWork(LabEditSession *es, TfEditCookie ec) {
         hr = CommitPrefix(es, ec, (LONG)step->committed_len);
         /* 확정 후 preedit가 비었으면 composition을 끝낸다 */
         if (SUCCEEDED(hr) && step->preedit_len == 0) {
-            ITfComposition_EndComposition(es->state->composition, ec);
+            SetTracePhase(st, LAB_TRACE_END_COMPOSITION);
+            HRESULT end_hr = ITfComposition_EndComposition(es->state->composition, ec);
+            Lab_TraceEvent("composition.end_after_prefix", st, end_hr, 0);
             Lab_ForgetComposition(es->state);
         }
     }
@@ -234,7 +274,10 @@ static STDMETHODIMP_(ULONG) ES_Release(ITfEditSession *me) {
 static STDMETHODIMP ES_DoEditSession(ITfEditSession *me, TfEditCookie ec) {
     LabEditSession *es = (LabEditSession*)me;
     es->callback_ran = true;
+    SetTracePhase(es->state, LAB_TRACE_EDIT_SESSION);
+    Lab_TraceEvent("edit_session.callback.begin", es->state, S_OK, es->command);
     es->inner_hr = DoWork(es, ec);
+    Lab_TraceEvent("edit_session.callback.end", es->state, es->inner_hr, es->command);
     return es->inner_hr;
 }
 static const ITfEditSessionVtbl g_es_vtbl = { ES_QI, ES_AddRef, ES_Release, ES_DoEditSession };
@@ -254,6 +297,15 @@ static HRESULT RequestSyncWrite(LabTextService *svc, LabContextState *st,
     es->base.lpVtbl = (ITfEditSessionVtbl*)&g_es_vtbl;
     es->ref = 1;
     es->service = svc; es->state = st; es->step = step; es->command = cmd;
+    es->inner_hr = E_UNEXPECTED;
+
+    uint32_t transaction = ++svc->next_transaction;
+    if (transaction == 0) transaction = ++svc->next_transaction;
+    st->active_transaction = transaction;
+    SetTracePhase(st, LAB_TRACE_REQUEST);
+    uint32_t termination_before = st->termination_epoch;
+    Lab_TraceEvent("edit_session.request", st, S_OK, cmd);
+    Lab_TraceContextCaps(st);
 
     out->request_hr = ITfContext_RequestEditSession(st->context, svc->client_id,
                                                     &es->base, TF_ES_SYNC | TF_ES_READWRITE,
@@ -261,11 +313,13 @@ static HRESULT RequestSyncWrite(LabTextService *svc, LabContextState *st,
     out->callback_ran = es->callback_ran;
     Lab_TraceSession(cmd == LAB_UPDATE ? "update" :
                      cmd == LAB_COMMIT_PREFIX ? "commit_prefix" :
-                     cmd == LAB_FINALIZE ? "finalize" : "cancel", out);
+                     cmd == LAB_FINALIZE ? "finalize" : "cancel",
+                     st, out, es->inner_hr);
+    Lab_TraceEvent("edit_session.post_state", st,
+                   FAILED(out->request_hr) ? out->request_hr : out->session_hr,
+                   (LONG)(st->termination_epoch - termination_before));
     if (FAILED(out->request_hr) || FAILED(out->session_hr)) {
-        Lab_Trace("  inner_hr=0x%08lX composition=%p", (unsigned long)es->inner_hr,
-                  (void*)st->composition);
-        Lab_TraceContextCaps(st->context);
+        Lab_TraceContextCaps(st);
     }
     ITfEditSession_Release(&es->base);
 
@@ -274,7 +328,17 @@ static HRESULT RequestSyncWrite(LabTextService *svc, LabContextState *st,
 }
 
 void Lab_ForgetComposition(LabContextState *st) {
-    if (st->composition) { ITfComposition_Release(st->composition); st->composition = NULL; }
+    if (st->composition) {
+        Lab_TraceEvent("composition.release_local", st, S_OK, 0);
+        ITfComposition_Release(st->composition);
+        st->composition = NULL;
+    }
+}
+
+static void CloseTraceTransaction(LabContextState *st) {
+    Lab_TraceEvent("edit_transaction.close", st, S_OK, 0);
+    st->trace_phase = LAB_TRACE_NONE;
+    st->active_transaction = 0;
 }
 
 /* 편집이 성공한 경우에만 FSM 상태를 publish한다 (RFC-0009 §5.2) */
@@ -282,7 +346,12 @@ HRESULT Lab_ApplyStep(LabTextService *svc, LabContextState *st,
                       const HangulStep *step, LabSessionResult *result) {
     LabCompositionCommand cmd = (step->committed_len > 0) ? LAB_COMMIT_PREFIX : LAB_UPDATE;
     HRESULT hr = RequestSyncWrite(svc, st, step, cmd, result);
-    if (SUCCEEDED(hr)) st->hangul = step->next;
+    if (SUCCEEDED(hr)) {
+        st->hangul = step->next;
+        Lab_TraceEvent("fsm.publish", st, hr,
+                       ((LONG)step->committed_len << 16) | step->preedit_len);
+    }
+    CloseTraceTransaction(st);
     return hr;
 }
 
@@ -291,6 +360,8 @@ HRESULT Lab_FinalizeComposition(LabTextService *svc, LabContextState *st,
     if (!st->composition && Hangul2_IsEmpty(&st->hangul)) return S_OK;
     HRESULT hr = RequestSyncWrite(svc, st, NULL, cmd, NULL);
     Hangul2_Reset(&st->hangul);
+    Lab_TraceEvent("fsm.reset_after_finalize", st, hr, cmd);
+    CloseTraceTransaction(st);
     return hr;
 }
 
@@ -316,11 +387,15 @@ static STDMETHODIMP CS_OnCompositionTerminated(ITfCompositionSink *me, TfEditCoo
     /* 우리가 끝낸 것과 앱이 끝낸 것이 겹쳐도 안전해야 한다 — identity로 찾는다(§7.4) */
     for (LabContextState *p = svc->contexts; p; p = p->next) {
         if (p->composition == composition) {
+            p->termination_epoch++;
+            Lab_TraceEvent("composition_terminated", p, S_OK,
+                           p->active_transaction ? 1 : 0);
             Lab_ForgetComposition(p);
             Hangul2_Reset(&p->hangul);
-            break;
+            return S_OK;
         }
     }
+    Lab_TraceEvent("composition_terminated.unmatched", NULL, S_OK, 0);
     return S_OK;
 }
 static const ITfCompositionSinkVtbl g_comp_sink_vtbl = {

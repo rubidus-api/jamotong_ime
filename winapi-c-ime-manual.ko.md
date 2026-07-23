@@ -2,7 +2,7 @@
 
 **한국어** | [English](winapi-c-ime-manual.md)
 
-*최종 갱신: 2026-07-08 (v0.11.0 — §12 "커밋 전용 이후의 실전 교훈" 추가, §10 함정 보강)*
+*최종 갱신: 2026-07-23 (표준 TSF 실험체 진단 방법·COM ABI 함정 보강)*
 
 
 이 문서는 **순수 C(C23)와 Win32 API만으로**(C++·ATL·MFC·프레임워크 없이) Windows용
@@ -278,6 +278,11 @@ STDAPI DllUnregisterServer(void);             // 등록 해제 (regsvr32 /u)
 - **네이티브 TSF**만 조합·교체가 다 된다.
 - **CUAS/터미널**은 **"커서에 삽입"만** 된다. 이미 넣은 글자를 지우거나 교체하는 건 안 된다.
 - **모든 부류의 공통분모 = 삽입 하나.** → §8의 "커밋 전용" 이 여기서 나온다.
+
+> **2026-07-23 실기 메모.** 별도 표준 TSF 실험체는 Windows 메모장에서 조합 유지에 성공했다.
+> 64비트 AkelPad에서는 `가나다` 대신 호환 자모가 각각 확정되는 현상이 재현됐다. AkelPad가
+> composition을 언제 종료하는지는 아직 확인 중이므로, 이 결과만으로 앱 부류나 원인을 단정하지
+> 않는다. §12.6의 구조 로그로 콜백 순서를 먼저 확인한다.
 
 ---
 
@@ -556,6 +561,11 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 ## 10. 함정 모음 (Gotchas)
 
 - **vtbl 함수 순서/호출규약**: 하나만 틀려도 즉시 크래시. 인터페이스 정의 순서 그대로.
+- **문서에 없는 COM 인자를 만들지 마라**: C에서 직접 선언한
+  `ITfDisplayAttributeProvider::GetDisplayAttributeInfo`는 `This`, `REFGUID`,
+  `ITfDisplayAttributeInfo **`뿐이다. 설명 문자열은 별도
+  `ITfDisplayAttributeInfo::GetDescription` 메서드다. 여기에 `BSTR *`를 하나 더 붙이면
+  x86은 스택이 어긋나고 x64도 ABI 계약 위반이다.
 - **`StartComposition` sink NULL 금지**: `E_INVALIDARG`. sink 필수.
 - **역순 입력**: 확정 후 커서를 삽입 끝으로 옮겨라(`MoveCaretToEnd`). 안 하면 `가나→나가`.
 - **OnTestKeyDown ↔ OnKeyDown 조건 불일치**: 키 유실/미호출.
@@ -569,6 +579,9 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 - **유니코드/로케일**: 소스·문자열 전부 UTF-16(`wchar_t`, `-W` API). `.rc`에 한글 넣으려면
   windres 코드페이지 주의(안전하게 ASCII 또는 리소스 문자열 회피).
 - **`RequestEditSession`은 동기 콜백**: 문서 수정은 반드시 그 `ec` 안에서만.
+- **`S_OK`는 composition 생존 보증이 아니다**: 세션 중 또는 직후
+  `OnCompositionTerminated`가 올 수 있다. 요청/세션 HRESULT만 보지 말고 트랜잭션 세대,
+  종료 epoch, 세션 반환 후 composition 존재 여부를 함께 확인하라.
 - **wide-scanf 변환 지정자**: C 표준에서 `swscanf`의 `%[`/`%c`/`%s`는 `l` 없이는 **narrow(char) 대상**이다.
   MSVCRT만 MS 특유로 wide 취급해 Windows에선 우연히 돌아간다 — `%l[`/`%lc`/`%ls`로 명시하라
   (양쪽 CRT에서 동일 동작·이식 가능).
@@ -704,10 +717,18 @@ OnClick(RIGHT, point):
   선택이 유지되고, 취소 시 문서 무접촉이라 선택도 그대로다.
 
 ### 12.6 진단 방법론 — 로깅이 추측을 이긴다
-- 조합 사망(§8)도, 음절 증발(§12.3)도, 칩 지연(§12.2)도 전부 **%TEMP% 파일 로그**로 풀렸다.
-  찍을 것: vk·FSM 상태·commit/preedit 문자·`INSERT`의 hr과 range 포인터·좌표 rect와 출처.
-- **경고**: IME 로그는 **사용자가 모든 앱에서 치는 내용**이 기록된다. 진단 빌드는 배포 금지,
-  로그는 테스트 후 즉시 삭제, 로깅 코드는 `#ifdef`로 격리해 릴리스에선 no-op으로.
+- 조합 사망(§8)도, 음절 증발(§12.3)도, 칩 지연(§12.2)도 **%TEMP% 구조 로그**로 풀 수 있다.
+  그러나 입력 글자·키값·문서 내용·포인터는 기록하지 않아도 수명 문제를 판정할 수 있다.
+- **composition 진단 최소 필드**: 단조 증가 순번, PID/TID, 컨텍스트 세대, 트랜잭션 번호,
+  현재 단계, 각 HRESULT, 입력/결과 길이, composition 존재 여부, 종료 epoch.
+  `StartComposition`·`SetText`·`SetSelection`·`ShiftStart`·`EndComposition` 전후와
+  `OnCompositionTerminated`·`OnEndEdit`를 같은 순번 축에 놓는다.
+- **`S_OK` 뒤의 상태를 기록하라.** 호스트가 콜백으로 조합을 끝내도 API 자체는 성공할 수 있다.
+  세션 직후 `composition=0` 또는 종료 epoch 증가가 보이면 HRESULT만으로 내린 성공 판정이 틀렸다.
+- 비교 빌드는 기존 입력기를 덮어쓰지 않도록 DLL 이름·표시 이름·CLSID·프로필 GUID까지 분리하고,
+  프로세스마다 별도 JSONL을 만든다. 고정 입력 시나리오를 메모장과 문제 앱에서 각각 한 번 실행한다.
+- **개인정보 원칙**: 입력 내용과 메모리 주소는 어떤 진단판에도 남기지 않는다. 로그는 필요한
+  구조 값만 기록하고 테스트 후 삭제한다. 일반 릴리스에서는 로깅을 비활성화한다.
 - **낡은 DLL 함정 재확인**: 증상이 불가해하게 나타났다 사라지면 코드보다 먼저 배포를 의심하라
   (§10의 파일 잠금 — 이 프로젝트에서 두 번이나 유령 증상의 범인이었다).
 
@@ -971,13 +992,16 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | `ITfRange` | 범위 — CUAS에서 편집이 막히는 그것 §8.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfrange |
 | `ITfComposition` | 조합 — **CUAS에서 죽는다** §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
 | `ITfCompositionSink` | 조합 종료 통보 — **NULL이면 실패** | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcompositionsink |
+| `ITfCompositionSink::OnCompositionTerminated` | 외부 종료 시점 추적 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated |
 | `ITfContextComposition` | 조합 시작 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
+| `ITfTextEditSink::OnEndEdit` | 편집 종료 순서 관측 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
 | `ITfInputProcessorProfiles` | 프로파일 등록 — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
 | `ITfCategoryMgr` | 카테고리 등록 — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
 | `ITfCategoryMgr::RegisterCategory` | 빠뜨리면 목록에 떠도 활성화 안 됨 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
 | `ITfFnConfigure` | 설정창 — §9.3 | https://learn.microsoft.com/en-us/windows/win32/api/ctffunc/nn-ctffunc-itffnconfigure |
 | `ITfLangBarItemButton` | 언어바 — §9.4 | https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritembutton |
 | `ITfDisplayAttributeInfo` | 조합 표시 속성 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfdisplayattributeinfo |
+| `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` | 정확한 C vtbl 시그니처 — §10 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdisplayattributeprovider-getdisplayattributeinfo |
 
 ### 개념 문서
 

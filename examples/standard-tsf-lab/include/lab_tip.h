@@ -21,6 +21,7 @@
 #ifndef TF_INVALID_GUIDATOM
 #  define TF_INVALID_GUIDATOM ((TfGuidAtom)0)
 #endif
+#define LAB_INVALID_COOKIE ((DWORD)-1)
 
 #ifndef __ITfDisplayAttributeProvider_INTERFACE_DEFINED__
 #define __ITfDisplayAttributeProvider_INTERFACE_DEFINED__
@@ -32,7 +33,7 @@ typedef struct ITfDisplayAttributeProviderVtbl {
     HRESULT (STDMETHODCALLTYPE *EnumDisplayAttributeInfo)(ITfDisplayAttributeProvider*,
                                                           IEnumTfDisplayAttributeInfo**);
     HRESULT (STDMETHODCALLTYPE *GetDisplayAttributeInfo)(ITfDisplayAttributeProvider*,
-                                                         REFGUID, ITfDisplayAttributeInfo**, BSTR*);
+                                                         REFGUID, ITfDisplayAttributeInfo**);
 } ITfDisplayAttributeProviderVtbl;
 struct ITfDisplayAttributeProvider { const ITfDisplayAttributeProviderVtbl *lpVtbl; };
 /* {fee47777-163c-4769-996a-6e9c50ad8f54} */
@@ -43,8 +44,27 @@ EXTERN_C const GUID IID_ITfDisplayAttributeProvider_Lab;
 extern const CLSID CLSID_LabService;
 extern const GUID  GUID_LabProfile;
 
-#define LAB_DISPLAY_NAME  L"Jamotong Standard TSF Lab"
+#ifdef LAB_TRACE_BUILD
+#  define LAB_DISPLAY_NAME  L"Jamotong TSF Trace Lab"
+#else
+#  define LAB_DISPLAY_NAME  L"Jamotong Standard TSF Lab"
+#endif
 #define LAB_LANGID        MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN)
+
+/* Trace callbacks report the current transaction stage without recording input data. */
+typedef enum LabTracePhase {
+    LAB_TRACE_NONE = 0,
+    LAB_TRACE_REQUEST,
+    LAB_TRACE_EDIT_SESSION,
+    LAB_TRACE_GET_RANGE,
+    LAB_TRACE_INSERT_QUERY,
+    LAB_TRACE_START_COMPOSITION,
+    LAB_TRACE_SET_TEXT,
+    LAB_TRACE_DISPLAY_ATTRIBUTE,
+    LAB_TRACE_SET_SELECTION,
+    LAB_TRACE_COMMIT_PREFIX,
+    LAB_TRACE_END_COMPOSITION
+} LabTracePhase;
 
 /* 컨텍스트별 상태 (RFC-0009 §5.1) — 탭/창/문서를 옮겨도 섞이지 않게 */
 typedef struct LabContextState {
@@ -53,6 +73,10 @@ typedef struct LabContextState {
     ITfComposition  *composition;
     HangulState      hangul;
     uint32_t         generation;
+    DWORD            text_edit_sink_cookie;
+    uint32_t         active_transaction;
+    uint32_t         termination_epoch;
+    LabTracePhase    trace_phase;
 } LabContextState;
 
 typedef struct LabTextService {
@@ -60,6 +84,7 @@ typedef struct LabTextService {
     ITfKeyEventSink       key_sink;
     ITfThreadMgrEventSink thread_sink;
     ITfCompositionSink    composition_sink;
+    ITfTextEditSink       text_edit_sink;
     ITfDisplayAttributeProvider attr_provider;
     LONG            ref;
     ITfThreadMgr   *thread_mgr;
@@ -67,6 +92,7 @@ typedef struct LabTextService {
     DWORD           thread_sink_cookie;
     LabContextState *contexts;
     uint32_t        next_generation;
+    uint32_t        next_transaction;
     /* compartment를 못 읽거나 못 쓰는 호스트(PuTTY 등)를 위한 자체 상태.
        compartment가 정상인 호스트에서는 그쪽을 우선한다. */
     bool            fallback_open;
@@ -92,6 +118,7 @@ typedef struct LabSessionResult {
 /* context_state.c */
 LabContextState *Lab_FindContext(LabTextService *svc, ITfContext *ctx);
 LabContextState *Lab_EnsureContext(LabTextService *svc, ITfContext *ctx);
+bool             Lab_RemoveContext(LabTextService *svc, ITfContext *ctx);
 void             Lab_ReleaseContexts(LabTextService *svc);
 
 /* text_service.c */
@@ -99,6 +126,7 @@ LabTextService *Lab_CreateService(void);
 bool Lab_IsKeyboardOpen(LabTextService *svc);
 bool Lab_IsKeyboardDisabled(LabTextService *svc, ITfContext *ctx);
 bool Lab_SetKeyboardOpen(LabTextService *svc, bool open);
+void Lab_InitTextEditSink(LabTextService *svc);
 
 /* composition.c — 한 키를 한 transaction으로 처리한다 */
 HRESULT Lab_ApplyStep(LabTextService *svc, LabContextState *st,
@@ -115,11 +143,12 @@ HRESULT Lab_ApplyInputAttribute(LabTextService *svc, TfEditCookie ec,
 void    Lab_InitDisplayAttribute(LabTextService *svc);
 HRESULT Lab_RegisterDisplayAttributeCategory(bool add);
 
-/* diagnostics.c — 기본 꺼짐. JAMOTONG_LAB_TRACE=1 일 때만 기록 (RFC-0009 §11.3).
-   개인정보 원칙: 친 글자를 남기지 않는다. 길이·HRESULT·능력만 (§11.2). */
-void Lab_Trace(const char *fmt, ...);
-void Lab_TraceSession(const char *what, const LabSessionResult *r);
-void Lab_TraceContextCaps(ITfContext *ctx);
+/* diagnostics.c — trace build는 항상, 표준 build는 JAMOTONG_LAB_TRACE=1일 때만 기록.
+   개인정보 원칙: 글자·키값·포인터·문서 내용은 기록하지 않는다. */
+void Lab_TraceEvent(const char *event, const LabContextState *st, HRESULT hr, LONG value);
+void Lab_TraceSession(const char *what, const LabContextState *st,
+                      const LabSessionResult *r, HRESULT inner_hr);
+void Lab_TraceContextCaps(const LabContextState *st);
 
 /* dllmain.c */
 extern HINSTANCE g_lab_instance;

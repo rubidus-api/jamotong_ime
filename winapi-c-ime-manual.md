@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-08 (v0.11.0 — added §12 "Field lessons after commit-only", expanded §10 gotchas)*
+*Last updated: 2026-07-23 (standard-TSF trace method and COM ABI gotchas)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -293,6 +293,12 @@ Implement `IClassFactory` in C the same way as §1.2
   what you already inserted.
 - **The common denominator of all three = insertion, alone.** → This is where §8's
   "commit-only" comes from.
+
+> **Field note, 2026-07-23.** A separate standard-TSF lab retained composition correctly
+> in Windows Notepad. In 64-bit AkelPad, each compatibility jamo was finalized separately
+> instead of producing `가나다`. The exact AkelPad termination point is still under
+> investigation, so do not infer its app class or root cause from this result alone.
+> Establish the callback order with the structural trace in §12.6 first.
 
 ---
 
@@ -611,6 +617,11 @@ by everything — space, enter, arrows, terminals included.
 
 - **vtbl order / calling convention**: one mistake = instant crash. Follow the interface
   definition order exactly.
+- **Do not invent COM parameters missing from the documentation**: a hand-declared C
+  `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` takes only `This`, `REFGUID`,
+  and `ITfDisplayAttributeInfo **`. The description string belongs to the separate
+  `ITfDisplayAttributeInfo::GetDescription` method. Adding a `BSTR *` parameter unbalances
+  the x86 stack and violates the ABI contract on x64 as well.
 - **Never pass NULL sink to `StartComposition`**: `E_INVALIDARG`. The sink is mandatory.
 - **Reversed input**: move the caret to the end after inserting (`MoveCaretToEnd`), or
   `가나` becomes `나가`.
@@ -629,6 +640,10 @@ by everything — space, enter, arrows, terminals included.
   `.rc` needs windres codepage care (safest: keep resources ASCII).
 - **`RequestEditSession` is a synchronous callback**: document edits must happen inside
   that `ec` only.
+- **`S_OK` does not guarantee that a composition survived**: the host may call
+  `OnCompositionTerminated` during or just after the session. Correlate request/session
+  HRESULTs with a transaction generation, termination epoch, and the post-session
+  composition state.
 - **wide-scanf conversion specifiers**: per the C standard, `%[`/`%c`/`%s` in `swscanf`
   target **narrow (char) buffers** unless prefixed with `l`. Only MSVCRT treats them as
   wide (an MS quirk), so it happens to work on Windows — write `%l[`/`%lc`/`%ls`
@@ -782,12 +797,23 @@ outline / dark badge), 16px base with DPI scaling.
   nothing, so the selection also survives.
 
 ### 12.6 Diagnostics: logging beats guessing
-- The dead compositions (§8), the vanishing syllable (§12.3) and the lagging chip (§12.2)
-  were all solved by **file logging to %TEMP%**. Log: vk, FSM state, commit/preedit
-  chars, `INSERT` hr and range pointer, rects and their source.
-- **Warning**: an IME log records **everything the user types in every app**. Never ship
-  a diagnostic build; delete logs after testing; isolate logging behind `#ifdef` so
-  release builds compile it to a no-op.
+- Dead compositions (§8), vanishing syllables (§12.3), and lagging chips (§12.2) can all
+  be diagnosed with a **structural log in %TEMP%**. You do not need entered characters,
+  key values, document contents, or pointer values to diagnose object lifetime.
+- **Minimum composition fields**: monotonic sequence, PID/TID, context generation,
+  transaction id, current phase, each HRESULT, input/result lengths, composition-alive
+  flag, and termination epoch. Put `StartComposition`, `SetText`, `SetSelection`,
+  `ShiftStart`, and `EndComposition` beside `OnCompositionTerminated` and `OnEndEdit`
+  on the same sequence axis.
+- **Record the state after `S_OK`.** A host callback can terminate the composition while
+  the API itself reports success. `composition=0` or an incremented termination epoch
+  after the session disproves a success verdict based only on HRESULT.
+- Keep a comparison build separate from the installed IME: distinct DLL/display names,
+  CLSID, and profile GUID, plus one JSONL file per process. Run one fixed scenario in
+  Notepad and once in the failing application.
+- **Privacy rule**: never record entered text or memory addresses in any diagnostic
+  variant. Keep only the structural fields, delete logs after the test, and disable
+  logging in the normal release.
 - **The stale-DLL trap, again**: when symptoms appear and vanish inexplicably, suspect
   deployment before code (§10's file locking — it played ghost twice in this project).
 
@@ -1070,13 +1096,16 @@ behaviour is why this manual exists.**
 | `ITfRange` | range — what CUAS blocks editing on §8.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfrange |
 | `ITfComposition` | composition — **dies under CUAS** §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
 | `ITfCompositionSink` | composition-end notification — **NULL makes it fail** | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcompositionsink |
+| `ITfCompositionSink::OnCompositionTerminated` | correlate external termination — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated |
 | `ITfContextComposition` | starting a composition | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
+| `ITfTextEditSink::OnEndEdit` | observe edit completion order — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
 | `ITfInputProcessorProfiles` | profile registration — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
 | `ITfCategoryMgr` | category registration — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
 | `ITfCategoryMgr::RegisterCategory` | omit it and the IME lists but never activates | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
 | `ITfFnConfigure` | configuration dialog — §9.3 | https://learn.microsoft.com/en-us/windows/win32/api/ctffunc/nn-ctffunc-itffnconfigure |
 | `ITfLangBarItemButton` | language bar — §9.4 | https://learn.microsoft.com/en-us/windows/win32/api/ctfutb/nn-ctfutb-itflangbaritembutton |
 | `ITfDisplayAttributeInfo` | composition display attributes | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfdisplayattributeinfo |
+| `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` | exact C vtbl signature — §10 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdisplayattributeprovider-getdisplayattributeinfo |
 
 ### Concept pages
 

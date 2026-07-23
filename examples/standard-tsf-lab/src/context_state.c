@@ -6,6 +6,40 @@
 #include "lab_tip.h"
 #include <stdlib.h>
 
+static HRESULT AdviseTextEditSink(LabTextService *svc, LabContextState *st) {
+    ITfSource *source = NULL;
+    HRESULT hr = ITfContext_QueryInterface(st->context, &IID_ITfSource, (void**)&source);
+    if (SUCCEEDED(hr)) {
+        DWORD cookie = LAB_INVALID_COOKIE;
+        hr = ITfSource_AdviseSink(source, &IID_ITfTextEditSink,
+                                  (IUnknown*)&svc->text_edit_sink, &cookie);
+        if (SUCCEEDED(hr)) st->text_edit_sink_cookie = cookie;
+        ITfSource_Release(source);
+    }
+    Lab_TraceEvent("text_edit.advise", st, hr, SUCCEEDED(hr) ? 1 : 0);
+    return hr;
+}
+
+static void UnadviseTextEditSink(LabContextState *st) {
+    if (!st->context || st->text_edit_sink_cookie == LAB_INVALID_COOKIE) return;
+    ITfSource *source = NULL;
+    HRESULT hr = ITfContext_QueryInterface(st->context, &IID_ITfSource, (void**)&source);
+    if (SUCCEEDED(hr)) {
+        hr = ITfSource_UnadviseSink(source, st->text_edit_sink_cookie);
+        ITfSource_Release(source);
+    }
+    Lab_TraceEvent("text_edit.unadvise", st, hr, 0);
+    st->text_edit_sink_cookie = LAB_INVALID_COOKIE;
+}
+
+static void ReleaseContextState(LabContextState *st) {
+    UnadviseTextEditSink(st);
+    Lab_TraceEvent("context.release", st, S_OK, 0);
+    if (st->composition) ITfComposition_Release(st->composition);
+    if (st->context) ITfContext_Release(st->context);
+    free(st);
+}
+
 LabContextState *Lab_FindContext(LabTextService *svc, ITfContext *ctx) {
     for (LabContextState *p = svc->contexts; p; p = p->next)
         if (p->context == ctx) return p;
@@ -19,12 +53,29 @@ LabContextState *Lab_EnsureContext(LabTextService *svc, ITfContext *ctx) {
     st = (LabContextState*)calloc(1, sizeof(*st));
     if (!st) return NULL;
     st->context = ctx;
+    st->text_edit_sink_cookie = LAB_INVALID_COOKIE;
     ITfContext_AddRef(ctx);
     Hangul2_Reset(&st->hangul);
     st->generation = ++svc->next_generation;
     st->next = svc->contexts;
     svc->contexts = st;
+    Lab_TraceEvent("context.create", st, S_OK, 0);
+    AdviseTextEditSink(svc, st);
     return st;
+}
+
+bool Lab_RemoveContext(LabTextService *svc, ITfContext *ctx) {
+    LabContextState **link = &svc->contexts;
+    while (*link) {
+        if ((*link)->context == ctx) {
+            LabContextState *dead = *link;
+            *link = dead->next;
+            ReleaseContextState(dead);
+            return true;
+        }
+        link = &(*link)->next;
+    }
+    return false;
 }
 
 void Lab_ReleaseContexts(LabTextService *svc) {
@@ -32,9 +83,7 @@ void Lab_ReleaseContexts(LabTextService *svc) {
     svc->contexts = NULL;
     while (p) {
         LabContextState *n = p->next;
-        if (p->composition) ITfComposition_Release(p->composition);
-        if (p->context)     ITfContext_Release(p->context);
-        free(p);
+        ReleaseContextState(p);
         p = n;
     }
 }

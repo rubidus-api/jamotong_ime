@@ -11,8 +11,13 @@ const GUID IID_ITfDisplayAttributeProvider_Lab =
     { 0xfee47777, 0x163c, 0x4769, { 0x99, 0x6a, 0x6e, 0x9c, 0x50, 0xad, 0x8f, 0x54 } };
 
 /* 실험체 전용 표시 속성 GUID */
+#ifdef LAB_TRACE_BUILD
+const GUID GUID_LabDisplayAttributeInput =
+    { 0x216fcb02, 0x8417, 0x4393, { 0x8d, 0x4e, 0x8f, 0xa8, 0xeb, 0xa9, 0x5c, 0x90 } };
+#else
 const GUID GUID_LabDisplayAttributeInput =
     { 0x2f9b6c11, 0x74ad, 0x4b0e, { 0x9c, 0x33, 0x5a, 0x71, 0x0e, 0x24, 0x88, 0x10 } };
+#endif
 
 /* ── ITfDisplayAttributeInfo: 실제 모양을 돌려주는 객체 ── */
 typedef struct {
@@ -142,9 +147,8 @@ static STDMETHODIMP DP_EnumDisplayAttributeInfo(ITfDisplayAttributeProvider *me,
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 static STDMETHODIMP DP_GetDisplayAttributeInfo(ITfDisplayAttributeProvider *me,
-                                               REFGUID guid, ITfDisplayAttributeInfo **info,
-                                               BSTR *desc) {
-    (void)me;(void)desc;
+                                               REFGUID guid, ITfDisplayAttributeInfo **info) {
+    (void)me;
     if (!IsEqualGUID(guid, &GUID_LabDisplayAttributeInput)) {
         *info = NULL; return E_INVALIDARG;
     }
