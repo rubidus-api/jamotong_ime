@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (AkelPad protocol A/B result and metadata probe)*
+*Last updated: 2026-07-24 (IME failure ledger, AkelPad causal model, and reproduction method)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -12,12 +12,13 @@ we arrived at.
 Audience: developers who know WinAPI and C but are new to COM/TSF.
 Goal: to let you build another IME from the ground up using this document alone.
 
-> **One-line conclusion (spoiler)**: Windows has two input systems (TSF and IMM32) with a
-> shaky bridge between them (CUAS). **The only text operation that works in every app
-> without exception is "insert at the caret."** So we gave up inline composition preview
-> (the underlined text) and settled on a **"commit-only"** engine that inserts only
-> completed syllables — the most robust universal solution. Why that is so is the heart
-> of this document (§8).
+> **One-line conclusion (spoiler)**: Windows has TSF and IMM32, and the effective contract
+> changes with the compatibility layer, edit control, and custom renderer. We found **no
+> single composition or injection strategy that works in every application**. The product
+> therefore combines a commit-only engine, per-application injection, and a separate
+> preview. This is a reliability choice for the tested matrix, not proof that TSF
+> composition is impossible in principle. Sections 8, 12.7, and 13 separate failures,
+> evidence, and remaining hypotheses.
 
 ---
 
@@ -285,14 +286,17 @@ Implement `IClassFactory` in C the same way as §1.2
 | App class | What it is | TSF composition (underline preview) | Range editing (replace inserted text) | Plain insertion |
 |---|---|:---:|:---:|:---:|
 | **Native TSF** | fully TSF-aware editors and web content controls | ✅ | ✅ | ✅ |
-| **CUAS EDIT controls** | classic Win32 EDIT and RichEdit-family controls reached via the CUAS bridge | ❌ killed right after the session | ❌ accumulates | ✅ |
-| **Terminals (own renderer)** | apps that draw their own text with no standard edit control | ❌ | ❌ | ✅ (roughly) |
+| **Compatibility text store/CUAS path** | classic Win32 paths where TSF is mediated for an IMM32 application | ⚠️ retained or terminated depending on host | ⚠️ highly implementation-dependent | ⚠️ often works, with exceptions |
+| **Terminals/custom renderers** | apps that draw their own text with no standard edit control | ⚠️ highly app-dependent | ⚠️ usually limited | ⚠️ may require real keys/messages |
 
-- Only **native TSF** apps support composition and replacement.
-- **CUAS/terminals** support **"insert at the caret" only.** You cannot delete or replace
-  what you already inserted.
-- **The common denominator of all three = insertion, alone.** → This is where §8's
-  "commit-only" comes from.
+- **Native TSF** is the most predictable class because it exposes the composition and
+  range-editing contract directly.
+- Do not collapse compatibility stores and custom renderers into one rule. The same TIP
+  retained one composition in Notepad but was terminated after every key in AkelPad;
+  terminals may require physical-key semantics instead of text insertion.
+- Caret insertion covered many hosts, but was not a literal universal denominator (§13).
+  Commit-only is a **fallback policy** that reduced failures in the tested matrix, not a
+  guarantee stated by the Windows API.
 
 > **Field note, 2026-07-23.** A separate standard-TSF lab retained composition correctly
 > in Windows Notepad. In 64-bit AkelPad, each compatibility jamo was finalized separately
@@ -525,16 +529,17 @@ Two methods, both native-TSF-only:
 This chapter is the reason this document exists — what jamotong learned over **20+ rounds
 of on-device testing.**
 
-### 8.1 In CUAS apps, TSF composition dies right after the session
+### 8.1 In some compatibility hosts, TSF composition dies right after the session
 - Our composition setup was textbook-correct: display attribute `TF_ATTR_INPUT`, category
   registered, insert-then-compose, with/without `SetSelection`, sync/async,
   `ITfThreadMgrEventSink`/`ITfTextEditSink` attached — **we tried everything; none of it
   mattered.**
 - Confirmed by logging: `StartComposition` succeeds (hr=0) and the composition text goes
-  in, but **immediately after the edit session ends** CUAS fires
-  `OnCompositionTerminated`, finalizing and killing the composition. We never identified
-  the reason (undocumented CUAS internals; MS IME manages it, but its trick is not
-  observable).
+  in, but **immediately after the edit session ends** an out-of-transaction edit and
+  `OnCompositionTerminated` end the composition. The trace cannot identify whether that
+  edit was initiated by the application, text store, or CUAS. AkelPad's transitory
+  context and IMM32 handling make the compatibility-path model strong, but do not prove
+  it (§12.7).
 - **AkelPad x64 reproduction (2026-07-23)**: after one of our edit sessions completed
   successfully and closed, `OnEndEdit(selection_changed=0)` then
   `OnCompositionTerminated` repeated at the same tick for every key. That moves the
@@ -854,6 +859,204 @@ outline / dark badge), 16px base with DPI scaling.
 - **The stale-DLL trap, again**: when symptoms appear and vanish inexplicably, suspect
   deployment before code (§10's file locking — it played ghost twice in this project).
 
+### 12.7 Failure ledger — discarded AkelPad hypotheses and the remaining causal model
+
+This section preserves **how failures were classified**, not only the last code that
+worked. Its purpose is to stop the next implementer from randomly reordering API calls,
+declaring success from `S_OK` alone, or retesting a selection-style hypothesis that has
+already been isolated and rejected.
+
+#### 12.7.1 Classify failure before trying to fix it
+
+| Class | Decision rule | Example | Response |
+|---|---|---|---|
+| **Our implementation defect** | ABI, HRESULT, lifetime, or state publication violates the contract | wrong vtable signature, NULL composition sink, consuming a key after edit failure | fix it, then restart the same scenario from a clean deployment |
+| **Protocol hypothesis rejected** | the isolated change executes as intended and succeeds, but visible and lifetime results match the control | `TF_AE_NONE`, insert-first, omitting `SetSelection` | record “not sufficient”; do not generalize beyond that host |
+| **Harness/deployment defect** | the new code never ran or the trace could not be collected | stale mapped DLL, deleting a locked log, batch-variable expansion | stop IME diagnosis and repair the experiment first |
+
+Without this split, “the collector failed” and “the host terminated the composition” turn
+into the same vague failure. In particular, **API request success**, **edit-session
+success**, and **composition survival after the session** are three different verdicts.
+
+#### 12.7.2 Fixed reproduction and what the trace actually proved
+
+The experiment compared 64-bit AkelPad with Windows Notepad. Each profile ran in a fresh
+process and document and received `rkskek` once. The expected visible result was `가나다`;
+all four AkelPad profiles instead finalized compatibility jamo separately. Each DLL also
+had an independent filename, CLSID, profile GUID, display-attribute GUID, and trace stem,
+reducing the risk of selecting an old or different build.
+
+One fixed six-key AkelPad run produced the following structure for every profile:
+
+| Structural event | Control | `TF_AE_NONE` | Insert First | No Selection |
+|---|---:|---:|---:|---:|
+| Edit-session results | 6 | 6 | 6 | 6 |
+| Request/session/inner failures | 0 | 0 | 0 | 0 |
+| Successful `StartComposition` | 6 | 6 | 6 | 6 |
+| Out-of-transaction `txn=0` `OnEndEdit` after close | 6 | 6 | 6 | 6 |
+| Text/composing/attribute changes in that edit | 6/6/6 | 6/6/6 | 6/6/6 | 6/6/6 |
+| Reading changes in that edit | 0 | 0 | 0 | 0 |
+| `OnCompositionTerminated` | 6 | 6 | 6 | 6 |
+
+Each key repeated this order. The numbers below are illustrative; no process identifier or
+entered text is needed:
+
+```text
+txn=N  range.set_text.after       S_OK  composition=1
+txn=N  display_attribute.apply    S_OK  composition=1
+txn=N  edit_session.result        all-S_OK, callback_ran=1
+txn=N  edit_transaction.close           composition=1
+txn=0  text_edit.end                    selection_changed=0
+txn=0  changed_text/composing/attribute = 1, changed_reading = 0
+txn=0  composition_terminated           termination_epoch += 1
+```
+
+The important fact is that termination did not occur **inside** `SetText` or **inside** our
+edit callback. The local composition was alive when our transaction closed; a separate
+edit record and termination callback followed. Immediate API failure, a skipped callback,
+and our own direct `EndComposition` call are therefore not the direct cause of this
+reproduction.
+
+All four variants visibly composed proper syllables in Notepad. Its trace also reused the
+composition created for the first key through `composition.get_range.existing` on later
+keys. A termination caused by process shutdown or explicit finalization is a normal
+lifetime event, so the mere presence of one `OnCompositionTerminated` record is not a
+failure verdict. The AkelPad fingerprint is the **per-key pair of an out-of-transaction
+edit and termination**.
+
+The context status differed too. This AkelPad run reported `static_flags=4`
+(`TF_SS_TRANSITORY`) and `dynamic_flags=0x40000000`; Notepad reported
+`static_flags=18` and `dynamic_flags=0`. That proves the applications expose different
+kinds of text store, but does not prove that a status flag itself ordered termination.
+
+#### 12.7.3 Defects we fixed that were not the final AkelPad cause
+
+| Defect or bad assumption | Symptom | Correction and verdict |
+|---|---|---|
+| Declaring a nonexistent extra `BSTR *` parameter in the C vtable for `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` | COM registers/stack can be misaligned: ABI-level undefined behavior | changed to the documented three-parameter method; AkelPad still terminated with the fixed build |
+| Passing NULL as the `StartComposition` sink | `E_INVALIDARG`; no composition is created, while direct committed insertion can look like a partial success | pass a real `ITfCompositionSink`; check both HRESULT and returned pointer |
+| Treating `StartComposition == S_OK` as sufficient even if the returned composition is NULL | later range failure or divergence between local and document state | treat `S_OK + NULL` as explicit failure and roll back before publishing state |
+| Treating the `RequestEditSession` result, callback `phrSession`, and inner operation result as one HRESULT | a successful request can hide a failed or unexecuted session | retain `request_hr`, `session_hr`, `inner_hr`, and `callback_ran` separately |
+| Publishing the FSM and keeping `eaten=TRUE` after document-edit failure | the app never receives the key while internal state advances, leaving scattered or stale jamo | publish only after edit success; otherwise clear the composition and pass the original key. AkelPad later still failed with zero session failures |
+| Reading compartment `VT_EMPTY` as “off” | Hangul/English toggle works only once in hosts such as PuTTY | treat it as “unset” and retain local fallback state; unrelated to composition termination |
+| Swapped capability-GUID labels and a malformed immersive GUID | registration/activation conclusions can be confused on some environments | corrected to Microsoft constants. The desktop AkelPad profile already loaded, so this is unlikely to explain per-key termination, but it removes a confounder |
+| Suspecting the x86 DLL or COM bitness | a 64-bit application might have loaded a different server | confirmed 64-bit AkelPad and verified PE32+ x86-64 DLLs and required exports; symptom unchanged |
+| Overwriting a TSF DLL while it remains mapped in multiple processes | old and new symptoms appear to alternate like ghosts | use independent identities and trace stems; close editors, unregister, and log out when necessary |
+| Deleting every temporary JSONL before collection | one old file held open by another process aborts the test | never delete globally; copy only matching logs modified after a run marker, skipping a locked candidate individually |
+| Reading `%TARGET%` immediately after `set /p` in the same parenthesized `cmd.exe` block | the pasted AkelPad path is evaluated as the old empty value | moved input/use outside the block, then eliminated manual input by using the default install location |
+
+These were not worthless fixes. Removing them made the later trace trustworthy. But because
+the same out-of-session termination remained **after** each correction, continuing to use
+them as a sufficient explanation for current AkelPad jamo separation would waste time.
+
+#### 12.7.4 AkelPad fixes rejected by one-variable A/B
+
+| Hypothesis | Isolated change | Expected result | Actual result | Supported conclusion |
+|---|---|---|---|---|
+| active-end selection pushes the caret outside composition | change only `TF_AE_END` to `TF_AE_NONE` | host retains composition | same AkelPad failure; Notepad remains correct | selection style alone is not sufficient |
+| the first text must be inserted in the order observed for MS Korean IME | insert with `TF_IAS_NO_DEFAULT_COMPOSITION`, then start composition on its nonempty returned range in the same write session | compatibility path accepts startup order | same AkelPad failure, all calls `S_OK` | insert-first alone is insufficient; this does not reproduce every private behavior of MS IME |
+| explicit `SetSelection` causes termination | omit only that call | extra edit and termination disappear | in-session `selection_changed` changed from 1 to 0, but the later edit and termination were identical | the call itself is not the trigger |
+| the control already fails at an API boundary | record every step and session HRESULT | identify a failing call | all six requests/sessions/inner results are `S_OK`, callback runs | reject immediate-call failure; investigate lifetime after close |
+
+These conclusions apply to **this fixed AkelPad x64 scenario**. They do not establish that
+selection style or startup order is irrelevant to every text store.
+
+#### 12.7.5 Time lost to earlier legacy-host workarounds
+
+Before the AkelPad A/B suite, PuTTY, messaging applications, and classic controls prompted
+several workarounds. Those hosts may have different causes, so do not merge the observations
+into one “CUAS bug.” They still identify approaches with low value for a repeat attempt:
+
+| Attempt | Failure mode | Lesson |
+|---|---|---|
+| use flag 0 instead of `TF_ST_CORRECTION` | standards-correct, but termination continues in that host | the correct flag is necessary, not a compatibility fix by itself |
+| establish an empty composition in a separate session | empty composition survives, text update is followed by termination | session separation alone is insufficient |
+| switch between selection range, composition clone, and caret ranges | Notepad works; failing host does not improve | range provenance alone does not explain the failure |
+| reorder display attribute and caret application | same termination | stop permuting successful calls without new evidence |
+| set `GUID_PROP_LANGID` in PuTTY | no improvement | LANGID alone was insufficient there; it does not substitute for an unrun AkelPad test |
+| replace a range without composition | old text is not replaced and output accumulates like `ㄱ가간…` | do not assume backward range editing on a restricted text store |
+| send `VK_BACK`, then reinject Unicode | remote-shell echo delay and wide-character width cause loss/overlap | IME accounting cannot repair terminal rendering and remote line editing |
+| append only committed output | often works slowly, loses characters under fast input | racing synthetic input is not an accuracy foundation |
+| call `ImmSetCompositionStringW` directly | preedit appears, but `CPS_COMPLETE` does not insert committed text, so intermediate syllables vanish | a TSF TIP driving an IMM context directly lacks an atomic commit contract |
+
+One mature third-party TSF IME also showed the PuTTY symptom in a field check, but **one
+sample does not prove that pure TSF is impossible in every CUAS application**. Commit-only
+was an engineering decision to reduce risk in the current support matrix; the independent
+standard lab remains the place to continue protocol research.
+
+#### 12.7.6 Strongest current causal model
+
+| Confidence | Statement | Evidence and limitation |
+|---|---|---|
+| **Confirmed** | a separate edit and external termination callback arrive after our successful write transaction closes | the `txn=N` success → `txn=0` update → epoch increment sequence repeats for all four variants and all six keys |
+| **Confirmed** | AkelPad and Notepad text stores have different lifetime behavior | AkelPad creates a composition per key; Notepad reuses the existing composition |
+| **Strong inference** | AkelPad's TSF context interacts with an IMM32 compatibility path that rewrites text/composing/attribute state into a result and ends composition | `TF_SS_TRANSITORY`, AkelEdit's direct `WM_IME_*`/`ImmGetCompositionStringW` handling, and simultaneous post-session property changes. The trace cannot identify the actor or internal CUAS decision |
+| **Open hypothesis** | metadata used by MS IME—language, reading, ownership, or related range state—is missing from the live range | the first trace has no reading update. Official property definitions describe data semantics, not a universal “required to survive” rule |
+| **Rejected as sufficient** | active-end style, explicit selection, insert-first order, immediate API failure, or application bitness | isolated A/B or binary verification leaves the result unchanged |
+| **Not knowable from current evidence** | “AkelPad itself terminated it,” “CUAS is conclusively the bug,” or “MS IME uses a secret API” | the trace has no caller stack or compatibility-layer internals |
+
+The most accurate current statement is therefore: **after a successful TIP edit, a second
+edit on the compatibility-host side ends the composition**. Shortening this to “CUAS is the
+culprit” turns an inference into a fact.
+
+#### 12.7.7 Second metadata A/B — a pending experiment, not a result
+
+The next suite fixes all other protocol choices and compares four profiles:
+
+1. Control: no added metadata
+2. LANGID: set `GUID_PROP_LANGID=ko-KR` (`VT_I4`) over the current **nonempty**
+   composition range
+3. Reading: set the current reading string (`VT_BSTR`) over the same range
+4. Both: set both
+
+`ITfProperty::SetValue` fails for an empty range and requires a write edit cookie, so the
+properties are set after `SetText` in the same write session. The official definitions say
+that `GUID_PROP_LANGID` stores the LANGID in the low word and `GUID_PROP_READING` stores
+phonetic reading text for the covered range. That does not say either property is a
+universal composition-survival requirement. Reading is explicitly unsupported by Store
+apps, so it must not become an unconditional product requirement.
+
+Interpret the result as follows:
+
+| Result | Interpretation |
+|---|---|
+| exactly one single-property profile succeeds repeatedly | candidate necessary condition for this host; repeat and test other applications before porting |
+| only Both succeeds | candidate interaction; rerun singles and combination separately |
+| all four fail and property `SetValue` is `S_OK` | LANGID/READING is not sufficient; move to ownership/host-boundary hypotheses |
+| a property operation returns failure | the variant never applied its hypothesis; do not report “property has no effect” |
+| Control suddenly succeeds too | deployment, selected profile, application version, or order changed; re-establish reproduction before concluding |
+
+The new trace also records `changed_langid`, `changed_reading`, every `SetValue` HRESULT,
+and `ITfContext::InWriteSession`. `InWriteSession` says whether **our client** owns a
+read/write lock at notification time; it does not identify another writer.
+
+#### 12.7.8 Time-saving procedure for the next implementation
+
+1. **Build a control first.** Pass a minimal TIP in a native-TSF control such as Notepad.
+2. **Use fixed input.** Same key sequence, fresh document, fresh process, comparable speed.
+3. **Collect visible output and structural trace together.** Either one alone can mislead.
+4. **Separate request, session, and inner results.** Never declare success from the
+   `RequestEditSession` HRESULT alone.
+5. **Record survival after success.** Put callback end, transaction close, `OnEndEdit`,
+   and `OnCompositionTerminated` on one sequence axis.
+6. **Change one variable per profile.** Separate DLL, CLSID, profile, and trace stem too.
+7. **After the same hypothesis fails twice, record and leave it.** Do not keep shuffling
+   call order.
+8. **Do not port into the product before the lab passes.** Keep product FSM/UI/config
+   defects separate from the Windows protocol experiment.
+9. **Verify deployment identity in the trace.** Missing new schema/events means the new
+   DLL did not run.
+10. **Never delete existing logs as setup.** Copy only the matching family after a marker
+    into a new directory and skip locked candidates individually.
+11. **Do not log content.** Events, HRESULTs, lengths, booleans, generations,
+    transactions, and termination epochs are enough for lifetime diagnosis.
+12. **Do not generalize one host failure into a Windows-wide limit.** Keep “confirmed,”
+    “strong inference,” “open hypothesis,” and “rejected” distinct in the document.
+
+Repeating `TF_AE_NONE`, omitting `SetSelection`, or insert-first **unchanged and in
+isolation** has low value now. A rerun should introduce a genuinely distinct variable or
+new observation, such as range ownership or metadata lifetime.
+
 ---
 
 ## 13. Text injection per app class
@@ -1137,6 +1340,8 @@ behaviour is why this manual exists.**
 | `ITfContextComposition` | starting a composition | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
 | `ITfTextEditSink::OnEndEdit` | observe edit completion order — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
 | `ITfEditRecord::GetTextAndPropertyUpdates` | observe text/property changed-range presence without contents — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfeditrecord-gettextandpropertyupdates |
+| `ITfContext::InWriteSession` | determine whether our client owns a write lock during notification — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-inwritesession |
+| `ITfProperty::SetValue` | set LANGID/READING on a nonempty range — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfproperty-setvalue |
 | `ITfInsertAtSelection::InsertTextAtSelection` | insert-first A/B and `TF_IAS_NO_DEFAULT_COMPOSITION` contract — §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinsertatselection-inserttextatselection |
 | `TF_SELECTIONSTYLE` | `TF_AE_NONE` selection-style A/B — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ns-msctf-tf_selectionstyle |
 | `ITfInputProcessorProfiles` | profile registration — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
@@ -1154,6 +1359,7 @@ behaviour is why this manual exists.**
 | Compositions | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
 | Edit Sessions | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
 | Text Stores | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+| Predefined Properties (`GUID_PROP_*` formats and semantics) | https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-properties |
 | `TF_STATUS` (`TF_SS_TRANSITORY`) | https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms629192(v=vs.85) |
 | Mozilla 1208043 (observed MS Korean IME insert-first order) | https://bugzilla.mozilla.org/show_bug.cgi?id=1208043 |
 | AkelEdit source (BSD; confirms direct IMM32 composition handling) | https://svn.code.sf.net/p/akelpad/codesvn/trunk/akelpad_4/AkelEdit/AkelEdit.c |
@@ -1191,7 +1397,7 @@ The formula is in §6: `0xAC00 + (cho×21 + jung)×28 + jong`.
 | Item | Link |
 |---|---|
 | MinGW-w64 (this project's compiler) | https://www.mingw-w64.org/ |
-| Windows classic samples (includes TSF samples) | https://github.com/microsoft/Windows-classic-samples |
+| Microsoft SampleIME (official TSF IME implementation sample) | https://github.com/microsoft/Windows-classic-samples/tree/main/Samples/IME/cpp/SampleIME |
 
 ### This repository
 

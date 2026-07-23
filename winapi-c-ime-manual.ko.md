@@ -2,7 +2,7 @@
 
 **한국어** | [English](winapi-c-ime-manual.md)
 
-*최종 갱신: 2026-07-24 (AkelPad 프로토콜 A/B 결과·메타데이터 탐침 보강)*
+*최종 갱신: 2026-07-24 (IME 실패 장부·AkelPad 원인 추정·재현 절차 보강)*
 
 
 이 문서는 **순수 C(C23)와 Win32 API만으로**(C++·ATL·MFC·프레임워크 없이) Windows용
@@ -12,10 +12,11 @@
 대상 독자: WinAPI와 C는 알지만 COM/TSF는 처음인 개발자.
 목표: 이 문서만 보고 다른 IME를 밑바닥부터 만들 수 있게 하는 것.
 
-> **한 줄 결론(스포일러)**: Windows에는 입력 시스템이 두 개(TSF·IMM32) 있고 그 사이 다리(CUAS)가
-> 부실하다. **모든 앱에서 예외 없이 되는 텍스트 연산은 "커서 위치에 삽입"뿐이다.** 그래서 조합
-> 미리보기(밑줄 뜨는 그것)를 포기하고 **완성된 음절만 삽입하는 "커밋 전용"** 이 가장 견고한
-> 만능 해법이었다. 왜 그런지가 이 문서의 핵심이다(§8).
+> **한 줄 결론(스포일러)**: Windows에는 TSF와 IMM32가 있고, 호환 계층·컨트롤 구현·자체
+> 렌더러에 따라 실제 동작 계약이 달라진다. **모든 앱에 통하는 단일 조합·주입 전략은 확인하지
+> 못했다.** 그래서 제품은 완성 음절만 확정하는 커밋 전용 엔진, 앱별 주입 경로, 별도 프리뷰를
+> 조합했다. 이것은 “TSF 조합이 원리적으로 불가능하다”는 결론이 아니라 현재 앱 행렬에서 검증된
+> 신뢰성 선택이다. 실패와 남은 가설은 §8·§12.7·§13에 구분해 기록한다.
 
 ---
 
@@ -272,12 +273,14 @@ STDAPI DllUnregisterServer(void);             // 등록 해제 (regsvr32 /u)
 | 앱 부류 | 예 | TSF 조합(밑줄 미리보기) | range 편집(넣은 글자 교체) | 단순 삽입 |
 |---|---|:---:|:---:|:---:|
 | **네이티브 TSF** | TSF를 온전히 지원하는 에디터·웹 콘텐츠 컨트롤 | ✅ | ✅ | ✅ |
-| **CUAS EDIT 컨트롤** | CUAS 브리지로 접근되는 고전 Win32 EDIT·RichEdit 계열 컨트롤 | ❌ 세션 직후 잘림 | ❌ 누적됨 | ✅ |
-| **터미널(자체 렌더)** | 표준 에디트 컨트롤 없이 텍스트를 직접 그리는 앱 | ❌ | ❌ | ✅(대략) |
+| **호환 텍스트 스토어/CUAS 경로** | TSF를 IMM32 앱에 중개하는 고전 Win32 경로 | ⚠️ 호스트별로 유지 또는 종료 | ⚠️ 구현별 차이 큼 | ⚠️ 대체로 가능하나 예외 있음 |
+| **터미널·자체 렌더러** | 표준 에디트 컨트롤 없이 텍스트를 직접 그리는 앱 | ⚠️ 앱별 차이 큼 | ⚠️ 대개 제한적 | ⚠️ 실제 키/메시지가 필요할 수 있음 |
 
-- **네이티브 TSF**만 조합·교체가 다 된다.
-- **CUAS/터미널**은 **"커서에 삽입"만** 된다. 이미 넣은 글자를 지우거나 교체하는 건 안 된다.
-- **모든 부류의 공통분모 = 삽입 하나.** → §8의 "커밋 전용" 이 여기서 나온다.
+- **네이티브 TSF**는 조합·range 편집 계약을 직접 제공하므로 가장 예측 가능하다.
+- 호환 경로와 자체 렌더러를 한 부류로 단정하지 않는다. 같은 TIP가 메모장에서는 조합을
+  유지하고 AkelPad에서는 매 키마다 종료됐으며, 터미널은 텍스트 삽입보다 실제 키가 필요하기도 했다.
+- 커서 삽입은 넓게 통했지만 이것도 절대적 공통분모는 아니었다(§13). 제품의 “커밋 전용”은
+  관측한 앱 행렬에서 실패 면적을 줄인 **폴백 정책**이지 Windows API의 보장 문구가 아니다.
 
 > **2026-07-23 실기 메모.** 별도 표준 TSF 실험체는 Windows 메모장에서 조합 유지에 성공했다.
 > 64비트 AkelPad에서는 `가나다` 대신 호환 자모가 각각 확정됐다. 구조 로그상 모든
@@ -489,13 +492,14 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 
 이 장이 이 문서의 존재 이유다. jamotong이 **20번 넘는 실기 왕복** 끝에 배운 것.
 
-### 8.1 CUAS 앱에서 TSF 조합은 세션 직후 죽는다
+### 8.1 일부 호환 호스트에서 TSF 조합은 세션 직후 죽는다
 - 우리 조합 설정은 교과서적으로 정확했다: 디스플레이 속성 `TF_ATTR_INPUT`, 카테고리 등록,
   텍스트 삽입 후 조합 시작, `SetSelection` 유무, 동기/비동기, `ITfThreadMgrEventSink`/
   `ITfTextEditSink` 부착 — **전부 시도했지만 무효.**
 - 로그로 확인: `StartComposition`은 성공(hr=0)하고 조합 텍스트도 들어가는데, **편집 세션이 끝난
-  직후** CUAS가 `OnCompositionTerminated`를 던져 조합을 확정·종료시킨다. 이유는 끝내 특정 못 함
-  (문서화 안 된 CUAS 내부 동작, MS IME는 되지만 그 비법은 계측 불가).
+  직후** 세션 밖 추가 편집과 `OnCompositionTerminated`가 조합을 종료시킨다. 로그만으로 그
+  편집의 주체가 앱인지 텍스트 스토어인지 CUAS인지 특정할 수는 없다. AkelPad의 transitory
+  컨텍스트와 IMM32 처리 코드는 호환 경로 가설을 강하게 만들지만 증명은 아니다(§12.7).
 - **AkelPad x64 재현(2026-07-23)**: 한 키의 우리 편집 세션이 완전히 성공하고 닫힌 다음,
   `OnEndEdit(selection_changed=0)` → `OnCompositionTerminated`가 같은 tick에 매번 반복됐다.
   따라서 비트수·COM ABI·즉시 API 실패가 아니라 **세션 이후 호스트 호환 경계**가 조사 대상이다.
@@ -762,6 +766,194 @@ OnClick(RIGHT, point):
 - **낡은 DLL 함정 재확인**: 증상이 불가해하게 나타났다 사라지면 코드보다 먼저 배포를 의심하라
   (§10의 파일 잠금 — 이 프로젝트에서 두 번이나 유령 증상의 범인이었다).
 
+### 12.7 실패 장부 — AkelPad 자모 분리 조사에서 버린 가설과 남은 원인
+
+이 절은 “마지막으로 잘된 코드”보다 **실패를 어떻게 판정했는지**를 보존한다. 같은 증상을 만난
+다음 구현자가 API 호출 순서를 무작위로 바꾸거나, `S_OK`만 보고 성공이라 믿거나, 이미 기각된
+선택 스타일을 다시 시험하는 시간을 줄이는 것이 목적이다.
+
+#### 12.7.1 먼저 실패를 세 종류로 분류한다
+
+| 종류 | 판정 기준 | 예 | 처리 |
+|---|---|---|---|
+| **우리 구현 결함** | ABI·HRESULT·수명·상태 전이가 계약을 위반 | 잘못된 vtable 시그니처, NULL composition sink, 실패 뒤에도 키 소비 | 고친 뒤 동일 시나리오를 처음부터 재검사 |
+| **프로토콜 가설 기각** | 변경한 호출은 의도대로 실행되고 모두 성공했지만 화면·수명 결과가 대조군과 같음 | `TF_AE_NONE`, 선삽입, `SetSelection` 생략 | “해결책이 아님”으로 기록하되 다른 호스트까지 일반화하지 않음 |
+| **시험 도구·배포 결함** | 새 코드가 실행되지 않았거나 로그를 수집하지 못함 | 잠긴 옛 DLL, 잠긴 로그 삭제, 배치 변수 선행 확장 | IME 원인 분석을 중단하고 시험 장치부터 수정 |
+
+이 구분을 하지 않으면 “코드는 성공했는데 로그 수집기가 실패한 것”과 “호스트가 조합을 끝낸 것”이
+같은 실패로 섞인다. 특히 **API 반환 성공**, **편집 세션 성공**, **조합의 세션 뒤 생존**은 서로
+다른 판정값이다.
+
+#### 12.7.2 고정 재현과 실제 로그가 말한 것
+
+실험은 64비트 AkelPad와 Windows 메모장을 비교했다. 각 프로필마다 새 프로세스·새 문서에서
+`rkskek`를 한 번 입력했다. 기대 화면은 `가나다`이고, AkelPad의 관측 화면은 네 프로필 모두
+호환 자모가 따로 확정된 형태였다. DLL 이름·CLSID·프로필 GUID·표시 속성 GUID·로그 이름을
+각각 분리해 이전 DLL이나 다른 변형을 잘못 고르는 위험도 줄였다.
+
+한 번의 고정 6키 실행에서 얻은 AkelPad 로그는 네 프로필 모두 다음과 같았다.
+
+| 구조 사건 | Control | `TF_AE_NONE` | Insert First | No Selection |
+|---|---:|---:|---:|---:|
+| 편집 세션 결과 | 6 | 6 | 6 | 6 |
+| request/session/inner 실패 | 0 | 0 | 0 | 0 |
+| `StartComposition` 성공 | 6 | 6 | 6 | 6 |
+| 트랜잭션이 닫힌 뒤 `txn=0` 추가 `OnEndEdit` | 6 | 6 | 6 | 6 |
+| 추가 편집의 text/composing/attribute 변경 | 6/6/6 | 6/6/6 | 6/6/6 | 6/6/6 |
+| 추가 편집의 reading 변경 | 0 | 0 | 0 | 0 |
+| `OnCompositionTerminated` | 6 | 6 | 6 | 6 |
+
+순서는 매 키마다 아래처럼 반복됐다. 숫자는 설명용이며 실제 PID·문자열은 필요 없다.
+
+```text
+txn=N  range.set_text.after       S_OK  composition=1
+txn=N  display_attribute.apply    S_OK  composition=1
+txn=N  edit_session.result        all-S_OK, callback_ran=1
+txn=N  edit_transaction.close           composition=1
+txn=0  text_edit.end                    selection_changed=0
+txn=0  changed_text/composing/attribute = 1, changed_reading = 0
+txn=0  composition_terminated           termination_epoch += 1
+```
+
+이 순서에서 중요한 것은 종료가 `SetText` 호출 **안**이나 우리 편집 콜백 **안**에서 발생한 것이
+아니라는 점이다. 우리 트랜잭션이 닫힐 때까지 로컬 composition은 살아 있었고, 그 뒤 별도 편집
+기록과 종료 콜백이 왔다. 따라서 즉시 API 실패, callback 미실행, 로컬 코드가 직접 호출한
+`EndComposition`은 이 재현의 직접 원인이 아니다.
+
+메모장에서는 화면상 네 변형이 모두 정상 음절을 만들었다. 구조 로그도 첫 키에서 만든
+composition을 다음 키의 `composition.get_range.existing`으로 재사용했다. 프로그램 종료나
+명시적 확정 때 오는 종료 콜백은 정상 수명 사건이므로, 단순히 로그에
+`OnCompositionTerminated`가 한 번 있다는 사실만으로 실패라 판정하면 안 된다. **매 키 직후
+`txn=0` 편집과 종료가 한 쌍으로 반복되는가**가 AkelPad 실패의 지문이다.
+
+컨텍스트 상태도 달랐다. 해당 AkelPad 실행은 `static_flags=4`
+(`TF_SS_TRANSITORY`)와 `dynamic_flags=0x40000000`을, 메모장은 `static_flags=18`과
+`dynamic_flags=0`을 보고했다. 이것은 두 앱이 같은 종류의 text store가 아니라는 증거지만,
+그 플래그 자체가 종료를 명령했다는 증거는 아니다.
+
+#### 12.7.3 실제로 고친 결함 — 중요하지만 AkelPad의 최종 원인은 아니었던 것
+
+| 결함/잘못된 가정 | 나타난 증상 | 수정과 판정 |
+|---|---|---|
+| `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` C vtable에 존재하지 않는 `BSTR *` 인자를 하나 더 선언 | COM 호출 스택/레지스터가 어긋날 수 있는 ABI 미정의 동작 | 공식 시그니처와 같은 3인자 메서드로 수정. 수정본 로그에서도 AkelPad 종료가 재현되어 최종 원인에서는 제외 |
+| `StartComposition`의 sink를 NULL로 전달 | `E_INVALIDARG`; 조합 객체가 만들어지지 않고 확정 삽입만 보여 “부분 성공”처럼 보임 | 실제 `ITfCompositionSink`를 전달하고 HRESULT와 반환 포인터를 모두 검사 |
+| `StartComposition == S_OK`만 검사하고 반환 composition이 NULL인 경우를 고려하지 않음 | 이후 range 접근 실패 또는 상태와 문서 불일치 | `S_OK + NULL`도 명시적 실패로 처리하고 publish 전 rollback |
+| `RequestEditSession` 반환값과 세션 콜백의 `phrSession`/내부 HRESULT를 한 값처럼 취급 | 요청만 성공한 세션을 성공으로 오판 | `request_hr`, `session_hr`, `inner_hr`, `callback_ran`을 따로 보존 |
+| 문서 편집 실패 뒤에도 FSM을 publish하고 `eaten=TRUE` 유지 | 키는 앱에 가지 않고 내부 상태만 진행되어 자모가 흩어지거나 글자가 남음 | 편집 성공 뒤에만 FSM publish. 실패하면 조합 정리 후 원래 키 통과. 이후 AkelPad에서는 모든 세션이 성공해도 외부 종료가 남았음 |
+| 한/영 compartment의 `VT_EMPTY`를 꺼짐으로 해석 | PuTTY 등에서 한/영이 한 번만 동작 | `VT_EMPTY`는 “미설정”으로 보고 로컬 fallback 상태 유지. 조합 종료와는 별개 문제 |
+| capability GUID의 이름/값 교차와 immersive GUID 오타 | 특정 환경 등록·활성화 판단을 흐릴 수 있음 | Microsoft 상수로 정정. 데스크톱 AkelPad에서 이미 프로필이 로드·활성화됐으므로 매 키 종료의 유력 원인은 아니지만 실험 교란 요인은 제거 |
+| x86 DLL 또는 COM ABI 문제라는 추측 | 64비트 앱이 다른 DLL을 로드했을 가능성 | AkelPad가 64비트임을 확인하고 PE32+ x86-64 DLL·필수 export를 검사. 동일 증상으로 비트수 가설 제외 |
+| TSF DLL이 여러 프로세스에 매핑된 상태에서 파일만 덮어씀 | 수정 전후 증상이 유령처럼 섞임 | 변형별 새 identity와 로그 stem 사용, 편집기 종료·등록 해제·필요 시 로그아웃 후 재설치 |
+| 수집 시작 전에 임시 JSONL을 전부 삭제 | 다른 프로세스가 옛 로그를 열고 있으면 시험 자체가 중단 | 삭제를 없애고 시작 시각 marker 이후 갱신된 해당 변형 로그만 복사; 잠긴 후보 하나는 건너뜀 |
+| `cmd.exe` 괄호 블록 안에서 `set /p` 직후 `%TARGET%` 사용 | 사용자가 입력한 AkelPad 경로가 빈 옛 값으로 평가 | 입력과 사용을 블록 밖으로 분리. 이후 기본 설치 경로를 자동 사용해 수동 입력 자체를 제거 |
+
+교훈은 “고칠 가치가 없는 버그였다”가 아니다. 이 결함들을 먼저 제거했기 때문에 그 다음 로그를
+신뢰할 수 있었다. 다만 **결함을 고친 뒤에도 같은 세션 밖 종료가 남았으므로**, 그것들을 현재
+AkelPad 자모 분리의 충분한 설명으로 계속 붙들고 있으면 안 된다.
+
+#### 12.7.4 한 변수 A/B에서 기각된 AkelPad 해결책
+
+| 가설 | 격리한 변경 | 기대 | 실제 결과 | 지금 말할 수 있는 것 |
+|---|---|---|---|---|
+| 선택 active-end가 조합을 밖으로 밀어낸다 | `TF_AE_END` → `TF_AE_NONE`만 변경 | 호스트가 조합을 유지 | AkelPad 동일 실패, 메모장 정상 | 선택 스타일 하나는 충분한 해결책이 아님 |
+| MS 한글 IME처럼 먼저 삽입해야 한다 | `TF_IAS_NO_DEFAULT_COMPOSITION`으로 첫 문자열을 넣고 반환된 비어 있지 않은 range에서 같은 write session 안에 조합 시작 | 시작 순서가 호환층 기대와 맞음 | AkelPad 동일 실패, 모든 호출 `S_OK` | 선삽입 순서 하나는 충분하지 않음. MS IME의 전체 비공개 동작까지 재현했다는 뜻은 아님 |
+| 명시적 `SetSelection`이 종료를 유발한다 | 그 호출만 생략 | 추가 편집·종료가 사라짐 | 자체 세션의 `selection_changed`는 1→0으로 바뀌었지만 세션 뒤 추가 편집·종료는 그대로 | `SetSelection` 호출 자체는 종료 트리거가 아님 |
+| 기본 경로가 이미 API 단계에서 실패한다 | Control의 모든 단계와 세션 HRESULT 관측 | 실패 HRESULT 발견 | 6회 모두 request/session/inner `S_OK`, callback 실행 | 즉시 호출 실패 가설 기각; 수명 관측으로 이동해야 함 |
+
+이 결과는 **AkelPad x64의 이 고정 시나리오**에 대한 것이다. 다른 text store에서
+`TF_AE_NONE`이나 시작 순서가 중요하지 않다는 보편 명제가 아니다.
+
+#### 12.7.5 이전 레거시 호스트 우회가 낭비한 시간
+
+AkelPad A/B 전에도 PuTTY·메신저·고전 컨트롤에서 여러 우회를 시험했다. 이 기록은 호스트가
+다르므로 현재 AkelPad 결과와 섞어 “같은 원인”이라 부르면 안 되지만, 다시 시도할 가치가 낮은
+접근을 알려 준다.
+
+| 시도 | 실패 양상 | 배운 것 |
+|---|---|---|
+| `TF_ST_CORRECTION` 대신 0 사용 | 표준에는 맞지만 해당 호스트 종료는 지속 | 올바른 플래그는 필요조건이지 호환 해결책은 아님 |
+| 빈 composition을 별도 세션에서 먼저 정착 | 빈 조합은 살지만 텍스트 갱신 뒤 종료 | 세션 분리만으로 충분하지 않음 |
+| 선택 range/조합 range clone 등 캐럿 range 변경 | 메모장은 정상, 문제 호스트는 동일 | 캐럿 range 종류 하나로 설명 불가 |
+| 표시 속성과 캐럿 적용 순서 교환 | 동일 종료 | 순서 무작위 재배열을 계속할 근거 없음 |
+| PuTTY에서 `GUID_PROP_LANGID` 설정 | 개선 없음 | 그 호스트에서 LANGID 하나가 충분하지 않았을 뿐, AkelPad의 아직 안 한 실험을 대신하지 않음 |
+| composition 없는 range 치환 | 기존 글자가 교체되지 않고 `ㄱ가간…`처럼 누적 | 제한적 text store의 뒤쪽 range 편집을 범용으로 가정하지 말 것 |
+| `VK_BACK`으로 지우고 Unicode 재전송 | 원격 셸 echo 지연·wide character 폭과 충돌해 누락/겹침 | 터미널의 표시·라인 편집 문제를 IME accounting만으로 고칠 수 없음 |
+| append-only 확정 | 느릴 때는 되나 빠른 입력에서 누락 | 경합하는 합성 입력은 정확성 기반이 될 수 없음 |
+| `ImmSetCompositionStringW` 직접 호출 | 프리에딧은 보였지만 `CPS_COMPLETE`가 문서 확정을 만들지 않아 중간 음절 소실 | TSF TIP 안에서 IMM context를 직접 움직이는 혼합 경로는 원자적 commit 계약이 없음 |
+
+다른 성숙한 TSF IME 하나가 PuTTY에서 같은 증상을 보였던 관측도 있었지만, **표본 하나는
+“순수 TSF는 모든 CUAS 앱에서 불가능하다”는 증명이 아니다.** 제품이 commit-only를 택한 것은
+현재 지원 행렬의 위험을 줄이기 위한 공학적 결정이며, 표준 실험체 연구는 별도로 계속한다.
+
+#### 12.7.6 현재 가장 강한 원인 모형
+
+| 확신 수준 | 설명 | 근거와 한계 |
+|---|---|---|
+| **확정** | 우리 write transaction이 성공하고 닫힌 뒤, 별도 편집과 외부 종료 콜백이 온다 | `txn=N` 성공 뒤 `txn=0` 변경 기록과 epoch 증가가 네 변형·6키 모두 반복 |
+| **확정** | AkelPad와 메모장의 text store 행동은 다르다 | AkelPad는 키마다 새 composition, 메모장은 기존 composition 재사용 |
+| **강한 추정** | AkelPad의 TSF context가 IMM32 호환 경로와 상호작용하면서 text/composing/attribute를 결과 상태로 다시 쓰고 composition을 끝낸다 | `TF_SS_TRANSITORY`, AkelEdit의 `WM_IME_*`·`ImmGetCompositionStringW` 직접 처리, 세션 밖 세 속성 동시 변경. 그러나 로그는 행위자나 내부 CUAS 결정을 식별하지 못함 |
+| **열린 가설** | live range에 언어/reading/ownership 등 MS IME가 쓰는 메타데이터가 빠졌다 | 첫 로그에서 reading 변경 0. 공식 속성은 의미를 정의할 뿐 “조합 유지 필수”라고 보장하지 않음 |
+| **충분조건으로 기각** | active-end 스타일, 명시적 selection, 선삽입 순서, 즉시 API 성공/실패, 앱 비트수 | 각각 독립 A/B 또는 바이너리 검사로 결과 불변 |
+| **말할 수 없음** | “AkelPad가 직접 종료했다”, “CUAS 버그가 확정 원인”, “MS IME는 비밀 API를 쓴다” | 현재 로그에는 호출 주체·스택·호환층 내부 상태가 없음 |
+
+즉 현재 최선의 표현은 **“성공한 TIP 편집 뒤 호환 호스트 쪽의 두 번째 편집이 조합을 끝낸다”**이다.
+이를 곧바로 “CUAS가 범인”으로 줄이면 추정이 사실로 둔갑한다.
+
+#### 12.7.7 두 번째 메타데이터 A/B — 아직 결과가 아니라 계획이다
+
+다음 시험판은 나머지 프로토콜을 고정하고 네 프로필만 비교한다.
+
+1. Control: 추가 메타데이터 없음
+2. LANGID: 현재의 **비어 있지 않은** composition range에 `GUID_PROP_LANGID=ko-KR`
+   (`VT_I4`) 설정
+3. Reading: 같은 range에 현재 reading 문자열(`VT_BSTR`) 설정
+4. Both: 둘 다 설정
+
+`ITfProperty::SetValue`는 비어 있는 range에서 실패하고 write cookie를 요구하므로, 속성은
+`SetText` 뒤 같은 write session에서 설정한다. 공식 문서상 `GUID_PROP_LANGID`는 low word에
+LANGID를 담고, `GUID_PROP_READING`은 해당 텍스트의 음성 reading을 담는다. 이 설명은 두 속성이
+모든 호스트에서 composition 생존 조건이라는 뜻이 아니다. 특히 reading은 Store 앱에서
+지원되지 않는다고 문서화돼 있으므로 범용 필수조건으로 만들면 안 된다.
+
+판정은 다음처럼 한다.
+
+| 결과 | 해석 |
+|---|---|
+| 한 단독 변형만 반복해서 성공 | 그 속성이 이 호스트의 후보 필요조건. 다른 앱과 반복 실행 뒤 제품 이식 검토 |
+| Both만 성공 | 두 속성의 상호작용 후보. 단독·결합을 각각 다시 실행 |
+| 네 개 모두 실패하고 property 설정도 `S_OK` | LANGID/READING은 충분한 해결책이 아님. TEXTOWNER/호스트 경계 등 다음 가설로 이동 |
+| property 설정 HRESULT가 실패 | 해당 변형은 가설을 실제로 적용하지 못했으므로 “속성 효과 없음”으로 판정 금지 |
+| Control까지 갑자기 성공 | DLL 선택·캐시·앱 버전·시험 순서가 바뀐 것. 원인 결론을 내리지 말고 재현부터 확인 |
+
+새 로그는 `changed_langid`, `changed_reading`, 각 `SetValue` HRESULT와
+`ITfContext::InWriteSession`도 남긴다. `InWriteSession`은 알림 시점에 **우리 client가
+read/write lock을 가졌는지** 알려 줄 뿐, 다른 행위자의 정체를 알려 주는 API는 아니다.
+
+#### 12.7.8 다음 구현자가 따라야 할 시간 절약 절차
+
+1. **대조군부터 만든다.** 최소 TIP를 메모장 같은 native TSF 대조군에서 먼저 통과시킨다.
+2. **고정 입력을 쓴다.** 같은 키열, 새 문서, 새 프로세스, 같은 입력 속도로 비교한다.
+3. **화면과 구조 로그를 함께 받는다.** 로그가 정상이어도 사용자가 본 글자가 틀릴 수 있고,
+   화면이 맞아도 조합 수명이 우연히 매 키 재생성된 것일 수 있다.
+4. **요청·세션·내부 결과를 분리한다.** `RequestEditSession`의 `S_OK` 하나로 성공 판정하지 않는다.
+5. **성공 뒤 생존을 기록한다.** callback 끝, edit transaction 닫힘, `OnEndEdit`,
+   `OnCompositionTerminated`를 같은 sequence에 둔다.
+6. **한 프로필에 한 변수만 바꾼다.** DLL·CLSID·profile·trace stem도 분리한다.
+7. **두 번 같은 이유로 실패하면 가설을 기록하고 이동한다.** 호출 순서만 계속 섞지 않는다.
+8. **실험체가 통과하기 전 제품에 이식하지 않는다.** 제품 FSM·UI·설정 문제와 Windows protocol
+   문제를 한 디버깅 세션에 섞지 않는다.
+9. **배포 identity를 로그에서 확인한다.** 새 schema/event가 없으면 새 DLL을 실행한 것이 아니다.
+10. **로그 수집기는 기존 파일을 삭제하지 않는다.** 시작 marker 뒤의 해당 family만 새 폴더로
+    복사하고 잠긴 파일은 개별적으로 건너뛴다.
+11. **내용은 기록하지 않는다.** event, HRESULT, 길이, boolean, generation, transaction,
+    termination epoch만으로 수명 문제를 판정한다.
+12. **호스트 한 곳의 실패를 Windows 전체의 한계로 일반화하지 않는다.** “확정”, “강한 추정”,
+    “열린 가설”, “기각”을 문서에서 계속 구분한다.
+
+무작위로 다시 시도할 가치가 낮은 항목은 `TF_AE_NONE`, 명시적 `SetSelection` 생략,
+insert-first를 **같은 방식으로 단독 반복**하는 것이다. 다시 시험하려면 새로운 관측 필드나
+다른 range/ownership 계약처럼 기존 가설과 구분되는 변수가 있어야 한다.
+
 ---
 
 ## 13. 앱 클래스별 텍스트 주입
@@ -1026,6 +1218,8 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | `ITfContextComposition` | 조합 시작 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
 | `ITfTextEditSink::OnEndEdit` | 편집 종료 순서 관측 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
 | `ITfEditRecord::GetTextAndPropertyUpdates` | 내용 없이 텍스트/속성 변경 range 존재 여부 관측 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfeditrecord-gettextandpropertyupdates |
+| `ITfContext::InWriteSession` | 알림 시점에 우리 client가 write lock을 가졌는지 판별 — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-inwritesession |
+| `ITfProperty::SetValue` | 비어 있지 않은 range에 LANGID/READING 설정 — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfproperty-setvalue |
 | `ITfInsertAtSelection::InsertTextAtSelection` | insert-first A/B와 `TF_IAS_NO_DEFAULT_COMPOSITION` 계약 — §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinsertatselection-inserttextatselection |
 | `TF_SELECTIONSTYLE` | `TF_AE_NONE` 선택 스타일 A/B — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ns-msctf-tf_selectionstyle |
 | `ITfInputProcessorProfiles` | 프로파일 등록 — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
@@ -1043,6 +1237,7 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | Compositions (조합) | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
 | Edit Sessions (편집 세션) | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
 | Text Stores (텍스트 저장소) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+| Predefined Properties (`GUID_PROP_*` 형식·의미) | https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-properties |
 | `TF_STATUS` (`TF_SS_TRANSITORY`) | https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms629192(v=vs.85) |
 | Mozilla 1208043 (MS 한글 IME의 insert-first 순서 관측) | https://bugzilla.mozilla.org/show_bug.cgi?id=1208043 |
 | AkelEdit 소스(BSD, IMM32 조합 처리 확인) | https://svn.code.sf.net/p/akelpad/codesvn/trunk/akelpad_4/AkelEdit/AkelEdit.c |
@@ -1080,7 +1275,7 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | 항목 | 링크 |
 |---|---|
 | MinGW-w64 (이 프로젝트의 컴파일러) | https://www.mingw-w64.org/ |
-| Windows classic samples (TSF 예제 포함) | https://github.com/microsoft/Windows-classic-samples |
+| Microsoft SampleIME (공식 TSF IME 구현 예제) | https://github.com/microsoft/Windows-classic-samples/tree/main/Samples/IME/cpp/SampleIME |
 
 ### 이 저장소
 
