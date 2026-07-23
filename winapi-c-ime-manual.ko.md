@@ -2,7 +2,7 @@
 
 **한국어** | [English](winapi-c-ime-manual.md)
 
-*최종 갱신: 2026-07-23 (표준 TSF 실험체 진단 방법·COM ABI 함정 보강)*
+*최종 갱신: 2026-07-24 (AkelPad 프로토콜 A/B 결과·메타데이터 탐침 보강)*
 
 
 이 문서는 **순수 C(C23)와 Win32 API만으로**(C++·ATL·MFC·프레임워크 없이) Windows용
@@ -285,7 +285,11 @@ STDAPI DllUnregisterServer(void);             // 등록 해제 (regsvr32 /u)
 > 닫힌 직후 선택 변경 없는 추가 `OnEndEdit`와 `OnCompositionTerminated`가 차례로 왔다. AkelPad
 > 컨텍스트의 정적 상태에는 `TF_SS_TRANSITORY`도 있었다. AkelEdit 소스가 IMM32 조합 메시지를
 > 직접 처리한다는 사실까지 합치면 CUAS/IMM 호환 경로라는 강한 증거지만, 로그만으로 종료 요청자를
-> 특정하거나 `SetSelection` 하나를 원인으로 단정할 수는 없다. §12.6의 A/B 시험을 따른다.
+> 특정하거나 `SetSelection` 하나를 원인으로 단정할 수는 없다. 후속 네 프로필은 Control,
+> `TF_AE_NONE`, 선삽입 후 조합, 명시적 선택 생략 모두 AkelPad에서 똑같이 자모 분리됐고
+> 메모장에서는 모두 정상 조합됐다. 추가 편집은 텍스트·`GUID_PROP_COMPOSING`·
+> `GUID_PROP_ATTRIBUTE`를 바꿨지만 `GUID_PROP_READING`은 바꾸지 않았다. 따라서 이 세 프로토콜
+> 차이는 단독 해결책이 아니다. 다음 단계는 §12.6의 메타데이터 A/B 탐침이다.
 
 ---
 
@@ -497,12 +501,11 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
   따라서 비트수·COM ABI·즉시 API 실패가 아니라 **세션 이후 호스트 호환 경계**가 조사 대상이다.
   `TF_SS_TRANSITORY`와 AkelEdit의 `WM_IME_*`/`ImmGetCompositionStringW` 구현은 CUAS/IMM 경유
   추론을 뒷받침한다.
-- **MS 한글 IME와 같은 시작 순서 가설**: Mozilla의 Windows TSF 실기 기록에는 한글 IME가 먼저
-  삽입을 수행하고 나중에 composition 시작 통지를 일으키는 순서가 나온다. 이를 검증할 때는
-  `InsertTextAtSelection(TF_IAS_NO_DEFAULT_COMPOSITION, 첫 문자열)`이 돌려준 **비어 있지 않은
-  range**에서 같은 write session 안에 `StartComposition`한다. 이 플래그를 쓰면 잠금을 놓기 전에
-  호출자가 조합을 만들어야 한다. 아직 AkelPad 해결책으로 확인된 것은 아니므로 기본 구현에
-  넣지 말고 §12.6의 독립 실험판에서만 검증한다.
+- **시작 순서 가설은 AkelPad를 고치지 못했다(2026-07-24).** Mozilla의 한글 IME 실기 기록과
+  같은 선삽입 순서, `TF_AE_NONE` 선택 스타일, 명시적 `SetSelection` 생략은 모두 Control과
+  같은 결과였고 네 프로필 모두 메모장에서는 정상 동작했다. 다음 독립 질문은 살아 있는 조합
+  range에 `GUID_PROP_LANGID`, `GUID_PROP_READING` 또는 둘 다를 호환 호스트가 요구하는지다.
+  검증되지 않은 동작은 제품에 넣지 않는다.
 - **함정**: `StartComposition`에 `ITfCompositionSink`를 **NULL로 넘기면 `E_INVALIDARG`로 실패**한다
   (MSDN과 달리 sink 필수). 우연히 이걸 실패시켰더니 조합 없이 삽입만 하는 게 CUAS에서 오히려
   깔끔히 됐고 — 그게 "커밋 전용"의 발견이었다.
@@ -740,12 +743,18 @@ OnClick(RIGHT, point):
 - **`S_OK` 뒤의 상태를 기록하라.** 호스트가 콜백으로 조합을 끝내도 API 자체는 성공할 수 있다.
   세션 직후 `composition=0` 또는 종료 epoch 증가가 보이면 HRESULT만으로 내린 성공 판정이 틀렸다.
 - `OnEndEdit`의 `ITfEditRecord::GetTextAndPropertyUpdates`로 **텍스트,
-  `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, `GUID_PROP_READING`에 변경 range가 있었는지**를
-  각각 묻는다. 실제 range 텍스트나 속성 값은 읽지 않고 존재 여부만 기록해도, 호스트가 텍스트를
-  다시 썼는지 조합/표시 속성만 걷었는지 구분할 수 있다.
+  `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, `GUID_PROP_LANGID`,
+  `GUID_PROP_READING`에 변경 range가 있었는지**를 각각 묻는다. 실제 range 텍스트나 속성 값은
+  읽지 않고 존재 여부만 기록한다. `ITfContext::InWriteSession`도 함께 기록하면 세션 뒤 콜백과
+  TIP이 아직 소유한 쓰기 작업을 구분할 수 있다.
 - **한 변수씩 A/B한다.** AkelPad 시험판은 (0) 기존 방식, (1) `TF_AE_NONE`만 적용,
   (2) 첫 문자열 삽입 후 composition 시작만 적용, (3) 명시적 `SetSelection`만 생략한 네 개의
   독립 CLSID/프로필로 만든다. 네 변경을 한 DLL에 섞으면 정상화돼도 원인을 알 수 없다.
+- **1차 A/B 결과(2026-07-24):** 네 프로필 모두 AkelPad에서는 자모 분리, 메모장에서는 정상
+  음절이었다. 세션 뒤 편집에는 텍스트·조합·표시 속성 변경 range가 있었고 reading 변경은 없었다.
+  따라서 선택 스타일, 명시적 선택, 시작 순서는 충분한 해결책이 아니다. 2차 시험판은 나머지
+  프로토콜을 고정하고 (0) 메타데이터 없음, (1) `GUID_PROP_LANGID`, (2) `GUID_PROP_READING`,
+  (3) 둘 다를 비교하며, 속성은 `SetText`와 같은 write session에서 설정한다.
 - 비교 빌드는 기존 입력기를 덮어쓰지 않도록 DLL 이름·표시 이름·CLSID·프로필 GUID까지 분리하고,
   프로세스마다 별도 JSONL을 만든다. 고정 입력 시나리오를 메모장과 문제 앱에서 각각 한 번 실행한다.
 - **개인정보 원칙**: 입력 내용과 메모리 주소는 어떤 진단판에도 남기지 않는다. 로그는 필요한

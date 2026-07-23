@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-23 (standard-TSF trace method and COM ABI gotchas)*
+*Last updated: 2026-07-24 (AkelPad protocol A/B result and metadata probe)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -302,7 +302,12 @@ Implement `IClassFactory` in C the same way as §1.2
 > `OnCompositionTerminated`. The AkelPad context also reported `TF_SS_TRANSITORY`.
 > Together with AkelEdit's direct IMM32 composition-message handling, this is strong
 > evidence of a CUAS/IMM compatibility path. It does not identify the terminator or prove
-> that `SetSelection` alone is the trigger. Use the isolated A/B test in §12.6.
+> that `SetSelection` alone is the trigger. A four-profile follow-up produced the same
+> separated result in AkelPad and the correct result in Notepad for control,
+> `TF_AE_NONE`, insert-before-compose, and no-explicit-selection. The extra edit changed
+> text, `GUID_PROP_COMPOSING`, and `GUID_PROP_ATTRIBUTE`, but not `GUID_PROP_READING`.
+> This rules out those three protocol choices as sufficient fixes. Use the metadata A/B
+> probe in §12.6 for the next test.
 
 ---
 
@@ -536,12 +541,12 @@ of on-device testing.**
   investigation away from bitness, COM ABI, and immediate API failure to the
   **post-session host compatibility boundary**. `TF_SS_TRANSITORY` plus AkelEdit's
   `WM_IME_*`/`ImmGetCompositionStringW` implementation supports the CUAS/IMM inference.
-- **MS Korean IME startup-order hypothesis**: Mozilla's Windows TSF field record shows a
-  Korean IME inserting first and causing composition start notification later. Test that
-  with `InsertTextAtSelection(TF_IAS_NO_DEFAULT_COMPOSITION, initial_text)`, then call
-  `StartComposition` over its returned **nonempty range in the same write session**. The
-  flag requires the caller to establish the composition before releasing the lock. This
-  is not yet an AkelPad fix; keep it in the independent experiment described in §12.6.
+- **The startup-order hypothesis did not fix AkelPad (2026-07-24).** Following the
+  insert-first sequence seen in Mozilla's Korean-IME field record, changing selection
+  style to `TF_AE_NONE`, and omitting explicit `SetSelection` all behaved exactly like
+  the control. All four profiles still worked in Notepad. The next isolated question is
+  whether the compatibility host expects `GUID_PROP_LANGID`, `GUID_PROP_READING`, or both
+  on the live composition range; do not fold that unverified behavior into the product.
 - **Pitfall**: passing a **NULL `ITfCompositionSink` to `StartComposition` fails with
   `E_INVALIDARG`** (the sink is mandatory, contrary to what MSDN suggests). When we
   accidentally caused that failure, plain insertion-without-composition worked cleanly
@@ -825,13 +830,21 @@ outline / dark badge), 16px base with DPI scaling.
   the API itself reports success. `composition=0` or an incremented termination epoch
   after the session disproves a success verdict based only on HRESULT.
 - Use `ITfEditRecord::GetTextAndPropertyUpdates` in `OnEndEdit` to ask separately whether
-  text, `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, or `GUID_PROP_READING` has a changed
-  range. Record only presence; never read the range text or property value. That is enough
-  to distinguish a host text rewrite from composition/display-property cleanup.
+  text, `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, `GUID_PROP_LANGID`, or
+  `GUID_PROP_READING` has a changed range. Record only presence; never read the range text
+  or property value. Also record `ITfContext::InWriteSession` so a post-session callback
+  can be distinguished from work still owned by the TIP.
 - **Change one variable per profile.** The AkelPad suite uses four independent
   CLSID/profiles: (0) control, (1) only `TF_AE_NONE`, (2) only insert-before-compose,
   and (3) only omission of explicit `SetSelection`. Combining them in one DLL could make
   input work without revealing why.
+- **First A/B result (2026-07-24):** all four profiles produced separated jamo in AkelPad
+  and proper syllables in Notepad. The post-session edit reported changed text,
+  composing, and display-attribute ranges, while reading remained unchanged. Therefore
+  selection style, explicit selection, and startup order are not sufficient fixes. The
+  second suite holds that protocol constant and compares (0) no added metadata,
+  (1) `GUID_PROP_LANGID`, (2) `GUID_PROP_READING`, and (3) both, setting each property
+  inside the same write session as `SetText`.
 - Keep a comparison build separate from the installed IME: distinct DLL/display names,
   CLSID, and profile GUID, plus one JSONL file per process. Run one fixed scenario in
   Notepad and once in the failing application.

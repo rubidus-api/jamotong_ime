@@ -16,6 +16,12 @@
 static const GUID kPropComposing =
     { 0xe12ac060, 0xaf15, 0x11d2,
       { 0xaf, 0xc5, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 } };
+static const GUID kPropLangId =
+    { 0x3280ce20, 0x8032, 0x11d2,
+      { 0xb6, 0x03, 0x00, 0xc0, 0x4f, 0x93, 0xd0, 0x15 } };
+static const GUID kPropReading =
+    { 0x5463f7c0, 0x8e31, 0x11d3,
+      { 0xa9, 0xf3, 0x00, 0x80, 0x5f, 0x8e, 0xff, 0xf8 } };
 #endif
 
 static STDMETHODIMP SVC_QI(ITfTextInputProcessor *me, REFIID riid, void **ppv);
@@ -287,19 +293,20 @@ static STDMETHODIMP TE_OnEndEdit(ITfTextEditSink *me, ITfContext *ctx,
     HRESULT hr = record ? ITfEditRecord_GetSelectionStatus(record, &selection_changed) : E_POINTER;
     Lab_TraceEvent("text_edit.end", st, hr, selection_changed ? 1 : 0);
 #ifdef LAB_ALWAYS_TRACE
+    BOOL in_write_session = FALSE;
+    HRESULT write_hr = ITfContext_InWriteSession(ctx, svc->client_id, &in_write_session);
+    Lab_TraceEvent("text_edit.in_write_session", st, write_hr,
+                   in_write_session ? 1 : 0);
     TraceEditRecordUpdate(record, st, "text_edit.changed_text",
                           TF_GTP_INCL_TEXT, NULL);
     TraceEditRecordUpdate(record, st, "text_edit.changed_composing",
                           0, &kPropComposing);
     TraceEditRecordUpdate(record, st, "text_edit.changed_attribute",
                           0, &GUID_PROP_ATTRIBUTE);
-    {
-        static const GUID prop_reading =
-            { 0x5463f7c0, 0x8e31, 0x11d3,
-              { 0xa9, 0xf3, 0x00, 0x80, 0x5f, 0x8e, 0xff, 0xf8 } };
-        TraceEditRecordUpdate(record, st, "text_edit.changed_reading",
-                              0, &prop_reading);
-    }
+    TraceEditRecordUpdate(record, st, "text_edit.changed_langid",
+                          0, &kPropLangId);
+    TraceEditRecordUpdate(record, st, "text_edit.changed_reading",
+                          0, &kPropReading);
 #endif
     return S_OK;
 }

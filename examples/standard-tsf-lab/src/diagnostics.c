@@ -74,6 +74,7 @@ static const char *PhaseName(LabTracePhase phase) {
     case LAB_TRACE_INSERT_TEXT:       return "insert_text";
     case LAB_TRACE_START_COMPOSITION: return "start_composition";
     case LAB_TRACE_SET_TEXT:          return "set_text";
+    case LAB_TRACE_METADATA:          return "metadata";
     case LAB_TRACE_DISPLAY_ATTRIBUTE: return "display_attribute";
     case LAB_TRACE_SET_SELECTION:     return "set_selection";
     case LAB_TRACE_COMMIT_PREFIX:     return "commit_prefix";

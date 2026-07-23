@@ -5,6 +5,7 @@
 #   make trace   : dist-trace/jamotong-tsf-trace-lab.dll   (x64, separate identity)
 #   make trace32 : dist32-trace/jamotong-tsf-trace-lab.dll (x86, separate identity)
 #   make akel-suite : four isolated x64 AkelPad diagnostic variants
+#   make akel-metadata-suite : four isolated x64 composition-metadata variants
 #   make all     : 위 전부
 CC      = x86_64-w64-mingw32-gcc
 CC32    = i686-w64-mingw32-gcc
@@ -17,6 +18,10 @@ AKEL_CONTROL_CFLAGS = $(CFLAGS) -DLAB_AKEL_CONTROL_BUILD
 AKEL_AE_NONE_CFLAGS = $(CFLAGS) -DLAB_AKEL_AE_NONE_BUILD
 AKEL_INSERT_FIRST_CFLAGS = $(CFLAGS) -DLAB_AKEL_INSERT_FIRST_BUILD
 AKEL_NO_SELECTION_CFLAGS = $(CFLAGS) -DLAB_AKEL_NO_SELECTION_BUILD
+AKEL_META_CONTROL_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_CONTROL_BUILD
+AKEL_META_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_LANGID_BUILD
+AKEL_META_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_READING_BUILD
+AKEL_META_BOTH_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_BOTH_BUILD
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
@@ -75,6 +80,29 @@ dist-akel/jamotong-tsf-test-3-no-selection.dll: $(SRCS) $(DEF)
 	@mkdir -p dist-akel
 	$(CC) $(AKEL_NO_SELECTION_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
 
+# Side-by-side x64 metadata experiments. The control follows the normal composition path.
+akel-metadata-suite: \
+	dist-akel-metadata/jamotong-tsf-meta-0-control.dll \
+	dist-akel-metadata/jamotong-tsf-meta-1-langid.dll \
+	dist-akel-metadata/jamotong-tsf-meta-2-reading.dll \
+	dist-akel-metadata/jamotong-tsf-meta-3-langid-reading.dll
+
+dist-akel-metadata/jamotong-tsf-meta-0-control.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata
+	$(CC) $(AKEL_META_CONTROL_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata/jamotong-tsf-meta-1-langid.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata
+	$(CC) $(AKEL_META_LANGID_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata/jamotong-tsf-meta-2-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata
+	$(CC) $(AKEL_META_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata/jamotong-tsf-meta-3-langid-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata
+	$(CC) $(AKEL_META_BOTH_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
 # portable test — Windows 없이 리눅스에서도 돈다 (RFC-0009 §21)
 test:
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_hangul2_test tests/hangul2_test.c src/hangul2.c
@@ -90,6 +118,6 @@ test-san:
 	/tmp/lab_kp_san
 
 clean:
-	rm -rf dist dist32 dist-trace dist32-trace dist-akel
+	rm -rf dist dist32 dist-trace dist32-trace dist-akel dist-akel-metadata
 
-.PHONY: all dll win32 trace trace32 trace-all akel-suite test test-san clean
+.PHONY: all dll win32 trace trace32 trace-all akel-suite akel-metadata-suite test test-san clean

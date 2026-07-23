@@ -15,6 +15,22 @@
 static const GUID kPropReading =
     { 0x5463f7c0, 0x8e31, 0x11d3, { 0xa9, 0xf3, 0x00, 0x80, 0x5f, 0x8e, 0xff, 0xf8 } };
 
+#if defined(LAB_AKEL_META_CONTROL_BUILD) || defined(LAB_AKEL_META_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+#  define LAB_AKEL_METADATA_BUILD 1
+#endif
+#if defined(LAB_AKEL_META_LANGID_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+#  define LAB_APPLY_LANGID 1
+#endif
+#if defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+#  define LAB_APPLY_READING 1
+#endif
+#ifdef LAB_APPLY_LANGID
+/* {3280CE20-8032-11D2-B603-00C04F93D015} */
+static const GUID kPropLangId =
+    { 0x3280ce20, 0x8032, 0x11d2, { 0xb6, 0x03, 0x00, 0xc0, 0x4f, 0x93, 0xd0, 0x15 } };
+#endif
+
 /* StartComposition이 S_OK인데 결과가 NULL인 경우를 실패로 다룬다(§7.1). */
 #define LAB_E_COMPOSITION_REJECTED MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x201)
 
@@ -157,6 +173,67 @@ done:
     return hr;
 }
 
+#ifdef LAB_AKEL_METADATA_BUILD
+/* Apply only standard TSF properties, inside the same write session as SetText.
+   The trace records operation status but never property contents. */
+static HRESULT ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
+                                        ITfRange *range, const WCHAR *text, LONG len) {
+    HRESULT first_failure = S_OK;
+#if !defined(LAB_APPLY_LANGID) && !defined(LAB_APPLY_READING)
+    (void)ec;
+    (void)range;
+#endif
+    SetTracePhase(es->state, LAB_TRACE_METADATA);
+
+#ifdef LAB_APPLY_LANGID
+    ITfProperty *langid = NULL;
+    HRESULT langid_hr = ITfContext_GetProperty(
+            es->state->context, &kPropLangId, &langid);
+    if (SUCCEEDED(langid_hr)) {
+        VARIANT value;
+        VariantInit(&value);
+        value.vt = VT_I4;
+        value.lVal = (LONG)LAB_LANGID;
+        langid_hr = ITfProperty_SetValue(langid, ec, range, &value);
+        VariantClear(&value);
+    }
+    if (langid) ITfProperty_Release(langid);
+    Lab_TraceEvent("metadata.langid.apply", es->state, langid_hr, 0);
+    if (FAILED(langid_hr)) first_failure = langid_hr;
+#else
+    Lab_TraceEvent("metadata.langid.skipped", es->state, S_OK, 0);
+#endif
+
+#ifdef LAB_APPLY_READING
+    ITfProperty *reading = NULL;
+    HRESULT reading_hr = ITfContext_GetProperty(
+            es->state->context, &kPropReading, &reading);
+    if (SUCCEEDED(reading_hr)) {
+        BSTR string = SysAllocStringLen(text, (UINT)len);
+        if (!string) {
+            reading_hr = E_OUTOFMEMORY;
+        } else {
+            VARIANT value;
+            VariantInit(&value);
+            value.vt = VT_BSTR;
+            value.bstrVal = string;
+            reading_hr = ITfProperty_SetValue(reading, ec, range, &value);
+            VariantClear(&value);
+        }
+    }
+    if (reading) ITfProperty_Release(reading);
+    Lab_TraceEvent("metadata.reading.apply", es->state, reading_hr, 0);
+    if (FAILED(reading_hr) && SUCCEEDED(first_failure)) first_failure = reading_hr;
+#else
+    (void)text;
+    (void)len;
+    Lab_TraceEvent("metadata.reading.skipped", es->state, S_OK, 0);
+#endif
+
+    return first_failure;
+}
+#endif
+
 /* ── preedit 갱신 (§7.2) ── */
 static HRESULT ReplacePreedit(LabEditSession *es, TfEditCookie ec, ITfRange *range,
                               const WCHAR *text, LONG len, bool already_inserted) {
@@ -170,6 +247,10 @@ static HRESULT ReplacePreedit(LabEditSession *es, TfEditCookie ec, ITfRange *ran
         Lab_TraceEvent("range.set_text.after", es->state, hr, len);
         if (FAILED(hr)) return hr;
     }
+#ifdef LAB_AKEL_METADATA_BUILD
+    hr = ApplyCompositionMetadata(es, ec, range, text, len);
+    if (FAILED(hr)) return hr;
+#endif
     /* 표시 속성 실패는 조합을 무효로 만들지 않는다 — 밑줄이 없을 뿐이다 */
     SetTracePhase(es->state, LAB_TRACE_DISPLAY_ATTRIBUTE);
     HRESULT attr_hr = Lab_ApplyInputAttribute(es->service, ec, es->state->context, range);

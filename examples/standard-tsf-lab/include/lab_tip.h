@@ -46,11 +46,33 @@ extern const GUID  GUID_LabProfile;
 
 #if (defined(LAB_TRACE_BUILD) + defined(LAB_AKEL_CONTROL_BUILD) + \
      defined(LAB_AKEL_AE_NONE_BUILD) + defined(LAB_AKEL_INSERT_FIRST_BUILD) + \
-     defined(LAB_AKEL_NO_SELECTION_BUILD)) > 1
+     defined(LAB_AKEL_NO_SELECTION_BUILD) + defined(LAB_AKEL_META_CONTROL_BUILD) + \
+     defined(LAB_AKEL_META_LANGID_BUILD) + defined(LAB_AKEL_META_READING_BUILD) + \
+     defined(LAB_AKEL_META_BOTH_BUILD)) > 1
 #  error "Select exactly one standard-lab build variant"
 #endif
 
-#if defined(LAB_AKEL_CONTROL_BUILD)
+#if defined(LAB_AKEL_META_CONTROL_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta 0 Control"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-0-control-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-control"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_LANGID_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta 1 LangID"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-1-langid-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-langid"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_READING_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta 2 Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-2-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_BOTH_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta 3 LangID Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-3-langid-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-langid-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_CONTROL_BUILD)
 #  define LAB_DISPLAY_NAME       L"Jamotong TSF Test 0 Control"
 #  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-test-0-control-%lu.jsonl"
 #  define LAB_TRACE_VARIANT      "control"
@@ -92,6 +114,7 @@ typedef enum LabTracePhase {
     LAB_TRACE_INSERT_TEXT,
     LAB_TRACE_START_COMPOSITION,
     LAB_TRACE_SET_TEXT,
+    LAB_TRACE_METADATA,
     LAB_TRACE_DISPLAY_ATTRIBUTE,
     LAB_TRACE_SET_SELECTION,
     LAB_TRACE_COMMIT_PREFIX,
