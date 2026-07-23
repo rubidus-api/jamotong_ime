@@ -280,9 +280,12 @@ STDAPI DllUnregisterServer(void);             // 등록 해제 (regsvr32 /u)
 - **모든 부류의 공통분모 = 삽입 하나.** → §8의 "커밋 전용" 이 여기서 나온다.
 
 > **2026-07-23 실기 메모.** 별도 표준 TSF 실험체는 Windows 메모장에서 조합 유지에 성공했다.
-> 64비트 AkelPad에서는 `가나다` 대신 호환 자모가 각각 확정되는 현상이 재현됐다. AkelPad가
-> composition을 언제 종료하는지는 아직 확인 중이므로, 이 결과만으로 앱 부류나 원인을 단정하지
-> 않는다. §12.6의 구조 로그로 콜백 순서를 먼저 확인한다.
+> 64비트 AkelPad에서는 `가나다` 대신 호환 자모가 각각 확정됐다. 구조 로그상 모든
+> `StartComposition`·`SetText`·표시 속성·`SetSelection`·편집 세션은 `S_OK`였지만, 각 세션이
+> 닫힌 직후 선택 변경 없는 추가 `OnEndEdit`와 `OnCompositionTerminated`가 차례로 왔다. AkelPad
+> 컨텍스트의 정적 상태에는 `TF_SS_TRANSITORY`도 있었다. AkelEdit 소스가 IMM32 조합 메시지를
+> 직접 처리한다는 사실까지 합치면 CUAS/IMM 호환 경로라는 강한 증거지만, 로그만으로 종료 요청자를
+> 특정하거나 `SetSelection` 하나를 원인으로 단정할 수는 없다. §12.6의 A/B 시험을 따른다.
 
 ---
 
@@ -489,6 +492,17 @@ HRESULT DoEditSession(ITfEditSession *This, TfEditCookie ec){
 - 로그로 확인: `StartComposition`은 성공(hr=0)하고 조합 텍스트도 들어가는데, **편집 세션이 끝난
   직후** CUAS가 `OnCompositionTerminated`를 던져 조합을 확정·종료시킨다. 이유는 끝내 특정 못 함
   (문서화 안 된 CUAS 내부 동작, MS IME는 되지만 그 비법은 계측 불가).
+- **AkelPad x64 재현(2026-07-23)**: 한 키의 우리 편집 세션이 완전히 성공하고 닫힌 다음,
+  `OnEndEdit(selection_changed=0)` → `OnCompositionTerminated`가 같은 tick에 매번 반복됐다.
+  따라서 비트수·COM ABI·즉시 API 실패가 아니라 **세션 이후 호스트 호환 경계**가 조사 대상이다.
+  `TF_SS_TRANSITORY`와 AkelEdit의 `WM_IME_*`/`ImmGetCompositionStringW` 구현은 CUAS/IMM 경유
+  추론을 뒷받침한다.
+- **MS 한글 IME와 같은 시작 순서 가설**: Mozilla의 Windows TSF 실기 기록에는 한글 IME가 먼저
+  삽입을 수행하고 나중에 composition 시작 통지를 일으키는 순서가 나온다. 이를 검증할 때는
+  `InsertTextAtSelection(TF_IAS_NO_DEFAULT_COMPOSITION, 첫 문자열)`이 돌려준 **비어 있지 않은
+  range**에서 같은 write session 안에 `StartComposition`한다. 이 플래그를 쓰면 잠금을 놓기 전에
+  호출자가 조합을 만들어야 한다. 아직 AkelPad 해결책으로 확인된 것은 아니므로 기본 구현에
+  넣지 말고 §12.6의 독립 실험판에서만 검증한다.
 - **함정**: `StartComposition`에 `ITfCompositionSink`를 **NULL로 넘기면 `E_INVALIDARG`로 실패**한다
   (MSDN과 달리 sink 필수). 우연히 이걸 실패시켰더니 조합 없이 삽입만 하는 게 CUAS에서 오히려
   깔끔히 됐고 — 그게 "커밋 전용"의 발견이었다.
@@ -725,6 +739,13 @@ OnClick(RIGHT, point):
   `OnCompositionTerminated`·`OnEndEdit`를 같은 순번 축에 놓는다.
 - **`S_OK` 뒤의 상태를 기록하라.** 호스트가 콜백으로 조합을 끝내도 API 자체는 성공할 수 있다.
   세션 직후 `composition=0` 또는 종료 epoch 증가가 보이면 HRESULT만으로 내린 성공 판정이 틀렸다.
+- `OnEndEdit`의 `ITfEditRecord::GetTextAndPropertyUpdates`로 **텍스트,
+  `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, `GUID_PROP_READING`에 변경 range가 있었는지**를
+  각각 묻는다. 실제 range 텍스트나 속성 값은 읽지 않고 존재 여부만 기록해도, 호스트가 텍스트를
+  다시 썼는지 조합/표시 속성만 걷었는지 구분할 수 있다.
+- **한 변수씩 A/B한다.** AkelPad 시험판은 (0) 기존 방식, (1) `TF_AE_NONE`만 적용,
+  (2) 첫 문자열 삽입 후 composition 시작만 적용, (3) 명시적 `SetSelection`만 생략한 네 개의
+  독립 CLSID/프로필로 만든다. 네 변경을 한 DLL에 섞으면 정상화돼도 원인을 알 수 없다.
 - 비교 빌드는 기존 입력기를 덮어쓰지 않도록 DLL 이름·표시 이름·CLSID·프로필 GUID까지 분리하고,
   프로세스마다 별도 JSONL을 만든다. 고정 입력 시나리오를 메모장과 문제 앱에서 각각 한 번 실행한다.
 - **개인정보 원칙**: 입력 내용과 메모리 주소는 어떤 진단판에도 남기지 않는다. 로그는 필요한
@@ -995,6 +1016,9 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | `ITfCompositionSink::OnCompositionTerminated` | 외부 종료 시점 추적 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated |
 | `ITfContextComposition` | 조합 시작 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
 | `ITfTextEditSink::OnEndEdit` | 편집 종료 순서 관측 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
+| `ITfEditRecord::GetTextAndPropertyUpdates` | 내용 없이 텍스트/속성 변경 range 존재 여부 관측 — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfeditrecord-gettextandpropertyupdates |
+| `ITfInsertAtSelection::InsertTextAtSelection` | insert-first A/B와 `TF_IAS_NO_DEFAULT_COMPOSITION` 계약 — §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinsertatselection-inserttextatselection |
+| `TF_SELECTIONSTYLE` | `TF_AE_NONE` 선택 스타일 A/B — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ns-msctf-tf_selectionstyle |
 | `ITfInputProcessorProfiles` | 프로파일 등록 — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
 | `ITfCategoryMgr` | 카테고리 등록 — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
 | `ITfCategoryMgr::RegisterCategory` | 빠뜨리면 목록에 떠도 활성화 안 됨 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
@@ -1010,6 +1034,9 @@ if (c->keyDown[vk]){                       // 반복처럼 보이지만…
 | Compositions (조합) | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
 | Edit Sessions (편집 세션) | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
 | Text Stores (텍스트 저장소) | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+| `TF_STATUS` (`TF_SS_TRANSITORY`) | https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms629192(v=vs.85) |
+| Mozilla 1208043 (MS 한글 IME의 insert-first 순서 관측) | https://bugzilla.mozilla.org/show_bug.cgi?id=1208043 |
+| AkelEdit 소스(BSD, IMM32 조합 처리 확인) | https://svn.code.sf.net/p/akelpad/codesvn/trunk/akelpad_4/AkelEdit/AkelEdit.c |
 
 ### COM (C로 구현하기)
 

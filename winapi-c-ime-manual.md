@@ -296,9 +296,13 @@ Implement `IClassFactory` in C the same way as §1.2
 
 > **Field note, 2026-07-23.** A separate standard-TSF lab retained composition correctly
 > in Windows Notepad. In 64-bit AkelPad, each compatibility jamo was finalized separately
-> instead of producing `가나다`. The exact AkelPad termination point is still under
-> investigation, so do not infer its app class or root cause from this result alone.
-> Establish the callback order with the structural trace in §12.6 first.
+> instead of producing `가나다`. Every `StartComposition`, `SetText`, display-attribute,
+> `SetSelection`, and edit-session call returned `S_OK`; immediately after each session
+> closed, however, an extra `OnEndEdit` with no selection change was followed by
+> `OnCompositionTerminated`. The AkelPad context also reported `TF_SS_TRANSITORY`.
+> Together with AkelEdit's direct IMM32 composition-message handling, this is strong
+> evidence of a CUAS/IMM compatibility path. It does not identify the terminator or prove
+> that `SetSelection` alone is the trigger. Use the isolated A/B test in §12.6.
 
 ---
 
@@ -526,6 +530,18 @@ of on-device testing.**
   `OnCompositionTerminated`, finalizing and killing the composition. We never identified
   the reason (undocumented CUAS internals; MS IME manages it, but its trick is not
   observable).
+- **AkelPad x64 reproduction (2026-07-23)**: after one of our edit sessions completed
+  successfully and closed, `OnEndEdit(selection_changed=0)` then
+  `OnCompositionTerminated` repeated at the same tick for every key. That moves the
+  investigation away from bitness, COM ABI, and immediate API failure to the
+  **post-session host compatibility boundary**. `TF_SS_TRANSITORY` plus AkelEdit's
+  `WM_IME_*`/`ImmGetCompositionStringW` implementation supports the CUAS/IMM inference.
+- **MS Korean IME startup-order hypothesis**: Mozilla's Windows TSF field record shows a
+  Korean IME inserting first and causing composition start notification later. Test that
+  with `InsertTextAtSelection(TF_IAS_NO_DEFAULT_COMPOSITION, initial_text)`, then call
+  `StartComposition` over its returned **nonempty range in the same write session**. The
+  flag requires the caller to establish the composition before releasing the lock. This
+  is not yet an AkelPad fix; keep it in the independent experiment described in §12.6.
 - **Pitfall**: passing a **NULL `ITfCompositionSink` to `StartComposition` fails with
   `E_INVALIDARG`** (the sink is mandatory, contrary to what MSDN suggests). When we
   accidentally caused that failure, plain insertion-without-composition worked cleanly
@@ -808,6 +824,14 @@ outline / dark badge), 16px base with DPI scaling.
 - **Record the state after `S_OK`.** A host callback can terminate the composition while
   the API itself reports success. `composition=0` or an incremented termination epoch
   after the session disproves a success verdict based only on HRESULT.
+- Use `ITfEditRecord::GetTextAndPropertyUpdates` in `OnEndEdit` to ask separately whether
+  text, `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, or `GUID_PROP_READING` has a changed
+  range. Record only presence; never read the range text or property value. That is enough
+  to distinguish a host text rewrite from composition/display-property cleanup.
+- **Change one variable per profile.** The AkelPad suite uses four independent
+  CLSID/profiles: (0) control, (1) only `TF_AE_NONE`, (2) only insert-before-compose,
+  and (3) only omission of explicit `SetSelection`. Combining them in one DLL could make
+  input work without revealing why.
 - Keep a comparison build separate from the installed IME: distinct DLL/display names,
   CLSID, and profile GUID, plus one JSONL file per process. Run one fixed scenario in
   Notepad and once in the failing application.
@@ -1099,6 +1123,9 @@ behaviour is why this manual exists.**
 | `ITfCompositionSink::OnCompositionTerminated` | correlate external termination — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated |
 | `ITfContextComposition` | starting a composition | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
 | `ITfTextEditSink::OnEndEdit` | observe edit completion order — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
+| `ITfEditRecord::GetTextAndPropertyUpdates` | observe text/property changed-range presence without contents — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfeditrecord-gettextandpropertyupdates |
+| `ITfInsertAtSelection::InsertTextAtSelection` | insert-first A/B and `TF_IAS_NO_DEFAULT_COMPOSITION` contract — §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinsertatselection-inserttextatselection |
+| `TF_SELECTIONSTYLE` | `TF_AE_NONE` selection-style A/B — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ns-msctf-tf_selectionstyle |
 | `ITfInputProcessorProfiles` | profile registration — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
 | `ITfCategoryMgr` | category registration — §4.3 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr |
 | `ITfCategoryMgr::RegisterCategory` | omit it and the IME lists but never activates | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcategorymgr-registercategory |
@@ -1114,6 +1141,9 @@ behaviour is why this manual exists.**
 | Compositions | https://learn.microsoft.com/en-us/windows/win32/tsf/compositions |
 | Edit Sessions | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
 | Text Stores | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
+| `TF_STATUS` (`TF_SS_TRANSITORY`) | https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms629192(v=vs.85) |
+| Mozilla 1208043 (observed MS Korean IME insert-first order) | https://bugzilla.mozilla.org/show_bug.cgi?id=1208043 |
+| AkelEdit source (BSD; confirms direct IMM32 composition handling) | https://svn.code.sf.net/p/akelpad/codesvn/trunk/akelpad_4/AkelEdit/AkelEdit.c |
 
 ### COM (implementing in C)
 

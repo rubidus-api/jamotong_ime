@@ -37,6 +37,12 @@ static void SetTracePhase(LabContextState *st, LabTracePhase phase) {
 static HRESULT SetSelectionAtEnd(LabEditSession *es, TfEditCookie ec, ITfRange *range) {
     LabContextState *st = es->state;
     SetTracePhase(st, LAB_TRACE_SET_SELECTION);
+#ifdef LAB_AKEL_NO_SELECTION_BUILD
+    (void)ec;
+    (void)range;
+    Lab_TraceEvent("selection.skipped", st, S_OK, 0);
+    return S_OK;
+#else
     ITfRange *clone = NULL;
     HRESULT hr = ITfRange_Clone(range, &clone);
     if (SUCCEEDED(hr)) {
@@ -45,19 +51,31 @@ static HRESULT SetSelectionAtEnd(LabEditSession *es, TfEditCookie ec, ITfRange *
     if (SUCCEEDED(hr) && clone) {
         TF_SELECTION sel;
         sel.range = clone;
+#ifdef LAB_AKEL_AE_NONE_BUILD
+        sel.style.ase = TF_AE_NONE;
+#else
         sel.style.ase = TF_AE_END;
+#endif
         sel.style.fInterimChar = FALSE;
         hr = ITfContext_SetSelection(st->context, ec, 1, &sel);
     }
     if (clone) ITfRange_Release(clone);
     Lab_TraceEvent("selection.set_end", st, hr, 0);
     return hr;
+#endif
 }
 
 /* ── composition 확보 (§7.1) ── */
-static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange **range_out) {
+static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec,
+                                 const WCHAR *initial_text, LONG initial_len,
+                                 bool *inserted_text, ITfRange **range_out) {
     LabContextState *st = es->state;
+    *inserted_text = false;
     *range_out = NULL;
+#ifndef LAB_AKEL_INSERT_FIRST_BUILD
+    (void)initial_text;
+    (void)initial_len;
+#endif
     if (st->composition) {
         SetTracePhase(st, LAB_TRACE_GET_RANGE);
         HRESULT existing_hr = ITfComposition_GetRange(st->composition, range_out);
@@ -75,10 +93,24 @@ static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange *
     hr = ITfContext_QueryInterface(st->context, &IID_ITfInsertAtSelection, (void**)&insert);
     Lab_TraceEvent("insert_at_selection.query_interface", st, hr, 0);
     if (FAILED(hr)) goto done;
+#ifdef LAB_AKEL_INSERT_FIRST_BUILD
+    if (!initial_text || initial_len <= 0) {
+        hr = E_INVALIDARG;
+        Lab_TraceEvent("insert_at_selection.insert_first.invalid", st, hr, initial_len);
+        goto done;
+    }
+    SetTracePhase(st, LAB_TRACE_INSERT_TEXT);
+    Lab_TraceEvent("insert_at_selection.insert_first.before", st, S_OK, initial_len);
+    hr = ITfInsertAtSelection_InsertTextAtSelection(
+            insert, ec, TF_IAS_NO_DEFAULT_COMPOSITION,
+            initial_text, initial_len, &insert_range);
+    Lab_TraceEvent("insert_at_selection.insert_first.after", st, hr, initial_len);
+#else
     /* TF_IAS_QUERYONLY: 텍스트를 넣지 않고 삽입 지점 range만 얻는다 */
     hr = ITfInsertAtSelection_InsertTextAtSelection(insert, ec, TF_IAS_QUERYONLY,
                                                     NULL, 0, &insert_range);
     Lab_TraceEvent("insert_at_selection.query_range", st, hr, 0);
+#endif
     if (FAILED(hr)) goto done;
     hr = ITfContext_QueryInterface(st->context, &IID_ITfContextComposition, (void**)&cc);
     Lab_TraceEvent("context_composition.query_interface", st, hr, 0);
@@ -94,14 +126,30 @@ static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange *
     }
     if (FAILED(hr)) goto done;
 
-    st->composition = created;               /* publish */
+    SetTracePhase(st, LAB_TRACE_GET_RANGE);
+    hr = ITfComposition_GetRange(created, range_out);
+    Lab_TraceEvent("composition.get_range.new", st, hr, 0);
+    if (FAILED(hr)) goto done;
+
+    st->composition = created;               /* publish only after the range is usable */
     created = NULL;
     Lab_TraceEvent("composition.publish", st, S_OK, 0);
-    SetTracePhase(st, LAB_TRACE_GET_RANGE);
-    hr = ITfComposition_GetRange(st->composition, range_out);
-    Lab_TraceEvent("composition.get_range.new", st, hr, 0);
+#ifdef LAB_AKEL_INSERT_FIRST_BUILD
+    *inserted_text = true;
+#endif
 
 done:
+    if (FAILED(hr) && created) {
+        SetTracePhase(st, LAB_TRACE_END_COMPOSITION);
+        HRESULT end_hr = ITfComposition_EndComposition(created, ec);
+        Lab_TraceEvent("composition.start.rollback_end", st, end_hr, 0);
+    }
+#ifdef LAB_AKEL_INSERT_FIRST_BUILD
+    if (FAILED(hr) && insert_range) {
+        HRESULT rollback_hr = ITfRange_SetText(insert_range, ec, 0, L"", 0);
+        Lab_TraceEvent("insert_at_selection.insert_first.rollback", st, rollback_hr, 0);
+    }
+#endif
     if (created) ITfComposition_Release(created);
     if (cc) ITfContextComposition_Release(cc);
     if (insert_range) ITfRange_Release(insert_range);
@@ -111,12 +159,17 @@ done:
 
 /* ── preedit 갱신 (§7.2) ── */
 static HRESULT ReplacePreedit(LabEditSession *es, TfEditCookie ec, ITfRange *range,
-                              const WCHAR *text, LONG len) {
-    SetTracePhase(es->state, LAB_TRACE_SET_TEXT);
-    Lab_TraceEvent("range.set_text.before", es->state, S_OK, len);
-    HRESULT hr = ITfRange_SetText(range, ec, 0, text, len);   /* flag 0 = 일반 갱신 */
-    Lab_TraceEvent("range.set_text.after", es->state, hr, len);
-    if (FAILED(hr)) return hr;
+                              const WCHAR *text, LONG len, bool already_inserted) {
+    HRESULT hr = S_OK;
+    if (already_inserted) {
+        Lab_TraceEvent("range.set_text.skipped_insert_first", es->state, S_OK, len);
+    } else {
+        SetTracePhase(es->state, LAB_TRACE_SET_TEXT);
+        Lab_TraceEvent("range.set_text.before", es->state, S_OK, len);
+        hr = ITfRange_SetText(range, ec, 0, text, len);   /* flag 0 = normal update */
+        Lab_TraceEvent("range.set_text.after", es->state, hr, len);
+        if (FAILED(hr)) return hr;
+    }
     /* 표시 속성 실패는 조합을 무효로 만들지 않는다 — 밑줄이 없을 뿐이다 */
     SetTracePhase(es->state, LAB_TRACE_DISPLAY_ATTRIBUTE);
     HRESULT attr_hr = Lab_ApplyInputAttribute(es->service, ec, es->state->context, range);
@@ -229,18 +282,19 @@ static HRESULT DoWork(LabEditSession *es, TfEditCookie ec) {
         return hr;
     }
 
-    /* UPDATE / COMMIT_PREFIX: composition을 확보하고 committed+preedit를 한 번에 쓴다 */
-    ITfRange *range = NULL;
-    HRESULT hr = EnsureComposition(es, ec, &range);
-    if (FAILED(hr)) return hr;
-
+    /* UPDATE / COMMIT_PREFIX: build committed+preedit before selecting the startup protocol. */
     const HangulStep *step = es->step;
     WCHAR whole[8];
     LONG n = 0;
     for (uint8_t i = 0; i < step->committed_len; i++) whole[n++] = step->committed[i];
     for (uint8_t i = 0; i < step->preedit_len;   i++) whole[n++] = step->preedit[i];
 
-    hr = ReplacePreedit(es, ec, range, whole, n);
+    ITfRange *range = NULL;
+    bool inserted_text = false;
+    HRESULT hr = EnsureComposition(es, ec, whole, n, &inserted_text, &range);
+    if (FAILED(hr)) return hr;
+
+    hr = ReplacePreedit(es, ec, range, whole, n, inserted_text);
     if (SUCCEEDED(hr) && step->committed_len > 0) {
         hr = CommitPrefix(es, ec, (LONG)step->committed_len);
         /* 확정 후 preedit가 비었으면 composition을 끝낸다 */

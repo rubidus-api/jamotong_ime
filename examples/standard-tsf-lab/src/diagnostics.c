@@ -18,7 +18,7 @@ static BOOL CALLBACK InitTrace(PINIT_ONCE once, PVOID parameter, PVOID *context)
     (void)parameter;
     (void)context;
 
-#ifdef LAB_TRACE_BUILD
+#ifdef LAB_ALWAYS_TRACE
     g_trace_enabled = 1;
 #else
     WCHAR enabled[8];
@@ -35,10 +35,16 @@ static BOOL CALLBACK InitTrace(PINIT_ONCE once, PVOID parameter, PVOID *context)
         return TRUE;
     }
 
+#ifdef LAB_ALWAYS_TRACE
 #ifdef LAB_TRACE_BUILD
     int written = swprintf(path + used, MAX_PATH - used,
                            L"jamotong-tsf-trace-%lu.jsonl",
                            (unsigned long)GetCurrentProcessId());
+#else
+    int written = swprintf(path + used, MAX_PATH - used,
+                           LAB_TRACE_FILE_FORMAT,
+                           (unsigned long)GetCurrentProcessId());
+#endif
 #else
     int written = swprintf(path + used, MAX_PATH - used,
                            L"jamotong-standard-lab-trace-%lu.jsonl",
@@ -65,6 +71,7 @@ static const char *PhaseName(LabTracePhase phase) {
     case LAB_TRACE_EDIT_SESSION:      return "edit_session";
     case LAB_TRACE_GET_RANGE:         return "get_range";
     case LAB_TRACE_INSERT_QUERY:      return "insert_query";
+    case LAB_TRACE_INSERT_TEXT:       return "insert_text";
     case LAB_TRACE_START_COMPOSITION: return "start_composition";
     case LAB_TRACE_SET_TEXT:          return "set_text";
     case LAB_TRACE_DISPLAY_ATTRIBUTE: return "display_attribute";
@@ -90,11 +97,12 @@ static void WriteCommon(const char *event, const LabContextState *st,
     /* event is always a source-code constant, never user-controlled data. */
     fprintf(g_trace_file,
             "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
-            "\"tick_ms\":%llu,\"event\":\"%s\",\"ctx\":%u,\"txn\":%u,"
+            "\"tick_ms\":%llu,\"variant\":\"%s\",\"event\":\"%s\","
+            "\"ctx\":%u,\"txn\":%u,"
             "\"phase\":\"%s\",\"hr\":\"0x%08lX\",\"value\":%ld,"
             "\"composition\":%d,\"termination_epoch\":%u}\n",
             (long)seq, (unsigned long)pid, (unsigned long)tid,
-            (unsigned long long)tick, event, ctx, txn, PhaseName(phase),
+            (unsigned long long)tick, LAB_TRACE_VARIANT, event, ctx, txn, PhaseName(phase),
             (unsigned long)hr, (long)value, composition, epoch);
 }
 
@@ -113,14 +121,15 @@ void Lab_TraceSession(const char *what, const LabContextState *st,
     LONG seq = InterlockedIncrement(&g_trace_sequence);
     fprintf(g_trace_file,
             "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
-            "\"tick_ms\":%llu,\"event\":\"edit_session.result\","
+            "\"tick_ms\":%llu,\"variant\":\"%s\","
+            "\"event\":\"edit_session.result\","
             "\"command\":\"%s\",\"ctx\":%u,\"txn\":%u,\"phase\":\"%s\","
             "\"request_hr\":\"0x%08lX\",\"session_hr\":\"0x%08lX\","
             "\"inner_hr\":\"0x%08lX\",\"callback_ran\":%d,"
             "\"composition\":%d,\"termination_epoch\":%u}\n",
             (long)seq, (unsigned long)GetCurrentProcessId(),
             (unsigned long)GetCurrentThreadId(),
-            (unsigned long long)GetTickCount64(), what,
+            (unsigned long long)GetTickCount64(), LAB_TRACE_VARIANT, what,
             st ? st->generation : 0, st ? st->active_transaction : 0,
             PhaseName(st ? st->trace_phase : LAB_TRACE_NONE),
             (unsigned long)r->request_hr, (unsigned long)r->session_hr,
@@ -155,13 +164,14 @@ void Lab_TraceContextCaps(const LabContextState *st) {
     LONG seq = InterlockedIncrement(&g_trace_sequence);
     fprintf(g_trace_file,
             "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
-            "\"tick_ms\":%llu,\"event\":\"context.caps\",\"ctx\":%u,"
+            "\"tick_ms\":%llu,\"variant\":\"%s\","
+            "\"event\":\"context.caps\",\"ctx\":%u,"
             "\"txn\":%u,\"phase\":\"%s\",\"insert_at_selection\":%d,"
             "\"context_composition\":%d,\"status_hr\":\"0x%08lX\","
             "\"dynamic_flags\":%lu,\"static_flags\":%lu}\n",
             (long)seq, (unsigned long)GetCurrentProcessId(),
             (unsigned long)GetCurrentThreadId(),
-            (unsigned long long)GetTickCount64(), st->generation,
+            (unsigned long long)GetTickCount64(), LAB_TRACE_VARIANT, st->generation,
             st->active_transaction, PhaseName(st->trace_phase),
             insert_at_selection, context_composition, (unsigned long)status_hr,
             (unsigned long)status.dwDynamicFlags, (unsigned long)status.dwStaticFlags);

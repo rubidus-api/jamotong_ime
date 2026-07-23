@@ -44,10 +44,41 @@ EXTERN_C const GUID IID_ITfDisplayAttributeProvider_Lab;
 extern const CLSID CLSID_LabService;
 extern const GUID  GUID_LabProfile;
 
-#ifdef LAB_TRACE_BUILD
-#  define LAB_DISPLAY_NAME  L"Jamotong TSF Trace Lab"
+#if (defined(LAB_TRACE_BUILD) + defined(LAB_AKEL_CONTROL_BUILD) + \
+     defined(LAB_AKEL_AE_NONE_BUILD) + defined(LAB_AKEL_INSERT_FIRST_BUILD) + \
+     defined(LAB_AKEL_NO_SELECTION_BUILD)) > 1
+#  error "Select exactly one standard-lab build variant"
+#endif
+
+#if defined(LAB_AKEL_CONTROL_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Test 0 Control"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-test-0-control-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "control"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_AE_NONE_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Test 1 AE None"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-test-1-ae-none-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "ae-none"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_INSERT_FIRST_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Test 2 Insert First"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-test-2-insert-first-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "insert-first"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_NO_SELECTION_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Test 3 No Selection"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-test-3-no-selection-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "no-selection"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_TRACE_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Trace Lab"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-trace-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "trace-control"
+#  define LAB_ALWAYS_TRACE       1
 #else
-#  define LAB_DISPLAY_NAME  L"Jamotong Standard TSF Lab"
+#  define LAB_DISPLAY_NAME       L"Jamotong Standard TSF Lab"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-standard-lab-trace-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "standard"
 #endif
 #define LAB_LANGID        MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN)
 
@@ -58,6 +89,7 @@ typedef enum LabTracePhase {
     LAB_TRACE_EDIT_SESSION,
     LAB_TRACE_GET_RANGE,
     LAB_TRACE_INSERT_QUERY,
+    LAB_TRACE_INSERT_TEXT,
     LAB_TRACE_START_COMPOSITION,
     LAB_TRACE_SET_TEXT,
     LAB_TRACE_DISPLAY_ATTRIBUTE,

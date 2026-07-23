@@ -11,6 +11,13 @@
 #define FROM_THREAD(p) ((LabTextService*)((char*)(p) - offsetof(LabTextService, thread_sink)))
 #define FROM_TEXT_EDIT(p) ((LabTextService*)((char*)(p) - offsetof(LabTextService, text_edit_sink)))
 
+#ifdef LAB_ALWAYS_TRACE
+/* MinGW declares this property but does not provide it in libuuid. */
+static const GUID kPropComposing =
+    { 0xe12ac060, 0xaf15, 0x11d2,
+      { 0xaf, 0xc5, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 } };
+#endif
+
 static STDMETHODIMP SVC_QI(ITfTextInputProcessor *me, REFIID riid, void **ppv);
 static STDMETHODIMP_(ULONG) SVC_AddRef(ITfTextInputProcessor *me) {
     return InterlockedIncrement(&((LabTextService*)me)->ref);
@@ -231,6 +238,46 @@ static STDMETHODIMP_(ULONG) TE_AddRef(ITfTextEditSink *me) {
 static STDMETHODIMP_(ULONG) TE_Release(ITfTextEditSink *me) {
     return SVC_Release((ITfTextInputProcessor*)FROM_TEXT_EDIT(me));
 }
+
+#ifdef LAB_ALWAYS_TRACE
+/* Query only whether a changed range exists. Never inspect range text or property values. */
+static HRESULT EditRecordHasUpdate(ITfEditRecord *record, DWORD flags,
+                                   const GUID *property, BOOL *changed) {
+    *changed = FALSE;
+    if (!record) return E_POINTER;
+
+    const GUID *properties[1];
+    const GUID **property_array = NULL;
+    ULONG property_count = 0;
+    if (property) {
+        properties[0] = property;
+        property_array = properties;
+        property_count = 1;
+    }
+
+    IEnumTfRanges *ranges = NULL;
+    HRESULT hr = ITfEditRecord_GetTextAndPropertyUpdates(
+            record, flags, property_array, property_count, &ranges);
+    if (FAILED(hr)) return hr;
+
+    ITfRange *range = NULL;
+    ULONG fetched = 0;
+    HRESULT next_hr = IEnumTfRanges_Next(ranges, 1, &range, &fetched);
+    if (range) ITfRange_Release(range);
+    IEnumTfRanges_Release(ranges);
+    if (FAILED(next_hr)) return next_hr;
+    *changed = fetched != 0;
+    return S_OK;
+}
+
+static void TraceEditRecordUpdate(ITfEditRecord *record, LabContextState *st,
+                                  const char *event, DWORD flags, const GUID *property) {
+    BOOL changed = FALSE;
+    HRESULT hr = EditRecordHasUpdate(record, flags, property, &changed);
+    Lab_TraceEvent(event, st, hr, changed ? 1 : 0);
+}
+#endif
+
 static STDMETHODIMP TE_OnEndEdit(ITfTextEditSink *me, ITfContext *ctx,
                                  TfEditCookie read_cookie, ITfEditRecord *record) {
     (void)read_cookie;
@@ -239,6 +286,21 @@ static STDMETHODIMP TE_OnEndEdit(ITfTextEditSink *me, ITfContext *ctx,
     BOOL selection_changed = FALSE;
     HRESULT hr = record ? ITfEditRecord_GetSelectionStatus(record, &selection_changed) : E_POINTER;
     Lab_TraceEvent("text_edit.end", st, hr, selection_changed ? 1 : 0);
+#ifdef LAB_ALWAYS_TRACE
+    TraceEditRecordUpdate(record, st, "text_edit.changed_text",
+                          TF_GTP_INCL_TEXT, NULL);
+    TraceEditRecordUpdate(record, st, "text_edit.changed_composing",
+                          0, &kPropComposing);
+    TraceEditRecordUpdate(record, st, "text_edit.changed_attribute",
+                          0, &GUID_PROP_ATTRIBUTE);
+    {
+        static const GUID prop_reading =
+            { 0x5463f7c0, 0x8e31, 0x11d3,
+              { 0xa9, 0xf3, 0x00, 0x80, 0x5f, 0x8e, 0xff, 0xf8 } };
+        TraceEditRecordUpdate(record, st, "text_edit.changed_reading",
+                              0, &prop_reading);
+    }
+#endif
     return S_OK;
 }
 static const ITfTextEditSinkVtbl g_text_edit_vtbl = {
