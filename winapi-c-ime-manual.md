@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (corrected AkelPad Meta R2 suite and structural collector validation)*
+*Last updated: 2026-07-24 (AkelPad Meta R2 field result and R3 interaction suite)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -310,8 +310,10 @@ Implement `IClassFactory` in C the same way as §1.2
 > separated result in AkelPad and the correct result in Notepad for control,
 > `TF_AE_NONE`, insert-before-compose, and no-explicit-selection. The extra edit changed
 > text, `GUID_PROP_COMPOSING`, and `GUID_PROP_ATTRIBUTE`, but not `GUID_PROP_READING`.
-> This rules out those three protocol choices as sufficient fixes. Use the metadata A/B
-> probe in §12.6 for the next test.
+> This rules out those three protocol choices as sufficient fixes. In the corrected
+> metadata run, Reading-only retained one AkelPad composition while both profiles that
+> included LANGID still terminated per key. Section 12.7.8 records this valid R2 result
+> and the R3 design that isolates order and repeated writes.
 
 ---
 
@@ -856,6 +858,14 @@ outline / dark badge), 16px base with DPI scaling.
   directly caused the failure. Notepad's mixed Latin/jamo output came from treating a
   failure after successful `SetText` as rollback and then passing the original key too
   (§12.7.7).
+- **Corrected R2 field result (2026-07-24):** all eight cells passed structural
+  validation. AkelPad Reading-only created one composition, reused it five times, had
+  zero per-key external terminations, and produced the correct syllables. Control,
+  LANGID-only, and LANGID→Reading recreated and externally lost the composition on all
+  six keys, visibly separating jamo. All four Notepad profiles were correct. The actual
+  property operations succeeded over nonempty ranges, so this run applied the metadata
+  hypothesis. LANGID presence, property order, and repeated writes remain confounded and
+  are isolated by R3 (§12.7.8).
 - Keep a comparison build separate from the installed IME: distinct DLL/display names,
   CLSID, and profile GUID, plus one JSONL file per process. Run one fixed scenario in
   Notepad and once in the failing application.
@@ -1135,7 +1145,7 @@ into edit-session failure. The lab therefore cannot repeat v1's partial edit fol
 build and variant, at least six updates, nonempty ranges, both successful property calls,
 successful sessions, and zero `hangul_step.failed`; it writes a content-free
 `validation.json`. A visually plausible cell that fails this gate is invalid. Requirement
-5—the fresh eight-cell Windows run—is the remaining step.
+5 was evaluated with this gate in the fresh eight-cell Windows run.
 
 Then interpret the result as follows:
 
@@ -1153,7 +1163,60 @@ prove that the range was nonempty or the GUID correct. `GUID_PROP_READING` is un
 in Store apps, so even a successful corrected run must not turn it into an unconditional
 product requirement.
 
-#### 12.7.8 Time-saving procedure for the next implementation
+#### 12.7.8 Corrected R2 field result and the R3 interaction suite
+
+All eight R2 AkelPad/Notepad cells reported `validation.json: pass`. The validator therefore
+confirmed the exact schema, build and variant, six metadata updates, nonempty ranges, expected
+`GetProperty`/`SetValue` calls, successful edit sessions, and zero `hangul_step.failed`.
+Unlike v1, this execution can compare real metadata effects without the wrong GUIDs, partial
+edit failure, or duplicate original-key pass-through.
+
+| Profile | AkelPad display and lifetime | Notepad |
+|---|---|---|
+| Control | separated jamo; 6 new compositions, 0 reuse, 6 external terminations | correct; 1 new and 5 reused |
+| LANGID | separated jamo; 6 new compositions, 0 reuse, 6 external terminations | correct; 1 new and 5 reused |
+| Reading | **correct syllables; 1 new, 5 reused, 0 per-key terminations** | correct; 1 new and 5 reused |
+| LANGID → Reading | separated jamo; 6 new compositions, 0 reuse, 6 external terminations | correct; 1 new and 5 reused |
+
+In each failing AkelPad profile, a `txn=0` composing change and
+`OnCompositionTerminated` followed the successful TIP transaction on every key.
+Reading-only had neither event. Its visible success therefore reflects one composition
+surviving all six keys, not a coincidentally correct sequence of per-key commits.
+
+The supported conclusion remains narrow:
+
+- LANGID-only is not a sufficient fix for this fixed AkelPad scenario.
+- Reading-only is a valid positive control in this execution.
+- Failure of LANGID→Reading means that mere presence of Reading is not sufficient.
+- The run does not yet distinguish whether LANGID itself, property order, or a repeated
+  per-key LANGID write causes termination; it also does not make Reading universal.
+
+R3 uses new identities and schema 3 to isolate those variables:
+
+| R3 profile | Metadata plan within one update | Question |
+|---|---|---|
+| Reading | Reading | does the R2 positive control reproduce |
+| LANGID Reading | LANGID → Reading | does the R2 negative control reproduce |
+| Reading LANGID | Reading → LANGID | does reversing only property order change the result |
+| LANGID Once Reading | LANGID → Reading on the context's first update, then Reading only | do repeated LANGID writes retrigger termination |
+
+The last profile means once per context, not once per new composition. If LANGID ends the
+first composition, it must not be written again on the next key; otherwise the experiment
+cannot distinguish a repeated write from the first write's lasting effect.
+
+The schema-3 validator requires exactly six updates, the selected plan event, property
+order and counts per transaction, an expected-value match from `GetValue` immediately
+after `SetValue`, a nonempty range, and successful sessions. It records no actual property
+value, input character, key value, document content, pointer, path, or command line.
+A cell requires both the visible result and a passing `validation.json`.
+
+If Reading→LANGID also fails, LANGID presence becomes the leading candidate; if only that
+reversed order passes, order becomes the leading candidate. If the once profile recovers
+after the first key, repeated writes are implicated; if it stays broken, the first LANGID
+write may leave context-lifetime state. No single AkelPad run is enough to turn any of
+these outcomes into a universal product policy.
+
+#### 12.7.9 Time-saving procedure for the next implementation
 
 1. **Build a control first.** Pass a minimal TIP in a native-TSF control such as Notepad.
 2. **Use fixed input.** Same key sequence, fresh document, fresh process, comparable speed.

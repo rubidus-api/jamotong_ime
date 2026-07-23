@@ -9,6 +9,7 @@
 #include "lab_tip.h"
 #include <stdlib.h>
 #include <stddef.h>
+#include <string.h>
 
 /* MinGW-w64 does not consistently expose/link these predefined properties.
    Their initializers are shared with an independent portable byte test. */
@@ -17,16 +18,39 @@ static const GUID kPropReading = LAB_GUID_PROP_READING_INITIALIZER;
 #if defined(LAB_AKEL_META_CONTROL_BUILD) || defined(LAB_AKEL_META_LANGID_BUILD) || \
     defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
     defined(LAB_AKEL_META_R2_CONTROL_BUILD) || defined(LAB_AKEL_META_R2_LANGID_BUILD) || \
-    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
+    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
 #  define LAB_AKEL_METADATA_BUILD 1
 #endif
 #if defined(LAB_AKEL_META_LANGID_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
-    defined(LAB_AKEL_META_R2_LANGID_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
+    defined(LAB_AKEL_META_R2_LANGID_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
 #  define LAB_APPLY_LANGID 1
 #endif
 #if defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
-    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
+    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
 #  define LAB_APPLY_READING 1
+#endif
+#if defined(LAB_AKEL_META_R3_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+#  define LAB_AKEL_METADATA_R3_BUILD 1
+#endif
+#ifdef LAB_AKEL_META_R3_READING_LANGID_BUILD
+#  define LAB_METADATA_READING_FIRST 1
+#endif
+#ifdef LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD
+#  define LAB_METADATA_LANGID_ONCE 1
 #endif
 #ifdef LAB_APPLY_LANGID
 static const GUID kPropLangId = LAB_GUID_PROP_LANGID_INITIALIZER;
@@ -179,6 +203,104 @@ static void RememberMetadataFailure(HRESULT *first_failure, HRESULT candidate) {
     if (FAILED(candidate) && SUCCEEDED(*first_failure)) *first_failure = candidate;
 }
 
+#ifdef LAB_APPLY_LANGID
+static void ApplyLangIdMetadata(LabEditSession *es, TfEditCookie ec,
+                                ITfRange *property_range, HRESULT *first_failure) {
+    LabContextState *st = es->state;
+    ITfProperty *langid = NULL;
+    HRESULT get_hr = ITfContext_GetProperty(st->context, &kPropLangId, &langid);
+    if (SUCCEEDED(get_hr) && !langid) get_hr = E_UNEXPECTED;
+    Lab_TraceEvent("metadata.langid.get_property", st, get_hr, langid ? 1 : 0);
+    RememberMetadataFailure(first_failure, get_hr);
+    if (FAILED(get_hr) || !langid) {
+        Lab_TraceEvent("metadata.langid.set_value.skipped", st, get_hr, 0);
+        if (langid) ITfProperty_Release(langid);
+        return;
+    }
+
+    VARIANT value;
+    VariantInit(&value);
+    value.vt = VT_I4;
+    value.lVal = (LONG)LAB_LANGID;
+    HRESULT set_hr = ITfProperty_SetValue(langid, ec, property_range, &value);
+    VariantClear(&value);
+    Lab_TraceEvent("metadata.langid.set_value", st, set_hr, 0);
+    RememberMetadataFailure(first_failure, set_hr);
+
+#ifdef LAB_AKEL_METADATA_R3_BUILD
+    if (SUCCEEDED(set_hr)) {
+        VARIANT actual;
+        VariantInit(&actual);
+        HRESULT verify_hr = ITfProperty_GetValue(langid, ec, property_range, &actual);
+        bool matches = SUCCEEDED(verify_hr) && actual.vt == VT_I4 &&
+                       (LANGID)(actual.lVal & 0xffffL) == LAB_LANGID;
+        Lab_TraceEvent("metadata.langid.verify", st, verify_hr, matches ? 1 : 0);
+        RememberMetadataFailure(first_failure, verify_hr);
+        if (SUCCEEDED(verify_hr) && !matches) {
+            RememberMetadataFailure(first_failure, E_FAIL);
+        }
+        VariantClear(&actual);
+    }
+#endif
+    ITfProperty_Release(langid);
+}
+#endif
+
+#ifdef LAB_APPLY_READING
+static void ApplyReadingMetadata(LabEditSession *es, TfEditCookie ec,
+                                 ITfRange *property_range, const WCHAR *text, LONG len,
+                                 HRESULT *first_failure) {
+    LabContextState *st = es->state;
+    ITfProperty *reading = NULL;
+    HRESULT get_hr = ITfContext_GetProperty(st->context, &kPropReading, &reading);
+    if (SUCCEEDED(get_hr) && !reading) get_hr = E_UNEXPECTED;
+    Lab_TraceEvent("metadata.reading.get_property", st, get_hr, reading ? 1 : 0);
+    RememberMetadataFailure(first_failure, get_hr);
+    if (FAILED(get_hr) || !reading) {
+        Lab_TraceEvent("metadata.reading.set_value.skipped", st, get_hr, 0);
+        if (reading) ITfProperty_Release(reading);
+        return;
+    }
+
+    BSTR string = SysAllocStringLen(text, (UINT)len);
+    if (!string) {
+        Lab_TraceEvent("metadata.reading.set_value.skipped", st, E_OUTOFMEMORY, 0);
+        RememberMetadataFailure(first_failure, E_OUTOFMEMORY);
+        ITfProperty_Release(reading);
+        return;
+    }
+
+    VARIANT value;
+    VariantInit(&value);
+    value.vt = VT_BSTR;
+    value.bstrVal = string;
+    HRESULT set_hr = ITfProperty_SetValue(reading, ec, property_range, &value);
+    VariantClear(&value);
+    Lab_TraceEvent("metadata.reading.set_value", st, set_hr, 0);
+    RememberMetadataFailure(first_failure, set_hr);
+
+#ifdef LAB_AKEL_METADATA_R3_BUILD
+    if (SUCCEEDED(set_hr)) {
+        VARIANT actual;
+        VariantInit(&actual);
+        HRESULT verify_hr = ITfProperty_GetValue(reading, ec, property_range, &actual);
+        bool matches = SUCCEEDED(verify_hr) && actual.vt == VT_BSTR &&
+                       actual.bstrVal != NULL &&
+                       SysStringLen(actual.bstrVal) == (UINT)len &&
+                       (len == 0 ||
+                        memcmp(actual.bstrVal, text, (size_t)len * sizeof(WCHAR)) == 0);
+        Lab_TraceEvent("metadata.reading.verify", st, verify_hr, matches ? 1 : 0);
+        RememberMetadataFailure(first_failure, verify_hr);
+        if (SUCCEEDED(verify_hr) && !matches) {
+            RememberMetadataFailure(first_failure, E_FAIL);
+        }
+        VariantClear(&actual);
+    }
+#endif
+    ITfProperty_Release(reading);
+}
+#endif
+
 /* Apply only standard TSF properties, inside the same write session as SetText.
    Metadata is diagnostic and optional: failure is traced but never converted into
    failure of a SetText that already changed the document. */
@@ -188,8 +310,10 @@ static void ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
     HRESULT first_failure = S_OK;
     ITfRange *property_range = NULL;
     BOOL is_empty = TRUE;
+#ifndef LAB_APPLY_READING
     (void)text;
     (void)len;
+#endif
     SetTracePhase(st, LAB_TRACE_METADATA);
 
     /* SetText can leave the caller's range collapsed. Reacquire the owned
@@ -231,57 +355,47 @@ static void ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
     if (FAILED(length_hr)) goto done;
 
 #ifdef LAB_APPLY_LANGID
-    ITfProperty *langid = NULL;
-    HRESULT langid_get_hr = ITfContext_GetProperty(st->context, &kPropLangId, &langid);
-    if (SUCCEEDED(langid_get_hr) && !langid) langid_get_hr = E_UNEXPECTED;
-    Lab_TraceEvent("metadata.langid.get_property", st, langid_get_hr, langid ? 1 : 0);
-    RememberMetadataFailure(&first_failure, langid_get_hr);
-    if (SUCCEEDED(langid_get_hr) && langid) {
-        VARIANT value;
-        VariantInit(&value);
-        value.vt = VT_I4;
-        value.lVal = (LONG)LAB_LANGID;
-        HRESULT langid_set_hr =
-            ITfProperty_SetValue(langid, ec, property_range, &value);
-        VariantClear(&value);
-        Lab_TraceEvent("metadata.langid.set_value", st, langid_set_hr, 0);
-        RememberMetadataFailure(&first_failure, langid_set_hr);
-    } else {
-        Lab_TraceEvent("metadata.langid.set_value.skipped", st, langid_get_hr, 0);
+    bool apply_langid = true;
+#ifdef LAB_METADATA_LANGID_ONCE
+    apply_langid = !st->metadata_langid_once_done;
+    st->metadata_langid_once_done = true;
+#endif
+#endif
+
+#if defined(LAB_AKEL_META_R3_READING_BUILD)
+    Lab_TraceEvent("metadata.plan.reading-only", st, S_OK, 0);
+#elif defined(LAB_AKEL_META_R3_LANGID_READING_BUILD)
+    Lab_TraceEvent("metadata.plan.langid-reading", st, S_OK, 1);
+#elif defined(LAB_AKEL_META_R3_READING_LANGID_BUILD)
+    Lab_TraceEvent("metadata.plan.reading-langid", st, S_OK, 1);
+#elif defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+    Lab_TraceEvent("metadata.plan.langid-once-reading", st, S_OK,
+                   apply_langid ? 1 : 0);
+#endif
+
+#ifdef LAB_METADATA_READING_FIRST
+    ApplyReadingMetadata(es, ec, property_range, text, len, &first_failure);
+#endif
+
+#ifdef LAB_APPLY_LANGID
+    if (apply_langid) {
+        ApplyLangIdMetadata(es, ec, property_range, &first_failure);
     }
-    if (langid) ITfProperty_Release(langid);
+#ifdef LAB_METADATA_LANGID_ONCE
+    else {
+        Lab_TraceEvent("metadata.langid.once.skipped", st, S_OK, 0);
+    }
+#endif
 #else
     Lab_TraceEvent("metadata.langid.skipped", st, S_OK, 0);
 #endif
 
+#ifndef LAB_METADATA_READING_FIRST
 #ifdef LAB_APPLY_READING
-    ITfProperty *reading = NULL;
-    HRESULT reading_get_hr = ITfContext_GetProperty(st->context, &kPropReading, &reading);
-    if (SUCCEEDED(reading_get_hr) && !reading) reading_get_hr = E_UNEXPECTED;
-    Lab_TraceEvent("metadata.reading.get_property", st, reading_get_hr, reading ? 1 : 0);
-    RememberMetadataFailure(&first_failure, reading_get_hr);
-    if (SUCCEEDED(reading_get_hr) && reading) {
-        BSTR string = SysAllocStringLen(text, (UINT)len);
-        if (!string) {
-            Lab_TraceEvent("metadata.reading.set_value.skipped", st, E_OUTOFMEMORY, 0);
-            RememberMetadataFailure(&first_failure, E_OUTOFMEMORY);
-        } else {
-            VARIANT value;
-            VariantInit(&value);
-            value.vt = VT_BSTR;
-            value.bstrVal = string;
-            HRESULT reading_set_hr =
-                ITfProperty_SetValue(reading, ec, property_range, &value);
-            VariantClear(&value);
-            Lab_TraceEvent("metadata.reading.set_value", st, reading_set_hr, 0);
-            RememberMetadataFailure(&first_failure, reading_set_hr);
-        }
-    } else {
-        Lab_TraceEvent("metadata.reading.set_value.skipped", st, reading_get_hr, 0);
-    }
-    if (reading) ITfProperty_Release(reading);
+    ApplyReadingMetadata(es, ec, property_range, text, len, &first_failure);
 #else
     Lab_TraceEvent("metadata.reading.skipped", st, S_OK, 0);
+#endif
 #endif
 
 done:

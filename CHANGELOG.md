@@ -11,6 +11,9 @@
   입력 글자·키값·문서 내용·메모리 주소는 기록하지 않는다.
 - 무효가 된 첫 LANGID/READING 실험과 등록·로그가 겹치지 않는 `Meta R2` x64 프로필 4종과
   schema/build/variant·range·속성 호출·세션 완전성을 검사하는 수집 절차를 추가했다.
+- R2에서 AkelPad의 Reading-only만 composition을 유지한 원인을 좁히기 위해
+  Reading→LANGID 순서와 context 최초 1회 LANGID를 독립 비교하는 `Meta R3` x64 프로필
+  4종을 추가했다. Schema 3은 속성 순서·횟수와 내용 없는 expected-value 일치까지 검증한다.
 
 ### Fixed
 - 직접 선언한 `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` vtbl 함수에 공식
@@ -22,6 +25,8 @@
 ### Changed
 - 한·영 매뉴얼에 64비트 AkelPad 자모 분리 현상의 미확정 실기 상태, composition 수명 추적
   방법, COM vtbl 시그니처 검증 함정을 추가했다.
+- 정정된 R2 8셀 실기 결과(Reading-only는 AkelPad·메모장 통과, 나머지 AkelPad 프로필은
+  키별 종료)와 R3 판정 기준을 한·영 매뉴얼에 기록했다.
 
 ## [0.13.1] - 2026-07-20
 

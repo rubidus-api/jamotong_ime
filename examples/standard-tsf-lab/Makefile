@@ -7,6 +7,7 @@
 #   make akel-suite : four isolated x64 AkelPad diagnostic variants
 #   make akel-metadata-suite : four isolated x64 composition-metadata variants
 #   make akel-metadata-r2-suite : corrected four-profile x64 metadata suite
+#   make akel-metadata-r3-suite : property-order/first-update interaction suite
 #   make all     : 위 전부
 CC      = x86_64-w64-mingw32-gcc
 CC32    = i686-w64-mingw32-gcc
@@ -27,6 +28,11 @@ AKEL_META_R2_CONTROL_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_CONTROL_BUILD
 AKEL_META_R2_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_LANGID_BUILD
 AKEL_META_R2_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_READING_BUILD
 AKEL_META_R2_BOTH_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_BOTH_BUILD
+AKEL_META_R3_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R3_READING_BUILD
+AKEL_META_R3_LANGID_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R3_LANGID_READING_BUILD
+AKEL_META_R3_READING_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R3_READING_LANGID_BUILD
+AKEL_META_R3_LANGID_ONCE_READING_CFLAGS = $(CFLAGS) \
+	-DLAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
@@ -131,6 +137,29 @@ dist-akel-metadata-r2/jamotong-tsf-meta-r2-3-langid-reading.dll: $(SRCS) $(DEF)
 	@mkdir -p dist-akel-metadata-r2
 	$(CC) $(AKEL_META_R2_BOTH_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
 
+# R3 keeps the R2 positive/negative controls and isolates order plus repeated LANGID writes.
+akel-metadata-r3-suite: \
+	dist-akel-metadata-r3/jamotong-tsf-meta-r3-0-reading.dll \
+	dist-akel-metadata-r3/jamotong-tsf-meta-r3-1-langid-reading.dll \
+	dist-akel-metadata-r3/jamotong-tsf-meta-r3-2-reading-langid.dll \
+	dist-akel-metadata-r3/jamotong-tsf-meta-r3-3-langid-once-reading.dll
+
+dist-akel-metadata-r3/jamotong-tsf-meta-r3-0-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r3
+	$(CC) $(AKEL_META_R3_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r3/jamotong-tsf-meta-r3-1-langid-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r3
+	$(CC) $(AKEL_META_R3_LANGID_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r3/jamotong-tsf-meta-r3-2-reading-langid.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r3
+	$(CC) $(AKEL_META_R3_READING_LANGID_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r3/jamotong-tsf-meta-r3-3-langid-once-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r3
+	$(CC) $(AKEL_META_R3_LANGID_ONCE_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
 # portable test — Windows 없이 리눅스에서도 돈다 (RFC-0009 §21)
 test:
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_hangul2_test tests/hangul2_test.c src/hangul2.c
@@ -155,7 +184,7 @@ test-san:
 
 clean:
 	rm -rf dist dist32 dist-trace dist32-trace dist-akel dist-akel-metadata \
-	       dist-akel-metadata-r2
+	       dist-akel-metadata-r2 dist-akel-metadata-r3
 
 .PHONY: all dll win32 trace trace32 trace-all akel-suite akel-metadata-suite \
-        akel-metadata-r2-suite test guid-test test-san clean
+        akel-metadata-r2-suite akel-metadata-r3-suite test guid-test test-san clean

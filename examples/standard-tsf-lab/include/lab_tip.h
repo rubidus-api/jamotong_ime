@@ -51,11 +51,34 @@ extern const GUID  GUID_LabProfile;
      defined(LAB_AKEL_META_LANGID_BUILD) + defined(LAB_AKEL_META_READING_BUILD) + \
      defined(LAB_AKEL_META_BOTH_BUILD) + defined(LAB_AKEL_META_R2_CONTROL_BUILD) + \
      defined(LAB_AKEL_META_R2_LANGID_BUILD) + defined(LAB_AKEL_META_R2_READING_BUILD) + \
-     defined(LAB_AKEL_META_R2_BOTH_BUILD)) > 1
+     defined(LAB_AKEL_META_R2_BOTH_BUILD) + defined(LAB_AKEL_META_R3_READING_BUILD) + \
+     defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) + \
+     defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) + \
+     defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)) > 1
 #  error "Select exactly one standard-lab build variant"
 #endif
 
-#if defined(LAB_AKEL_META_R2_CONTROL_BUILD)
+#if defined(LAB_AKEL_META_R3_READING_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R3 0 Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r3-0-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r3-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R3_LANGID_READING_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R3 1 LangID Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r3-1-langid-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r3-langid-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R3_READING_LANGID_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R3 2 Reading LangID"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r3-2-reading-langid-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r3-reading-langid"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R3 3 LangID Once Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r3-3-langid-once-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r3-langid-once-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R2_CONTROL_BUILD)
 #  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R2 0 Control"
 #  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r2-0-control-%lu.jsonl"
 #  define LAB_TRACE_VARIANT      "meta-r2-control"
@@ -126,7 +149,13 @@ extern const GUID  GUID_LabProfile;
 #  define LAB_TRACE_VARIANT      "standard"
 #endif
 
-#if defined(LAB_AKEL_META_R2_CONTROL_BUILD) || defined(LAB_AKEL_META_R2_LANGID_BUILD) || \
+#if defined(LAB_AKEL_META_R3_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
+    defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+#  define LAB_TRACE_SCHEMA       3
+#  define LAB_TRACE_BUILD_ID     "akel-meta-r3-260724"
+#elif defined(LAB_AKEL_META_R2_CONTROL_BUILD) || defined(LAB_AKEL_META_R2_LANGID_BUILD) || \
     defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
 #  define LAB_TRACE_SCHEMA       2
 #  define LAB_TRACE_BUILD_ID     "akel-meta-r2-260724"
@@ -165,6 +194,9 @@ typedef struct LabContextState {
     uint32_t         active_transaction;
     uint32_t         termination_epoch;
     LabTracePhase    trace_phase;
+    /* R3 profile 3 schedules LANGID only on the first metadata update in this context.
+       This intentionally survives an externally terminated composition. */
+    bool              metadata_langid_once_done;
 } LabContextState;
 
 typedef struct LabTextService {
