@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (IME failure ledger, AkelPad causal model, and reproduction method)*
+*Last updated: 2026-07-24 (invalid metadata A/B, copied-GUID defect, and partial-failure lesson)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -844,12 +844,18 @@ outline / dark badge), 16px base with DPI scaling.
   and (3) only omission of explicit `SetSelection`. Combining them in one DLL could make
   input work without revealing why.
 - **First A/B result (2026-07-24):** all four profiles produced separated jamo in AkelPad
-  and proper syllables in Notepad. The post-session edit reported changed text,
-  composing, and display-attribute ranges, while reading remained unchanged. Therefore
-  selection style, explicit selection, and startup order are not sufficient fixes. The
-  second suite holds that protocol constant and compares (0) no added metadata,
-  (1) `GUID_PROP_LANGID`, (2) `GUID_PROP_READING`, and (3) both, setting each property
-  inside the same write session as `SetText`.
+  and proper syllables in Notepad. The post-session text/composing/display-attribute
+  changes and termination order remain valid. After the second field run, however, we
+  found that `changed_langid` and `changed_reading` queried manually mistranscribed GUIDs.
+  Discard the old “reading unchanged” claim. The independent findings that selection
+  style, explicit selection, and startup order are not sufficient remain valid.
+- **Second A/B result (2026-07-24):** it did not test the effect of real LANGID/READING.
+  Every metadata-application event returned `E_FAIL`, and an independent audit also found
+  that both copied property GUIDs were wrong. That schema did not separate `GetProperty`
+  from `SetValue`, so it cannot identify the failing subcall or prove that the wrong GUID
+  directly caused the failure. Notepad's mixed Latin/jamo output came from treating a
+  failure after successful `SetText` as rollback and then passing the original key too
+  (§12.7.7).
 - Keep a comparison build separate from the installed IME: distinct DLL/display names,
   CLSID, and profile GUID, plus one JSONL file per process. Run one fixed scenario in
   Notepad and once in the failing application.
@@ -895,7 +901,7 @@ One fixed six-key AkelPad run produced the following structure for every profile
 | Successful `StartComposition` | 6 | 6 | 6 | 6 |
 | Out-of-transaction `txn=0` `OnEndEdit` after close | 6 | 6 | 6 | 6 |
 | Text/composing/attribute changes in that edit | 6/6/6 | 6/6/6 | 6/6/6 | 6/6/6 |
-| Reading changes in that edit | 0 | 0 | 0 | 0 |
+| Reading probe in that edit (later invalidated) | 0* | 0* | 0* | 0* |
 | `OnCompositionTerminated` | 6 | 6 | 6 | 6 |
 
 Each key repeated this order. The numbers below are illustrative; no process identifier or
@@ -907,9 +913,15 @@ txn=N  display_attribute.apply    S_OK  composition=1
 txn=N  edit_session.result        all-S_OK, callback_ran=1
 txn=N  edit_transaction.close           composition=1
 txn=0  text_edit.end                    selection_changed=0
-txn=0  changed_text/composing/attribute = 1, changed_reading = 0
+txn=0  changed_text/composing/attribute = 1, changed_reading = 0*
 txn=0  composition_terminated           termination_epoch += 1
 ```
+
+`*` The second-run audit found that `changed_reading` and `changed_langid` queried
+mistranscribed GUIDs, not the predefined properties. Discard those two zero values.
+Text, `GUID_PROP_COMPOSING`, `GUID_PROP_ATTRIBUTE`, HRESULTs, transaction ids, and the
+termination epoch are independent, correctly identified fields, so the lifetime sequence
+above remains valid evidence.
 
 The important fact is that termination did not occur **inside** `SetText` or **inside** our
 edit callback. The local composition was alive when our transaction closed; a separate
@@ -948,6 +960,23 @@ kinds of text store, but does not prove that a status flag itself ordered termin
 These were not worthless fixes. Removing them made the later trace trustworthy. But because
 the same out-of-session termination remained **after** each correction, continuing to use
 them as a sufficient explanation for current AkelPad jamo separation would waste time.
+
+**Additional defects discovered in the second field run, not yet corrected in code:**
+
+- The names `GUID_PROP_LANGID` and `GUID_PROP_READING` were attached to 16-byte values
+  that do not match the Windows SDK. The contract byte-checked capability GUIDs but only
+  checked source shape for these properties. A manually declared WinAPI constant needs an
+  official byte-level oracle, not a plausible symbol name.
+- The same wrong constants were used for both property application and the `OnEndEdit`
+  probes. The failed application and “unchanged” observation therefore appeared to
+  corroborate each other. Self-consistency against one wrong value is not validation.
+- Optional metadata failure after successful `SetText` was returned as whole-session
+  failure. A Windows edit session is not a database transaction and did not roll back the
+  earlier document edit. Passing the original key with `pfEaten=FALSE` after that mutation
+  applied one physical key through two paths.
+- The collector retained activation-only files and empty profile directories without
+  marking the cells incomplete. The next suite must require build identity and expected
+  transaction/property-event counts.
 
 #### 12.7.4 AkelPad fixes rejected by one-variable A/B
 
@@ -991,7 +1020,7 @@ standard lab remains the place to continue protocol research.
 | **Confirmed** | a separate edit and external termination callback arrive after our successful write transaction closes | the `txn=N` success → `txn=0` update → epoch increment sequence repeats for all four variants and all six keys |
 | **Confirmed** | AkelPad and Notepad text stores have different lifetime behavior | AkelPad creates a composition per key; Notepad reuses the existing composition |
 | **Strong inference** | AkelPad's TSF context interacts with an IMM32 compatibility path that rewrites text/composing/attribute state into a result and ends composition | `TF_SS_TRANSITORY`, AkelEdit's direct `WM_IME_*`/`ImmGetCompositionStringW` handling, and simultaneous post-session property changes. The trace cannot identify the actor or internal CUAS decision |
-| **Open hypothesis** | metadata used by MS IME—language, reading, ownership, or related range state—is missing from the live range | the first trace has no reading update. Official property definitions describe data semantics, not a universal “required to survive” rule |
+| **Open hypothesis** | metadata used by MS IME—language, reading, ownership, or related range state—is missing from the live range | real LANGID/READING application and observation never occurred because both GUIDs were wrong. Official definitions describe data semantics, not a universal “required to survive” rule |
 | **Rejected as sufficient** | active-end style, explicit selection, insert-first order, immediate API failure, or application bitness | isolated A/B or binary verification leaves the result unchanged |
 | **Not knowable from current evidence** | “AkelPad itself terminated it,” “CUAS is conclusively the bug,” or “MS IME uses a secret API” | the trace has no caller stack or compatibility-layer internals |
 
@@ -999,9 +1028,9 @@ The most accurate current statement is therefore: **after a successful TIP edit,
 edit on the compatibility-host side ends the composition**. Shortening this to “CUAS is the
 culprit” turns an inference into a fact.
 
-#### 12.7.7 Second metadata A/B — a pending experiment, not a result
+#### 12.7.7 Second metadata A/B — executed, but failed before applying the hypothesis
 
-The next suite fixes all other protocol choices and compares four profiles:
+The suite was designed to hold all other protocol choices fixed and compare four profiles:
 
 1. Control: no added metadata
 2. LANGID: set `GUID_PROP_LANGID=ko-KR` (`VT_I4`) over the current **nonempty**
@@ -1009,14 +1038,82 @@ The next suite fixes all other protocol choices and compares four profiles:
 3. Reading: set the current reading string (`VT_BSTR`) over the same range
 4. Both: set both
 
-`ITfProperty::SetValue` fails for an empty range and requires a write edit cookie, so the
-properties are set after `SetText` in the same write session. The official definitions say
-that `GUID_PROP_LANGID` stores the LANGID in the low word and `GUID_PROP_READING` stores
-phonetic reading text for the covered range. That does not say either property is a
-universal composition-survival requirement. Reading is explicitly unsupported by Store
-apps, so it must not become an unconditional product requirement.
+The uploaded structural trace shows that the lab failed before applying that hypothesis:
 
-Interpret the result as follows:
+| Complete trace | Edit sessions | Metadata apply result | Session/inner | `hangul_step.failed` |
+|---|---:|---:|---:|---:|
+| AkelPad LANGID | 6 | all 6 `E_FAIL` | all 6 `E_FAIL` | 6 |
+| AkelPad Both | 6 | all 12 `E_FAIL` | all 6 `E_FAIL` | 6 |
+| Notepad LANGID (two complete runs) | 6 each | all 6 per run `E_FAIL` | all 6 per run `E_FAIL` | 6 each |
+| Notepad Both | 6 | all 12 `E_FAIL` | all 6 `E_FAIL` | 6 |
+
+The AkelPad Control file contains activation only, and both Reading-only directories lack
+a JSONL payload. Preserve the visible observations, but do not invent structural results
+for those three cells.
+
+A byte comparison against Microsoft's Win32 metadata found the setup defect that makes the
+experiment invalid:
+
+| Property | Value in the tested DLL source | Windows SDK value |
+|---|---|---|
+| `GUID_PROP_LANGID` | `3280CE20-8032-11D2-B603-00C04F93D015` | `3280CE20-8032-11D2-B603-00105A2799B5` |
+| `GUID_PROP_READING` | `5463F7C0-8E31-11D3-A9F3-00805F8EFFF8` | `5463F7C0-8E31-11D2-BF46-00105A2799B5` |
+
+```c
+static const GUID kPropLangId = {
+    0x3280ce20, 0x8032, 0x11d2,
+    { 0xb6, 0x03, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 }
+};
+static const GUID kPropReading = {
+    0x5463f7c0, 0x8e31, 0x11d2,
+    { 0xbf, 0x46, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5 }
+};
+```
+
+`ITfContext::GetProperty` accepts custom GUIDs, so a plausible object path does not validate
+a predefined-property identifier. This trace event retained only the final HRESULT from the
+combined `GetProperty`/`SetValue` path; all were `E_FAIL`, but the trace cannot identify the
+failing subcall. `OnEndEdit` also queried changed ranges with those same wrong GUIDs.
+
+The Notepad display follows directly from the event order:
+
+```text
+StartComposition / SetText     S_OK  (the document is already changed)
+wrong-property apply path      E_FAIL
+edit session                   E_FAIL (the earlier SetText is not rolled back)
+display attribute/selection    skipped by early return
+release local composition
+pfEaten = FALSE                pass the original physical key to Notepad too
+```
+
+Because the function returned before moving the selection to the range end, original keys
+accumulated to the caret's left while jamo inserted repeatedly at the same boundary pushed
+older jamo to the right. This matches the reported
+`rkskek(caret)ㅏㄷㅏㄴㅏㄱ` shape. It is a **partial-edit failure-handling defect**, not a
+Notepad TSF composition limit.
+
+The previous result must therefore be split:
+
+- **Retained:** in the first A/B suite, AkelPad ended each composition in a separate edit
+  after every TIP call and edit session had succeeded. The selection-style, insert-first,
+  and no-selection findings remain valid.
+- **Undetermined:** this run still did not test whether real LANGID/READING changes that
+  termination. Do not report that both properties are ineffective.
+
+A corrected suite must satisfy all of these requirements:
+
+1. Replace both GUIDs in application and changed-range observation, with executable
+   byte-for-byte tests against the official values.
+2. Reacquire `ITfComposition::GetRange` after `SetText`, record only `IsEmpty` and length,
+   then call `SetValue`. Microsoft SampleIME also reacquires its composition range before
+   setting the language property.
+3. Do not propagate optional metadata failure as fake rollback of successful `SetText`.
+   Keep the valid base composition update, or explicitly reverse every mutation before
+   passing the original key.
+4. Use new DLL/schema identities and reject activation-only or empty profile cells.
+5. Re-run all eight Control/LANGID/Reading/Both × AkelPad/Notepad cells.
+
+Then interpret the result as follows:
 
 | Result | Interpretation |
 |---|---|
@@ -1026,9 +1123,11 @@ Interpret the result as follows:
 | a property operation returns failure | the variant never applied its hypothesis; do not report “property has no effect” |
 | Control suddenly succeeds too | deployment, selected profile, application version, or order changed; re-establish reproduction before concluding |
 
-The new trace also records `changed_langid`, `changed_reading`, every `SetValue` HRESULT,
-and `ITfContext::InWriteSession`. `InWriteSession` says whether **our client** owns a
-read/write lock at notification time; it does not identify another writer.
+`ITfProperty::SetValue` fails for an empty range and requires a write edit cookie. This
+trace's `InWriteSession=TRUE` only proves that our client owned a write lock; it does not
+prove that the range was nonempty or the GUID correct. `GUID_PROP_READING` is unsupported
+in Store apps, so even a successful corrected run must not turn it into an unconditional
+product requirement.
 
 #### 12.7.8 Time-saving procedure for the next implementation
 
@@ -1052,6 +1151,12 @@ read/write lock at notification time; it does not identify another writer.
     transactions, and termination epochs are enough for lifetime diagnosis.
 12. **Do not generalize one host failure into a Windows-wide limit.** Keep “confirmed,”
     “strong inference,” “open hypothesis,” and “rejected” distinct in the document.
+13. **Byte-check every manually declared WinAPI GUID against an independent source.**
+    Never use the same copied value as both the operation and its oracle.
+14. **Do not mistake edit-session failure for rollback.** After mutating the document,
+    pass the original key only after explicit recovery has succeeded.
+15. **Validate collection completeness.** Activation-only files, empty profiles, or cells
+    missing expected transactions/events are not successful captures.
 
 Repeating `TF_AE_NONE`, omitting `SetSelection`, or insert-first **unchanged and in
 isolation** has low value now. A rerun should introduce a genuinely distinct variable or
@@ -1334,14 +1439,16 @@ behaviour is why this manual exists.**
 | `ITfContext` | document context | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontext |
 | `ITfInsertAtSelection` | **insertion (the heart of commit-only)** — §8.4 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinsertatselection |
 | `ITfRange` | range — what CUAS blocks editing on §8.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfrange |
-| `ITfComposition` | composition — **dies under CUAS** §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
+| `ITfComposition` | composition — external termination in some compatibility hosts §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcomposition |
 | `ITfCompositionSink` | composition-end notification — **NULL makes it fail** | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcompositionsink |
 | `ITfCompositionSink::OnCompositionTerminated` | correlate external termination — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated |
 | `ITfContextComposition` | starting a composition | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcontextcomposition |
 | `ITfTextEditSink::OnEndEdit` | observe edit completion order — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftexteditsink-onendedit |
 | `ITfEditRecord::GetTextAndPropertyUpdates` | observe text/property changed-range presence without contents — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfeditrecord-gettextandpropertyupdates |
 | `ITfContext::InWriteSession` | determine whether our client owns a write lock during notification — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-inwritesession |
+| `ITfContext::GetProperty` | obtain a predefined/custom property object — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-getproperty |
 | `ITfProperty::SetValue` | set LANGID/READING on a nonempty range — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfproperty-setvalue |
+| `ITfRange::SetText` | successful edit followed by non-atomic failure — §12.7 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfrange-settext |
 | `ITfInsertAtSelection::InsertTextAtSelection` | insert-first A/B and `TF_IAS_NO_DEFAULT_COMPOSITION` contract — §8.1 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfinsertatselection-inserttextatselection |
 | `TF_SELECTIONSTYLE` | `TF_AE_NONE` selection-style A/B — §12.6 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/ns-msctf-tf_selectionstyle |
 | `ITfInputProcessorProfiles` | profile registration — §4.2 | https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfinputprocessorprofiles |
@@ -1360,6 +1467,7 @@ behaviour is why this manual exists.**
 | Edit Sessions | https://learn.microsoft.com/en-us/windows/win32/tsf/edit-sessions |
 | Text Stores | https://learn.microsoft.com/en-us/windows/win32/tsf/text-stores |
 | Predefined Properties (`GUID_PROP_*` formats and semantics) | https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-properties |
+| Actual TSF GUID values in Microsoft Win32 metadata | https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/manual/TextServices.Manual.cs |
 | `TF_STATUS` (`TF_SS_TRANSITORY`) | https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms629192(v=vs.85) |
 | Mozilla 1208043 (observed MS Korean IME insert-first order) | https://bugzilla.mozilla.org/show_bug.cgi?id=1208043 |
 | AkelEdit source (BSD; confirms direct IMM32 composition handling) | https://svn.code.sf.net/p/akelpad/codesvn/trunk/akelpad_4/AkelEdit/AkelEdit.c |
