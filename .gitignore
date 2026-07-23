@@ -50,3 +50,5 @@ resources/cache/
 /jamotong-*.zip
 # 예제 빌드 산출물
 /examples/**/*.dll
+/examples/standard-tsf-lab/dist/
+/examples/standard-tsf-lab/dist32/
