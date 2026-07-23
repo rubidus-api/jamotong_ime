@@ -6,6 +6,7 @@
 #   make trace32 : dist32-trace/jamotong-tsf-trace-lab.dll (x86, separate identity)
 #   make akel-suite : four isolated x64 AkelPad diagnostic variants
 #   make akel-metadata-suite : four isolated x64 composition-metadata variants
+#   make akel-metadata-r2-suite : corrected four-profile x64 metadata suite
 #   make all     : 위 전부
 CC      = x86_64-w64-mingw32-gcc
 CC32    = i686-w64-mingw32-gcc
@@ -22,6 +23,10 @@ AKEL_META_CONTROL_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_CONTROL_BUILD
 AKEL_META_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_LANGID_BUILD
 AKEL_META_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_READING_BUILD
 AKEL_META_BOTH_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_BOTH_BUILD
+AKEL_META_R2_CONTROL_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_CONTROL_BUILD
+AKEL_META_R2_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_LANGID_BUILD
+AKEL_META_R2_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_READING_BUILD
+AKEL_META_R2_BOTH_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R2_BOTH_BUILD
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
@@ -103,12 +108,41 @@ dist-akel-metadata/jamotong-tsf-meta-3-langid-reading.dll: $(SRCS) $(DEF)
 	@mkdir -p dist-akel-metadata
 	$(CC) $(AKEL_META_BOTH_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
 
+# Corrected side-by-side x64 metadata experiments. These identities never overlap v1.
+akel-metadata-r2-suite: \
+	dist-akel-metadata-r2/jamotong-tsf-meta-r2-0-control.dll \
+	dist-akel-metadata-r2/jamotong-tsf-meta-r2-1-langid.dll \
+	dist-akel-metadata-r2/jamotong-tsf-meta-r2-2-reading.dll \
+	dist-akel-metadata-r2/jamotong-tsf-meta-r2-3-langid-reading.dll
+
+dist-akel-metadata-r2/jamotong-tsf-meta-r2-0-control.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r2
+	$(CC) $(AKEL_META_R2_CONTROL_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r2/jamotong-tsf-meta-r2-1-langid.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r2
+	$(CC) $(AKEL_META_R2_LANGID_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r2/jamotong-tsf-meta-r2-2-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r2
+	$(CC) $(AKEL_META_R2_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
+dist-akel-metadata-r2/jamotong-tsf-meta-r2-3-langid-reading.dll: $(SRCS) $(DEF)
+	@mkdir -p dist-akel-metadata-r2
+	$(CC) $(AKEL_META_R2_BOTH_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
 # portable test — Windows 없이 리눅스에서도 돈다 (RFC-0009 §21)
 test:
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_hangul2_test tests/hangul2_test.c src/hangul2.c
 	/tmp/lab_hangul2_test
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_key_policy_test tests/key_policy_test.c $(PORTABLE_SRCS)
 	/tmp/lab_key_policy_test
+	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_tsf_property_guids_test tests/tsf_property_guids_test.c
+	/tmp/lab_tsf_property_guids_test
+
+guid-test:
+	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_tsf_property_guids_test tests/tsf_property_guids_test.c
+	/tmp/lab_tsf_property_guids_test
 
 # 같은 테스트를 sanitizer로 한 번 더 (RFC-0009 §14.1)
 test-san:
@@ -116,8 +150,12 @@ test-san:
 	/tmp/lab_h2_san
 	$(HOSTCC) $(TEST_FLAGS) -fsanitize=address,undefined -o /tmp/lab_kp_san tests/key_policy_test.c $(PORTABLE_SRCS)
 	/tmp/lab_kp_san
+	$(HOSTCC) $(TEST_FLAGS) -fsanitize=address,undefined -o /tmp/lab_guid_san tests/tsf_property_guids_test.c
+	/tmp/lab_guid_san
 
 clean:
-	rm -rf dist dist32 dist-trace dist32-trace dist-akel dist-akel-metadata
+	rm -rf dist dist32 dist-trace dist32-trace dist-akel dist-akel-metadata \
+	       dist-akel-metadata-r2
 
-.PHONY: all dll win32 trace trace32 trace-all akel-suite akel-metadata-suite test test-san clean
+.PHONY: all dll win32 trace trace32 trace-all akel-suite akel-metadata-suite \
+        akel-metadata-r2-suite test guid-test test-san clean

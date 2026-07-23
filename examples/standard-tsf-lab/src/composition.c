@@ -10,25 +10,26 @@
 #include <stdlib.h>
 #include <stddef.h>
 
-/* MinGW-w64는 GUID_PROP_READING 심볼을 libuuid에 넣어주지 않는다.
-   값은 Microsoft msctf.h와 같다. */
-static const GUID kPropReading =
-    { 0x5463f7c0, 0x8e31, 0x11d3, { 0xa9, 0xf3, 0x00, 0x80, 0x5f, 0x8e, 0xff, 0xf8 } };
+/* MinGW-w64 does not consistently expose/link these predefined properties.
+   Their initializers are shared with an independent portable byte test. */
+static const GUID kPropReading = LAB_GUID_PROP_READING_INITIALIZER;
 
 #if defined(LAB_AKEL_META_CONTROL_BUILD) || defined(LAB_AKEL_META_LANGID_BUILD) || \
-    defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+    defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R2_CONTROL_BUILD) || defined(LAB_AKEL_META_R2_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
 #  define LAB_AKEL_METADATA_BUILD 1
 #endif
-#if defined(LAB_AKEL_META_LANGID_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+#if defined(LAB_AKEL_META_LANGID_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R2_LANGID_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
 #  define LAB_APPLY_LANGID 1
 #endif
-#if defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD)
+#if defined(LAB_AKEL_META_READING_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
+    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
 #  define LAB_APPLY_READING 1
 #endif
 #ifdef LAB_APPLY_LANGID
-/* {3280CE20-8032-11D2-B603-00C04F93D015} */
-static const GUID kPropLangId =
-    { 0x3280ce20, 0x8032, 0x11d2, { 0xb6, 0x03, 0x00, 0xc0, 0x4f, 0x93, 0xd0, 0x15 } };
+static const GUID kPropLangId = LAB_GUID_PROP_LANGID_INITIALIZER;
 #endif
 
 /* StartComposition이 S_OK인데 결과가 NULL인 경우를 실패로 다룬다(§7.1). */
@@ -174,63 +175,118 @@ done:
 }
 
 #ifdef LAB_AKEL_METADATA_BUILD
+static void RememberMetadataFailure(HRESULT *first_failure, HRESULT candidate) {
+    if (FAILED(candidate) && SUCCEEDED(*first_failure)) *first_failure = candidate;
+}
+
 /* Apply only standard TSF properties, inside the same write session as SetText.
-   The trace records operation status but never property contents. */
-static HRESULT ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
-                                        ITfRange *range, const WCHAR *text, LONG len) {
+   Metadata is diagnostic and optional: failure is traced but never converted into
+   failure of a SetText that already changed the document. */
+static void ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
+                                     const WCHAR *text, LONG len) {
+    LabContextState *st = es->state;
     HRESULT first_failure = S_OK;
-#if !defined(LAB_APPLY_LANGID) && !defined(LAB_APPLY_READING)
-    (void)ec;
-    (void)range;
-#endif
-    SetTracePhase(es->state, LAB_TRACE_METADATA);
+    ITfRange *property_range = NULL;
+    BOOL is_empty = TRUE;
+    (void)text;
+    (void)len;
+    SetTracePhase(st, LAB_TRACE_METADATA);
+
+    /* SetText can leave the caller's range collapsed. Reacquire the owned
+       composition range and prove that the property target is nonempty. */
+    HRESULT range_hr = st->composition
+        ? ITfComposition_GetRange(st->composition, &property_range)
+        : E_UNEXPECTED;
+    if (SUCCEEDED(range_hr) && !property_range) range_hr = E_UNEXPECTED;
+    Lab_TraceEvent("metadata.range.get", st, range_hr, property_range ? 1 : 0);
+    RememberMetadataFailure(&first_failure, range_hr);
+    if (FAILED(range_hr) || !property_range) goto done;
+
+    HRESULT empty_hr = ITfRange_IsEmpty(property_range, ec, &is_empty);
+    Lab_TraceEvent("metadata.range.is_empty", st, empty_hr, is_empty ? 1 : 0);
+    RememberMetadataFailure(&first_failure, empty_hr);
+    if (FAILED(empty_hr)) goto done;
+    if (is_empty) {
+        RememberMetadataFailure(&first_failure, E_INVALIDARG);
+        goto done;
+    }
+
+    /* Read only into a bounded local probe to count this lab's short preedit.
+       The buffer is never formatted or logged. */
+    ITfRange *length_probe = NULL;
+    HRESULT length_hr = ITfRange_Clone(property_range, &length_probe);
+    ULONG text_length = 0;
+    if (SUCCEEDED(length_hr) && !length_probe) length_hr = E_UNEXPECTED;
+    if (SUCCEEDED(length_hr)) {
+        WCHAR ignored_text[16];
+        length_hr = ITfRange_GetText(length_probe, ec, TF_TF_MOVESTART,
+                                     ignored_text,
+                                     (ULONG)(sizeof ignored_text / sizeof ignored_text[0]),
+                                     &text_length);
+    }
+    if (length_probe) ITfRange_Release(length_probe);
+    if (SUCCEEDED(length_hr) && text_length == 0) length_hr = E_FAIL;
+    Lab_TraceEvent("metadata.range.length", st, length_hr, (LONG)text_length);
+    RememberMetadataFailure(&first_failure, length_hr);
+    if (FAILED(length_hr)) goto done;
 
 #ifdef LAB_APPLY_LANGID
     ITfProperty *langid = NULL;
-    HRESULT langid_hr = ITfContext_GetProperty(
-            es->state->context, &kPropLangId, &langid);
-    if (SUCCEEDED(langid_hr)) {
+    HRESULT langid_get_hr = ITfContext_GetProperty(st->context, &kPropLangId, &langid);
+    if (SUCCEEDED(langid_get_hr) && !langid) langid_get_hr = E_UNEXPECTED;
+    Lab_TraceEvent("metadata.langid.get_property", st, langid_get_hr, langid ? 1 : 0);
+    RememberMetadataFailure(&first_failure, langid_get_hr);
+    if (SUCCEEDED(langid_get_hr) && langid) {
         VARIANT value;
         VariantInit(&value);
         value.vt = VT_I4;
         value.lVal = (LONG)LAB_LANGID;
-        langid_hr = ITfProperty_SetValue(langid, ec, range, &value);
+        HRESULT langid_set_hr =
+            ITfProperty_SetValue(langid, ec, property_range, &value);
         VariantClear(&value);
+        Lab_TraceEvent("metadata.langid.set_value", st, langid_set_hr, 0);
+        RememberMetadataFailure(&first_failure, langid_set_hr);
+    } else {
+        Lab_TraceEvent("metadata.langid.set_value.skipped", st, langid_get_hr, 0);
     }
     if (langid) ITfProperty_Release(langid);
-    Lab_TraceEvent("metadata.langid.apply", es->state, langid_hr, 0);
-    if (FAILED(langid_hr)) first_failure = langid_hr;
 #else
-    Lab_TraceEvent("metadata.langid.skipped", es->state, S_OK, 0);
+    Lab_TraceEvent("metadata.langid.skipped", st, S_OK, 0);
 #endif
 
 #ifdef LAB_APPLY_READING
     ITfProperty *reading = NULL;
-    HRESULT reading_hr = ITfContext_GetProperty(
-            es->state->context, &kPropReading, &reading);
-    if (SUCCEEDED(reading_hr)) {
+    HRESULT reading_get_hr = ITfContext_GetProperty(st->context, &kPropReading, &reading);
+    if (SUCCEEDED(reading_get_hr) && !reading) reading_get_hr = E_UNEXPECTED;
+    Lab_TraceEvent("metadata.reading.get_property", st, reading_get_hr, reading ? 1 : 0);
+    RememberMetadataFailure(&first_failure, reading_get_hr);
+    if (SUCCEEDED(reading_get_hr) && reading) {
         BSTR string = SysAllocStringLen(text, (UINT)len);
         if (!string) {
-            reading_hr = E_OUTOFMEMORY;
+            Lab_TraceEvent("metadata.reading.set_value.skipped", st, E_OUTOFMEMORY, 0);
+            RememberMetadataFailure(&first_failure, E_OUTOFMEMORY);
         } else {
             VARIANT value;
             VariantInit(&value);
             value.vt = VT_BSTR;
             value.bstrVal = string;
-            reading_hr = ITfProperty_SetValue(reading, ec, range, &value);
+            HRESULT reading_set_hr =
+                ITfProperty_SetValue(reading, ec, property_range, &value);
             VariantClear(&value);
+            Lab_TraceEvent("metadata.reading.set_value", st, reading_set_hr, 0);
+            RememberMetadataFailure(&first_failure, reading_set_hr);
         }
+    } else {
+        Lab_TraceEvent("metadata.reading.set_value.skipped", st, reading_get_hr, 0);
     }
     if (reading) ITfProperty_Release(reading);
-    Lab_TraceEvent("metadata.reading.apply", es->state, reading_hr, 0);
-    if (FAILED(reading_hr) && SUCCEEDED(first_failure)) first_failure = reading_hr;
 #else
-    (void)text;
-    (void)len;
-    Lab_TraceEvent("metadata.reading.skipped", es->state, S_OK, 0);
+    Lab_TraceEvent("metadata.reading.skipped", st, S_OK, 0);
 #endif
 
-    return first_failure;
+done:
+    if (property_range) ITfRange_Release(property_range);
+    Lab_TraceEvent("metadata.summary", st, first_failure, 0);
 }
 #endif
 
@@ -248,8 +304,7 @@ static HRESULT ReplacePreedit(LabEditSession *es, TfEditCookie ec, ITfRange *ran
         if (FAILED(hr)) return hr;
     }
 #ifdef LAB_AKEL_METADATA_BUILD
-    hr = ApplyCompositionMetadata(es, ec, range, text, len);
-    if (FAILED(hr)) return hr;
+    ApplyCompositionMetadata(es, ec, text, len);
 #endif
     /* 표시 속성 실패는 조합을 무효로 만들지 않는다 — 밑줄이 없을 뿐이다 */
     SetTracePhase(es->state, LAB_TRACE_DISPLAY_ATTRIBUTE);

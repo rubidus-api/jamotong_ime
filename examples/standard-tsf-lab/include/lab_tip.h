@@ -14,6 +14,7 @@
 
 #include "hangul2.h"
 #include "key_policy.h"
+#include "tsf_property_guids.h"
 
 /* ── MinGW-w64의 msctf.h에 없는 것들을 직접 선언한다 ──
    ITfDisplayAttributeProvider는 헤더에 아예 없고, TF_INVALID_GUIDATOM도 빠져 있다.
@@ -48,11 +49,33 @@ extern const GUID  GUID_LabProfile;
      defined(LAB_AKEL_AE_NONE_BUILD) + defined(LAB_AKEL_INSERT_FIRST_BUILD) + \
      defined(LAB_AKEL_NO_SELECTION_BUILD) + defined(LAB_AKEL_META_CONTROL_BUILD) + \
      defined(LAB_AKEL_META_LANGID_BUILD) + defined(LAB_AKEL_META_READING_BUILD) + \
-     defined(LAB_AKEL_META_BOTH_BUILD)) > 1
+     defined(LAB_AKEL_META_BOTH_BUILD) + defined(LAB_AKEL_META_R2_CONTROL_BUILD) + \
+     defined(LAB_AKEL_META_R2_LANGID_BUILD) + defined(LAB_AKEL_META_R2_READING_BUILD) + \
+     defined(LAB_AKEL_META_R2_BOTH_BUILD)) > 1
 #  error "Select exactly one standard-lab build variant"
 #endif
 
-#if defined(LAB_AKEL_META_CONTROL_BUILD)
+#if defined(LAB_AKEL_META_R2_CONTROL_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R2 0 Control"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r2-0-control-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r2-control"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R2_LANGID_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R2 1 LangID"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r2-1-langid-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r2-langid"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R2_READING_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R2 2 Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r2-2-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r2-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R2_BOTH_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R2 3 LangID Reading"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r2-3-langid-reading-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r2-langid-reading"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_CONTROL_BUILD)
 #  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta 0 Control"
 #  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-0-control-%lu.jsonl"
 #  define LAB_TRACE_VARIANT      "meta-control"
@@ -102,6 +125,16 @@ extern const GUID  GUID_LabProfile;
 #  define LAB_TRACE_FILE_FORMAT  L"jamotong-standard-lab-trace-%lu.jsonl"
 #  define LAB_TRACE_VARIANT      "standard"
 #endif
+
+#if defined(LAB_AKEL_META_R2_CONTROL_BUILD) || defined(LAB_AKEL_META_R2_LANGID_BUILD) || \
+    defined(LAB_AKEL_META_R2_READING_BUILD) || defined(LAB_AKEL_META_R2_BOTH_BUILD)
+#  define LAB_TRACE_SCHEMA       2
+#  define LAB_TRACE_BUILD_ID     "akel-meta-r2-260724"
+#else
+#  define LAB_TRACE_SCHEMA       1
+#  define LAB_TRACE_BUILD_ID     LAB_TRACE_VARIANT
+#endif
+
 #define LAB_LANGID        MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN)
 
 /* Trace callbacks report the current transaction stage without recording input data. */

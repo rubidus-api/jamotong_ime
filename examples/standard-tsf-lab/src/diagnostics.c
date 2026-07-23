@@ -97,11 +97,12 @@ static void WriteCommon(const char *event, const LabContextState *st,
 
     /* event is always a source-code constant, never user-controlled data. */
     fprintf(g_trace_file,
-            "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
+            "{\"schema\":%u,\"build\":\"%s\",\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
             "\"tick_ms\":%llu,\"variant\":\"%s\",\"event\":\"%s\","
             "\"ctx\":%u,\"txn\":%u,"
             "\"phase\":\"%s\",\"hr\":\"0x%08lX\",\"value\":%ld,"
             "\"composition\":%d,\"termination_epoch\":%u}\n",
+            (unsigned)LAB_TRACE_SCHEMA, LAB_TRACE_BUILD_ID,
             (long)seq, (unsigned long)pid, (unsigned long)tid,
             (unsigned long long)tick, LAB_TRACE_VARIANT, event, ctx, txn, PhaseName(phase),
             (unsigned long)hr, (long)value, composition, epoch);
@@ -121,13 +122,14 @@ void Lab_TraceSession(const char *what, const LabContextState *st,
     AcquireSRWLockExclusive(&g_trace_lock);
     LONG seq = InterlockedIncrement(&g_trace_sequence);
     fprintf(g_trace_file,
-            "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
+            "{\"schema\":%u,\"build\":\"%s\",\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
             "\"tick_ms\":%llu,\"variant\":\"%s\","
             "\"event\":\"edit_session.result\","
             "\"command\":\"%s\",\"ctx\":%u,\"txn\":%u,\"phase\":\"%s\","
             "\"request_hr\":\"0x%08lX\",\"session_hr\":\"0x%08lX\","
             "\"inner_hr\":\"0x%08lX\",\"callback_ran\":%d,"
             "\"composition\":%d,\"termination_epoch\":%u}\n",
+            (unsigned)LAB_TRACE_SCHEMA, LAB_TRACE_BUILD_ID,
             (long)seq, (unsigned long)GetCurrentProcessId(),
             (unsigned long)GetCurrentThreadId(),
             (unsigned long long)GetTickCount64(), LAB_TRACE_VARIANT, what,
@@ -164,12 +166,13 @@ void Lab_TraceContextCaps(const LabContextState *st) {
     AcquireSRWLockExclusive(&g_trace_lock);
     LONG seq = InterlockedIncrement(&g_trace_sequence);
     fprintf(g_trace_file,
-            "{\"schema\":1,\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
+            "{\"schema\":%u,\"build\":\"%s\",\"seq\":%ld,\"pid\":%lu,\"tid\":%lu,"
             "\"tick_ms\":%llu,\"variant\":\"%s\","
             "\"event\":\"context.caps\",\"ctx\":%u,"
             "\"txn\":%u,\"phase\":\"%s\",\"insert_at_selection\":%d,"
             "\"context_composition\":%d,\"status_hr\":\"0x%08lX\","
             "\"dynamic_flags\":%lu,\"static_flags\":%lu}\n",
+            (unsigned)LAB_TRACE_SCHEMA, LAB_TRACE_BUILD_ID,
             (long)seq, (unsigned long)GetCurrentProcessId(),
             (unsigned long)GetCurrentThreadId(),
             (unsigned long long)GetTickCount64(), LAB_TRACE_VARIANT, st->generation,

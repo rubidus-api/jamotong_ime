@@ -9,10 +9,15 @@
 - 표준 TSF 실험체에 기존 등록과 공존하는 `Jamotong TSF Trace Lab` 빌드를 추가했다.
   프로세스별 JSONL에 composition 단계·HRESULT·외부 종료·편집 종료 순서만 남기며,
   입력 글자·키값·문서 내용·메모리 주소는 기록하지 않는다.
+- 무효가 된 첫 LANGID/READING 실험과 등록·로그가 겹치지 않는 `Meta R2` x64 프로필 4종과
+  schema/build/variant·range·속성 호출·세션 완전성을 검사하는 수집 절차를 추가했다.
 
 ### Fixed
 - 직접 선언한 `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` vtbl 함수에 공식
   인터페이스에 없는 `BSTR *` 인자가 들어 있던 COM ABI 오류를 수정했다.
+- 표준 TSF 실험체의 잘못 옮긴 `GUID_PROP_LANGID`/`GUID_PROP_READING` 값을 공식 바이트로
+  교체하고 portable 실행 테스트로 고정했다. `SetText` 뒤 range를 다시 얻으며,
+  선택적 metadata 실패가 성공한 문서 편집을 실패 처리해 원래 키를 중복 전달하지 않게 했다.
 
 ### Changed
 - 한·영 매뉴얼에 64비트 AkelPad 자모 분리 현상의 미확정 실기 상태, composition 수명 추적

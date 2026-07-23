@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (invalid metadata A/B, copied-GUID defect, and partial-failure lesson)*
+*Last updated: 2026-07-24 (corrected AkelPad Meta R2 suite and structural collector validation)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -961,7 +961,7 @@ These were not worthless fixes. Removing them made the later trace trustworthy. 
 the same out-of-session termination remained **after** each correction, continuing to use
 them as a sufficient explanation for current AkelPad jamo separation would waste time.
 
-**Additional defects discovered in the second field run, not yet corrected in code:**
+**Additional defects discovered in the second field run and corrected in Meta R2:**
 
 - The names `GUID_PROP_LANGID` and `GUID_PROP_READING` were attached to 16-byte values
   that do not match the Windows SDK. The contract byte-checked capability GUIDs but only
@@ -977,6 +977,11 @@ them as a sufficient explanation for current AkelPad jamo separation would waste
 - The collector retained activation-only files and empty profile directories without
   marking the cells incomplete. The next suite must require build identity and expected
   transaction/property-event counts.
+
+Meta R2 corrects all four defects and uses new CLSID, profile, display-attribute, and trace
+identities without changing the product or the v1 field artifact. Its build and package
+checks pass, but Windows field execution is still pending; this is not a successful metadata
+hypothesis result.
 
 #### 12.7.4 AkelPad fixes rejected by one-variable A/B
 
@@ -1112,6 +1117,25 @@ A corrected suite must satisfy all of these requirements:
    passing the original key.
 4. Use new DLL/schema identities and reject activation-only or empty profile cells.
 5. Re-run all eight Control/LANGID/Reading/Both × AkelPad/Notepad cells.
+
+The corrected `make akel-metadata-r2-suite` build implements requirements 1–4. Production
+initializers and a portable executable test share the official GUID bytes, while every
+schema-2 update separates:
+
+```text
+metadata.range.get / is_empty / length
+metadata.langid.get_property / set_value
+metadata.reading.get_property / set_value
+metadata.summary
+```
+
+A property failure remains in `metadata.summary` but no longer turns successful `SetText`
+into edit-session failure. The lab therefore cannot repeat v1's partial edit followed by
+`pfEaten=FALSE` for the same physical key. The collector requires the expected schema,
+build and variant, at least six updates, nonempty ranges, both successful property calls,
+successful sessions, and zero `hangul_step.failed`; it writes a content-free
+`validation.json`. A visually plausible cell that fails this gate is invalid. Requirement
+5—the fresh eight-cell Windows run—is the remaining step.
 
 Then interpret the result as follows:
 
