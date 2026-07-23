@@ -82,6 +82,9 @@ HRESULT Lab_RegisterServer(void) {
         /* 스토어 앱(app container)에서도 로드되게 한다 */
         ITfCategoryMgr_RegisterCategory(cat, &CLSID_LabService,
                                         &kCatTipCapImmersiveSupport, &CLSID_LabService);
+        /* 표시 속성 제공자 — 이게 없으면 앱이 밑줄 모양을 물어보지 않는다 */
+        ITfCategoryMgr_RegisterCategory(cat, &CLSID_LabService,
+                                        &GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, &CLSID_LabService);
         ITfCategoryMgr_Release(cat);
     }
     if (did_init) CoUninitialize();
@@ -95,6 +98,8 @@ HRESULT Lab_UnregisterServer(void) {
     ITfCategoryMgr *cat = NULL;
     if (SUCCEEDED(CoCreateInstance(&CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER,
                                    &IID_ITfCategoryMgr, (void**)&cat))) {
+        ITfCategoryMgr_UnregisterCategory(cat, &CLSID_LabService,
+                                          &GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, &CLSID_LabService);
         ITfCategoryMgr_UnregisterCategory(cat, &CLSID_LabService,
                                           &kCatTipCapImmersiveSupport, &CLSID_LabService);
         ITfCategoryMgr_UnregisterCategory(cat, &CLSID_LabService,

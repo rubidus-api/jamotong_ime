@@ -110,8 +110,14 @@ static STDMETHODIMP KS_OnTestKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
                                      WPARAM wparam, LPARAM lparam, BOOL *eaten) {
     LabTextService *svc = FROM_KEY(me);
     LabKeyAction a = ClassifyForContext(svc, ctx, wparam, lparam);
-    /* FINALIZE_AND_PASS는 eaten=FALSE — 앱이 원래 키를 받는다 (RFC-0009 §8.2, D7).
-       Phase 1에는 조합이 없으므로 실제 finalize는 Phase 2에서 붙인다. */
+    if (a == LAB_KEY_FINALIZE_AND_PASS) {
+        /* 여기서 확정하고 원래 키는 앱으로 (RFC-0009 §8.2).
+           OnKeyDown이 또 불려도 composition이 이미 없으므로 중복 확정되지 않는다. */
+        LabContextState *st = Lab_FindContext(svc, ctx);
+        if (st) Lab_FinalizeComposition(svc, st, LAB_FINALIZE);
+        *eaten = FALSE;
+        return S_OK;
+    }
     *eaten = (a == LAB_KEY_HANDLE_HANGUL || a == LAB_KEY_HANDLE_BACKSPACE ||
               a == LAB_KEY_TOGGLE);
     return S_OK;
@@ -122,19 +128,48 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
     LabKeyAction a = ClassifyForContext(svc, ctx, wparam, lparam);
     *eaten = FALSE;
     switch (a) {
-    case LAB_KEY_TOGGLE:
+    case LAB_KEY_TOGGLE: {
+        LabContextState *st = Lab_FindContext(svc, ctx);
+        if (st) Lab_FinalizeComposition(svc, st, LAB_FINALIZE);   /* 남은 조합을 흘리지 않는다 */
         Lab_SetKeyboardOpen(svc, !Lab_IsKeyboardOpen(svc));
         *eaten = TRUE;
         return S_OK;
-    case LAB_KEY_HANDLE_HANGUL:
-    case LAB_KEY_HANDLE_BACKSPACE:
-        /* Phase 2에서 composition을 붙인다. 지금은 먹기만 하고 아무것도 넣지 않는다 —
-           "먹었는데 아무 일도 없다"가 Phase 1의 정상 동작이다. */
-        Lab_EnsureContext(svc, ctx);
+    }
+    case LAB_KEY_HANDLE_HANGUL: {
+        LabContextState *st = Lab_EnsureContext(svc, ctx);
+        if (!st) return S_OK;
+        LabKeySnapshot k = CaptureKey(wparam, lparam, st->generation);
+        HangulStep step;
+        if (!Hangul2_Step(&st->hangul, k.virtual_key, k.shift, &step)) return S_OK;
+        /* 편집이 성공한 경우에만 FSM 상태가 갱신된다 (RFC-0009 §5.2) */
+        Lab_ApplyStep(svc, st, &step, NULL);
         *eaten = TRUE;
         return S_OK;
+    }
+    case LAB_KEY_HANDLE_BACKSPACE: {
+        LabContextState *st = Lab_FindContext(svc, ctx);
+        if (!st) return S_OK;
+        HangulStep step;
+        if (!Hangul2_Backspace(&st->hangul, &step)) return S_OK;
+        if (Hangul2_IsEmpty(&step.next)) {
+            /* 마지막 한 단계를 지우면 조합 자체가 사라진다 → 취소로 끝낸다 */
+            Lab_FinalizeComposition(svc, st, LAB_CANCEL);
+        } else {
+            Lab_ApplyStep(svc, st, &step, NULL);
+        }
+        *eaten = TRUE;
+        return S_OK;
+    }
+    case LAB_KEY_FINALIZE_AND_PASS: {
+        /* 조합을 확정하고 원래 키는 앱으로 넘긴다. replay하지 않는다 (RFC-0009 §8.2, D7).
+           OnTestKeyDown에서 이미 확정됐을 수 있으므로 두 번 불려도 안전해야 한다 —
+           composition이 없으면 Lab_FinalizeComposition이 바로 S_OK로 돌아온다. */
+        LabContextState *st = Lab_FindContext(svc, ctx);
+        if (st) Lab_FinalizeComposition(svc, st, LAB_FINALIZE);
+        return S_OK;      /* eaten=FALSE 유지 */
+    }
     default:
-        return S_OK;   /* PASS / FINALIZE_AND_PASS: 앱이 원래 키를 받는다 */
+        return S_OK;   /* PASS: 앱이 원래 키를 받는다 */
     }
 }
 static STDMETHODIMP KS_OnTestKeyUp(ITfKeyEventSink *me, ITfContext *c, WPARAM w, LPARAM l, BOOL *e) {
@@ -238,6 +273,8 @@ static STDMETHODIMP SVC_Deactivate(ITfTextInputProcessor *me) {
         ITfKeystrokeMgr_UnadviseKeyEventSink(km, s->client_id);
         ITfKeystrokeMgr_Release(km);
     }
+    for (LabContextState *p = s->contexts; p; p = p->next)
+        if (p->composition) Lab_FinalizeComposition(s, p, LAB_FINALIZE);
     Lab_ReleaseContexts(s);
     ITfThreadMgr_Release(s->thread_mgr);
     s->thread_mgr = NULL;
@@ -255,6 +292,10 @@ static STDMETHODIMP SVC_QI(ITfTextInputProcessor *me, REFIID riid, void **ppv) {
         *ppv = &s->key_sink;
     else if (IsEqualIID(riid, &IID_ITfThreadMgrEventSink))
         *ppv = &s->thread_sink;
+    else if (IsEqualIID(riid, &IID_ITfCompositionSink))
+        *ppv = &s->composition_sink;
+    else if (IsEqualIID(riid, &IID_ITfDisplayAttributeProvider_Lab))
+        *ppv = &s->attr_provider;
     else { *ppv = NULL; return E_NOINTERFACE; }
     SVC_AddRef(me);
     return S_OK;
@@ -266,6 +307,8 @@ LabTextService *Lab_CreateService(void) {
     s->tip.lpVtbl         = (ITfTextInputProcessorVtbl*)&g_tip_vtbl;
     s->key_sink.lpVtbl    = (ITfKeyEventSinkVtbl*)&g_key_vtbl;
     s->thread_sink.lpVtbl = (ITfThreadMgrEventSinkVtbl*)&g_thread_vtbl;
+    Lab_InitCompositionSink(s);
+    Lab_InitDisplayAttribute(s);
     s->ref = 1;
     Lab_DllAddRef();
     return s;

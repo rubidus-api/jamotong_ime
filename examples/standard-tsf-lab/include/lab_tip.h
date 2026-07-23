@@ -15,6 +15,30 @@
 #include "hangul2.h"
 #include "key_policy.h"
 
+/* ── MinGW-w64의 msctf.h에 없는 것들을 직접 선언한다 ──
+   ITfDisplayAttributeProvider는 헤더에 아예 없고, TF_INVALID_GUIDATOM도 빠져 있다.
+   값·시그니처는 Microsoft 공개 문서(msctf.h)와 같다. */
+#ifndef TF_INVALID_GUIDATOM
+#  define TF_INVALID_GUIDATOM ((TfGuidAtom)0)
+#endif
+
+#ifndef __ITfDisplayAttributeProvider_INTERFACE_DEFINED__
+#define __ITfDisplayAttributeProvider_INTERFACE_DEFINED__
+typedef struct ITfDisplayAttributeProvider ITfDisplayAttributeProvider;
+typedef struct ITfDisplayAttributeProviderVtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(ITfDisplayAttributeProvider*, REFIID, void**);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(ITfDisplayAttributeProvider*);
+    ULONG   (STDMETHODCALLTYPE *Release)(ITfDisplayAttributeProvider*);
+    HRESULT (STDMETHODCALLTYPE *EnumDisplayAttributeInfo)(ITfDisplayAttributeProvider*,
+                                                          IEnumTfDisplayAttributeInfo**);
+    HRESULT (STDMETHODCALLTYPE *GetDisplayAttributeInfo)(ITfDisplayAttributeProvider*,
+                                                         REFGUID, ITfDisplayAttributeInfo**, BSTR*);
+} ITfDisplayAttributeProviderVtbl;
+struct ITfDisplayAttributeProvider { const ITfDisplayAttributeProviderVtbl *lpVtbl; };
+/* {fee47777-163c-4769-996a-6e9c50ad8f54} */
+EXTERN_C const GUID IID_ITfDisplayAttributeProvider_Lab;
+#endif
+
 /* 실험체 전용 GUID — 제품과 절대 겹치지 않는다 */
 extern const CLSID CLSID_LabService;
 extern const GUID  GUID_LabProfile;
@@ -35,6 +59,8 @@ typedef struct LabTextService {
     ITfTextInputProcessor tip;      /* 첫 멤버 */
     ITfKeyEventSink       key_sink;
     ITfThreadMgrEventSink thread_sink;
+    ITfCompositionSink    composition_sink;
+    ITfDisplayAttributeProvider attr_provider;
     LONG            ref;
     ITfThreadMgr   *thread_mgr;
     TfClientId      client_id;
@@ -42,6 +68,15 @@ typedef struct LabTextService {
     LabContextState *contexts;
     uint32_t        next_generation;
 } LabTextService;
+
+/* composition 명령. 확정과 취소를 boolean 하나로 합치지 않는다 —
+   로그와 테스트에서 두 의미를 분리해야 하기 때문이다 (RFC-0009 §7.4). */
+typedef enum LabCompositionCommand {
+    LAB_UPDATE = 0,
+    LAB_COMMIT_PREFIX,
+    LAB_FINALIZE,
+    LAB_CANCEL
+} LabCompositionCommand;
 
 /* 편집 세션 결과 — 요청 성공과 세션 성공을 분리한다 (RFC-0009 §5.3) */
 typedef struct LabSessionResult {
@@ -60,6 +95,21 @@ LabTextService *Lab_CreateService(void);
 bool Lab_IsKeyboardOpen(LabTextService *svc);
 bool Lab_IsKeyboardDisabled(LabTextService *svc, ITfContext *ctx);
 bool Lab_SetKeyboardOpen(LabTextService *svc, bool open);
+
+/* composition.c — 한 키를 한 transaction으로 처리한다 */
+HRESULT Lab_ApplyStep(LabTextService *svc, LabContextState *st,
+                      const HangulStep *step, LabSessionResult *result);
+HRESULT Lab_FinalizeComposition(LabTextService *svc, LabContextState *st,
+                                LabCompositionCommand cmd);
+void    Lab_ForgetComposition(LabContextState *st);
+void    Lab_InitCompositionSink(LabTextService *svc);
+
+/* display_attribute.c */
+extern const GUID GUID_LabDisplayAttributeInput;
+HRESULT Lab_ApplyInputAttribute(LabTextService *svc, TfEditCookie ec,
+                                ITfContext *ctx, ITfRange *range);
+void    Lab_InitDisplayAttribute(LabTextService *svc);
+HRESULT Lab_RegisterDisplayAttributeCategory(bool add);
 
 /* dllmain.c */
 extern HINSTANCE g_lab_instance;
