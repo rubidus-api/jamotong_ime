@@ -13,7 +13,7 @@ LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
 SRCS = src/dllmain.c src/text_service.c src/context_state.c src/register.c \
-       src/composition.c src/display_attribute.c src/key_policy.c src/hangul2.c
+       src/composition.c src/display_attribute.c src/diagnostics.c src/key_policy.c src/hangul2.c
 DEF  = standard-lab.def
 
 PORTABLE_SRCS = src/hangul2.c src/key_policy.c

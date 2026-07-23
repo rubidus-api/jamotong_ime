@@ -67,6 +67,10 @@ typedef struct LabTextService {
     DWORD           thread_sink_cookie;
     LabContextState *contexts;
     uint32_t        next_generation;
+    /* compartment를 못 읽거나 못 쓰는 호스트(PuTTY 등)를 위한 자체 상태.
+       compartment가 정상인 호스트에서는 그쪽을 우선한다. */
+    bool            fallback_open;
+    bool            compartment_usable;
 } LabTextService;
 
 /* composition 명령. 확정과 취소를 boolean 하나로 합치지 않는다 —
@@ -110,6 +114,12 @@ HRESULT Lab_ApplyInputAttribute(LabTextService *svc, TfEditCookie ec,
                                 ITfContext *ctx, ITfRange *range);
 void    Lab_InitDisplayAttribute(LabTextService *svc);
 HRESULT Lab_RegisterDisplayAttributeCategory(bool add);
+
+/* diagnostics.c — 기본 꺼짐. JAMOTONG_LAB_TRACE=1 일 때만 기록 (RFC-0009 §11.3).
+   개인정보 원칙: 친 글자를 남기지 않는다. 길이·HRESULT·능력만 (§11.2). */
+void Lab_Trace(const char *fmt, ...);
+void Lab_TraceSession(const char *what, const LabSessionResult *r);
+void Lab_TraceContextCaps(ITfContext *ctx);
 
 /* dllmain.c */
 extern HINSTANCE g_lab_instance;

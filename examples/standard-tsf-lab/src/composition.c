@@ -69,7 +69,11 @@ static HRESULT EnsureComposition(LabEditSession *es, TfEditCookie ec, ITfRange *
     if (FAILED(hr)) goto done;
     hr = ITfContextComposition_StartComposition(cc, ec, insert_range,
                                                 &es->service->composition_sink, &created);
-    if (SUCCEEDED(hr) && created == NULL) { hr = LAB_E_COMPOSITION_REJECTED; goto done; }
+    if (FAILED(hr)) Lab_Trace("StartComposition failed hr=0x%08lX", (unsigned long)hr);
+    if (SUCCEEDED(hr) && created == NULL) {
+        Lab_Trace("StartComposition returned S_OK but NULL composition");
+        hr = LAB_E_COMPOSITION_REJECTED; goto done;
+    }
     if (FAILED(hr)) goto done;
 
     st->composition = created;               /* publish */
@@ -255,6 +259,14 @@ static HRESULT RequestSyncWrite(LabTextService *svc, LabContextState *st,
                                                     &es->base, TF_ES_SYNC | TF_ES_READWRITE,
                                                     &out->session_hr);
     out->callback_ran = es->callback_ran;
+    Lab_TraceSession(cmd == LAB_UPDATE ? "update" :
+                     cmd == LAB_COMMIT_PREFIX ? "commit_prefix" :
+                     cmd == LAB_FINALIZE ? "finalize" : "cancel", out);
+    if (FAILED(out->request_hr) || FAILED(out->session_hr)) {
+        Lab_Trace("  inner_hr=0x%08lX composition=%p", (unsigned long)es->inner_hr,
+                  (void*)st->composition);
+        Lab_TraceContextCaps(st->context);
+    }
     ITfEditSession_Release(&es->base);
 
     if (FAILED(out->request_hr)) return out->request_hr;

@@ -34,23 +34,31 @@ static ITfCompartment *GetOpenCloseCompartment(LabTextService *svc) {
 }
 bool Lab_IsKeyboardOpen(LabTextService *svc) {
     ITfCompartment *c = GetOpenCloseCompartment(svc);
-    if (!c) return false;
+    if (!c) return svc->fallback_open;          /* compartment 자체를 못 얻는 호스트 */
     VARIANT v; VariantInit(&v);
-    bool open = false;
-    if (SUCCEEDED(ITfCompartment_GetValue(c, &v)) && v.vt == VT_I4) open = (v.lVal != 0);
+    bool open = svc->fallback_open;
+    HRESULT hr = ITfCompartment_GetValue(c, &v);
+    /* VT_EMPTY = 아직 아무도 쓴 적 없음. 실패도 아니고 false도 아니다 —
+       이걸 false로 읽어버리면 우리가 켠 상태를 스스로 지운다. */
+    if (SUCCEEDED(hr) && v.vt == VT_I4) open = (v.lVal != 0);
+    else if (SUCCEEDED(hr) && v.vt == VT_EMPTY) open = svc->fallback_open;
     VariantClear(&v);
     ITfCompartment_Release(c);
     return open;
 }
 bool Lab_SetKeyboardOpen(LabTextService *svc, bool open) {
+    /* 자체 상태를 먼저 갱신한다. compartment 쓰기가 실패해도 토글은 성립해야 한다 —
+       PuTTY에서 "한/영이 한 번만 먹는" 증상이 여기서 나왔다. */
+    svc->fallback_open = open;
     ITfCompartment *c = GetOpenCloseCompartment(svc);
-    if (!c) return false;
+    if (!c) return true;
     VARIANT v; VariantInit(&v);
     v.vt = VT_I4; v.lVal = open ? 1 : 0;
     HRESULT hr = ITfCompartment_SetValue(c, svc->client_id, &v);
     VariantClear(&v);
     ITfCompartment_Release(c);
-    return SUCCEEDED(hr);
+    if (SUCCEEDED(hr)) svc->compartment_usable = true;
+    return true;
 }
 /* 암호 입력란 등에서 IME를 끄는 컨텍스트 플래그 */
 bool Lab_IsKeyboardDisabled(LabTextService *svc, ITfContext *ctx) {
@@ -131,7 +139,10 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
     case LAB_KEY_TOGGLE: {
         LabContextState *st = Lab_FindContext(svc, ctx);
         if (st) Lab_FinalizeComposition(svc, st, LAB_FINALIZE);   /* 남은 조합을 흘리지 않는다 */
-        Lab_SetKeyboardOpen(svc, !Lab_IsKeyboardOpen(svc));
+        bool was = Lab_IsKeyboardOpen(svc);
+        Lab_SetKeyboardOpen(svc, !was);
+        Lab_Trace("toggle %d -> %d (compartment_usable=%d)",
+                  was ? 1 : 0, was ? 0 : 1, svc->compartment_usable ? 1 : 0);
         *eaten = TRUE;
         return S_OK;
     }
@@ -142,7 +153,20 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
         HangulStep step;
         if (!Hangul2_Step(&st->hangul, k.virtual_key, k.shift, &step)) return S_OK;
         /* 편집이 성공한 경우에만 FSM 상태가 갱신된다 (RFC-0009 §5.2) */
-        Lab_ApplyStep(svc, st, &step, NULL);
+        LabSessionResult res;
+        HRESULT hr = Lab_ApplyStep(svc, st, &step, &res);
+        if (FAILED(hr)) {
+            Lab_Trace("hangul step failed hr=0x%08lX committed=%u preedit=%u -> pass key through",
+                      (unsigned long)hr, step.committed_len, step.preedit_len);
+            /* 이 호스트에서는 표준 composition이 성립하지 않는다.
+               조합 상태를 남겨두면 다음 키가 그 위에 쌓여 낱자가 흩어진다
+               (AkelPad에서 "ㄱㅏㄴㅏ" 로 나오던 증상).
+               조합을 접고 이 키는 앱에 넘긴다 — 실패를 감추지 않는다. */
+            Lab_ForgetComposition(st);
+            Hangul2_Reset(&st->hangul);
+            *eaten = FALSE;
+            return S_OK;
+        }
         *eaten = TRUE;
         return S_OK;
     }
@@ -253,6 +277,7 @@ static STDMETHODIMP SVC_Activate(ITfTextInputProcessor *me, ITfThreadMgr *tm, Tf
     }
     /* 켜진 상태로 시작하지 않는다 — 사용자가 한/영으로 켠다 */
     Lab_SetKeyboardOpen(s, false);
+    Lab_Trace("activate client_id=%lu", (unsigned long)cid);
     return S_OK;
 }
 static STDMETHODIMP SVC_Deactivate(ITfTextInputProcessor *me) {
