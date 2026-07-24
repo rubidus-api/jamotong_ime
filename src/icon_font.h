@@ -8,7 +8,7 @@
 
 #define ICONFONT_W 5
 #define ICONFONT_H 8
-#define ICONFONT_COUNT 37
+#define ICONFONT_COUNT 38
 
 static const unsigned char g_iconFontBits[ICONFONT_COUNT][ICONFONT_H] = {
     { 0x00, 0x60, 0x90, 0xB0, 0xD0, 0x90, 0x60, 0x00 },   // '0'
@@ -22,6 +22,7 @@ static const unsigned char g_iconFontBits[ICONFONT_COUNT][ICONFONT_H] = {
     { 0x00, 0x60, 0x90, 0x60, 0x90, 0x90, 0x60, 0x00 },   // '8'
     { 0x00, 0x60, 0x90, 0x90, 0x70, 0x10, 0x60, 0x00 },   // '9'
     { 0x60, 0x90, 0x10, 0x20, 0x40, 0x00, 0x40, 0x00 },   // '?'
+    { 0x00, 0x00, 0x00, 0x00, 0xF0, 0x00, 0x00, 0x00 },   // '-'
     { 0x00, 0x60, 0x90, 0x90, 0xF0, 0x90, 0x90, 0x00 },   // 'A'
     { 0x00, 0xE0, 0x90, 0xE0, 0x90, 0x90, 0xE0, 0x00 },   // 'B'
     { 0x00, 0x70, 0x80, 0x80, 0x80, 0x80, 0x70, 0x00 },   // 'C'
@@ -50,11 +51,12 @@ static const unsigned char g_iconFontBits[ICONFONT_COUNT][ICONFONT_H] = {
     { 0x00, 0xF0, 0x10, 0x20, 0x40, 0x80, 0xF0, 0x00 },   // 'Z'
 };
 
-// 글리프 인덱스: 0-9, '?', A-Z(소문자는 대문자로 접어서). 미수록 문자는 -1.
+// 글리프 인덱스: 0-9, '?', '-', A-Z(소문자는 대문자로 접어서). 미수록 문자는 -1.
 static inline int IconFont_Index(unsigned int c) {
     if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
     if (c >= '0' && c <= '9') return (int)(c - '0');
     if (c == '?') return 10;
-    if (c >= 'A' && c <= 'Z') return 11 + (int)(c - 'A');
+    if (c == '-') return 11;
+    if (c >= 'A' && c <= 'Z') return 12 + (int)(c - 'A');
     return -1;
 }

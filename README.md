@@ -26,7 +26,11 @@ Framework) text service with no frameworks and no external libraries.
 - **Unicode codepoint input**: `Ctrl+Alt+U` → type hex (live glyph preview and character
   name — hunum/reading for hanja, otherwise the Unicode block) → Enter.
 - **Configurable shortcuts**: every trigger (layout switch, Hanja, Unicode input,
-  settings) accepts **multiple bindings** (up to 8 per function).
+  settings, pass-through mode) accepts **multiple bindings** (up to 8 per function).
+- **Pass-through (direct input) mode**: a toggle (tray icon right-click menu) that makes
+  Jamotong stop intercepting keys entirely — for remote-desktop clients and similar.
+  While on, the tray icon shows `--` and even the layout-switch key passes through, so
+  you type Korean with the remote machine's IME.
 - **Manager app** (`jamotong.exe`): a normal desktop app (appears in the taskbar and Task
   Manager) that opens/edits/validates `.jmt` layout files, tests input without TSF, and
   opens the settings window. Not a tray/background process.
@@ -70,6 +74,7 @@ Default keys — every function is configurable and accepts multiple bindings
 | Hanja / special characters | Hanja key |
 | Unicode codepoint input | Ctrl+Alt+U |
 | Open settings window | Ctrl+Alt+K |
+| Pass-through (direct input) mode toggle | (none by default — toggle via the tray icon's right-click menu, or assign one) |
 
 ## Everyday use
 
@@ -364,4 +369,8 @@ Code: [MIT License](LICENSE). Hanja reading data is derived from the Unicode Uni
 Database (Unicode License v3; notice bundled in the distribution), the Supreme Court
 personal-name hanja public data (rutopio/Korean-Name-Hanja-Charset, MIT), and word
 mappings from jemdiggity/hanja-wordlist (MIT; Korean↔hanja mappings only, no
-definitions). No GPL/LGPL/CC BY-SA material is used.
+definitions). Icon lettering uses glyphs derived from the
+[Spleen 5x8](https://github.com/fcambus/spleen) bitmap font
+(Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**); the notice ships
+in `src/icon_font.h` and in the distribution's COPYRIGHT.md. No GPL/LGPL/CC BY-SA
+material is used.

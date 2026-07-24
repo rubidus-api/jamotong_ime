@@ -12,16 +12,40 @@
 #include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
 
-// 현재 자판 상태 발행 — 트레이 툴(jamotong.exe)이 폴링. 호출자가 g_configLock 보유 여부 무관(재진입).
-void Jamotong_PublishStatus(JamotongConfig *config) {
-    EnterCriticalSection(&g_configLock);
-    LayoutConfig *layout = Config_GetCurrentLayout(config);
-    wchar_t ab[8] = L"?", nm[64] = L"?";
-    if (layout) {
-        if (layout->abbrev[0]) { wcsncpy(ab, layout->abbrev, 7); ab[7] = L'\0'; }
-        if (layout->name)      { wcsncpy(nm, layout->name, 63); nm[63] = L'\0'; }
+// 무간섭(직접 입력) 모드 상태의 원본 — TIP 인스턴스는 프로세스별이라 레지스트리로 공유한다.
+BOOL Jamotong_GetPassthroughReg(void) {
+    DWORD v = 0, cb = sizeof(v);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Jamotong", L"Passthrough",
+                     RRF_RT_REG_DWORD, NULL, &v, &cb) != ERROR_SUCCESS)
+        return FALSE;
+    return v != 0;
+}
+
+static void WritePassthroughReg(BOOL on) {
+    HKEY hk;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, NULL, 0, KEY_SET_VALUE, NULL, &hk, NULL) == ERROR_SUCCESS) {
+        DWORD v = on ? 1u : 0u;
+        RegSetValueExW(hk, L"Passthrough", 0, REG_DWORD, (const BYTE*)&v, sizeof(v));
+        RegCloseKey(hk);
     }
-    LeaveCriticalSection(&g_configLock);
+}
+
+// 현재 자판 상태 발행 — 트레이 툴(jamotong.exe)이 폴링. 호출자가 g_configLock 보유 여부 무관(재진입).
+// 무간섭 모드면 자판 대신 "--"/"direct input"을 발행한다(상태 원본=레지스트리 플래그).
+void Jamotong_PublishStatus(JamotongConfig *config) {
+    wchar_t ab[8] = L"?", nm[64] = L"?";
+    if (Jamotong_GetPassthroughReg()) {
+        wcscpy(ab, L"--");
+        wcscpy(nm, L"direct input (pass-through)");
+    } else {
+        EnterCriticalSection(&g_configLock);
+        LayoutConfig *layout = Config_GetCurrentLayout(config);
+        if (layout) {
+            if (layout->abbrev[0]) { wcsncpy(ab, layout->abbrev, 7); ab[7] = L'\0'; }
+            if (layout->name)      { wcsncpy(nm, layout->name, 63); nm[63] = L'\0'; }
+        }
+        LeaveCriticalSection(&g_configLock);
+    }
     HKEY hk;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, NULL, 0, KEY_SET_VALUE, NULL, &hk, NULL) == ERROR_SUCCESS) {
         RegSetValueExW(hk, L"CurrentAbbrev", 0, REG_SZ, (const BYTE*)ab, (DWORD)((wcslen(ab)+1)*sizeof(wchar_t)));
@@ -110,6 +134,20 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     obj->prevChipValid = FALSE;   // 표시 안 함 → 비교 기준 리셋
     obj->chipPendingAdv = 0;
     PreeditOverlay_Hide();   // preedit 없음/옵션 꺼짐/좌표 불명 → 숨김
+}
+
+static void ResetComposition(JamotongTextService *obj);
+
+// 무간섭(직접 입력) 모드 토글 — 조합·팝업을 정리하고 레지스트리에 기록·발행한다.
+// 켜져 있는 동안 키 싱크는 해제 단축키 외 모든 키를 통과시킨다(원격 데스크톱 등).
+void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on) {
+    ResetComposition(obj);   // 인라인 조합 확정·FSM/칩 정리 (모드 경계 = 조합 경계)
+    CodeInput_Hide();
+    CandidateUI_Cancel();
+    obj->passthrough = on;
+    WritePassthroughReg(on);
+    Jamotong_PublishStatus(&obj->config);   // 트레이 모니터링에 "--"/자판명 반영
+    JamoDiag("PASSTHROUGH %s", on ? "ON" : "OFF");
 }
 
 // 조합 상태 전면 리셋 — FSM·모아치기(chord)·미리보기 칩 상태를 '한 곳에서' 비운다.
@@ -353,6 +391,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fFo
     ResetComposition(obj);
     CodeInput_Hide();
     CandidateUI_Cancel();
+    // 무간섭 모드 상태 재읽기 — 다른 프로세스의 토글(메뉴/단축키)을 레지스트리로 따라간다.
+    {
+        BOOL pt = Jamotong_GetPassthroughReg();
+        if (pt != obj->passthrough) {
+            obj->passthrough = pt;
+            LangBar_Update(obj->pLangBarItem);   // 아이콘 "--" ↔ 자판 갱신
+        }
+    }
     return S_OK;
 }
 
@@ -361,6 +407,17 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     (void)pic;
     if (pfEaten) *pfEaten = FALSE;
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) return S_OK;   // 합성 입력 통과
+
+    // 무간섭(직접 입력) 모드: 해제 단축키만 예측-소비하고 그 외 전부 통과 —
+    // 원격 데스크톱 클라이언트 등이 키를 그대로 받아 원격 IME가 처리하게 한다.
+    if (obj->passthrough) {
+        EnterCriticalSection(&g_configLock);
+        bool ptHit = Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH,
+                                       Config_ResolveVK(wParam, lParam), Config_CurrentMods());
+        LeaveCriticalSection(&g_configLock);
+        if (ptHit && pfEaten) *pfEaten = TRUE;
+        return S_OK;
+    }
 
     // OnKeyDown과 동일 순서(맨 앞): 코드입력/후보창/한자키를 예측-소비해야 OnKeyDown이 호출됨.
     // (TSF는 OnTestKeyDown이 TRUE로 표시한 키만 OnKeyDown 호출. 예측만 하고 부작용은 OnKeyDown에서.)
@@ -385,6 +442,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
 
     // 유니코드 코드 입력 단축키 (설정 가능, 기본 Ctrl+Alt+U) 예측-소비.
     if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        if (pfEaten) *pfEaten = TRUE;
+        goto tk_done;
+    }
+
+    // 무간섭 모드 켜기 단축키 (설정 가능, 기본 없음) 예측-소비.
+    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
@@ -482,6 +545,20 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) { JamoDiag("KD  vk=%02X SYNTH-pass", (unsigned)wParam); return S_OK; }
     JamoDiag("KD  vk=%02X state=%d", (unsigned)wParam, (int)obj->fsm.state);
 
+    // 무간섭(직접 입력) 모드: 해제 단축키만 처리, 그 외 전부 통과 (OnTestKeyDown과 동일 판단).
+    if (obj->passthrough) {
+        EnterCriticalSection(&g_configLock);
+        bool ptHit = Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH,
+                                       Config_ResolveVK(wParam, lParam), Config_CurrentMods());
+        LeaveCriticalSection(&g_configLock);
+        if (ptHit) {
+            Jamotong_SetPassthrough(obj, FALSE);
+            LangBar_Update(obj->pLangBarItem);
+            if (pfEaten) *pfEaten = TRUE;
+        }
+        return S_OK;
+    }
+
     bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
     // 유니코드 코드 입력 팝업 키 라우팅 (열려 있으면 모든 키 소비; Enter 확정 시 문자 삽입)
@@ -517,6 +594,18 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 설정창 단축키 (설정 가능, 기본 Ctrl+Alt+K — Win11 모던 설정엔 IME "옵션" 버튼이 없어 단축키로 연다).
     if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
         SettingsUI_Show(&obj->config);
+        if (pfEaten) *pfEaten = TRUE;
+        goto kd_done;
+    }
+
+    // 무간섭 모드 켜기 (설정 가능한 단축키, 기본 없음 — 우클릭 메뉴로도 토글).
+    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+        if (obj->fsm.state != STATE_EMPTY) {
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            OutputResultSeq(obj, pic, res, TRUE);   // 조합 중이면 먼저 확정
+        }
+        Jamotong_SetPassthrough(obj, TRUE);
+        LangBar_Update(obj->pLangBarItem);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
@@ -1083,6 +1172,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfT
     FuncConfig_Advise(obj);   // 설정 "옵션"(ITfFunctionProvider) in-session 노출
 
     obj->daAtom = DA_RegisterAtom(ptim);   // composition display-attribute atom (per thread)
+    obj->passthrough = Jamotong_GetPassthroughReg();   // 무간섭 모드 초기 상태 (프로세스 간 공유)
 
     // 최초 1회 전역 초기화: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸).
     // 한자/훈음 사전은 여기서 로드하지 않는다 — TIP은 텍스트를 쓰는 모든 프로세스에 로드되므로

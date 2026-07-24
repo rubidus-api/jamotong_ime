@@ -135,6 +135,9 @@ static HRESULT STDMETHODCALLTYPE LBI_OnClick(ITfLangBarItemButton *pThis, TfLBIC
         if (menu) {
             AppendMenuW(menu, MF_STRING, 1, L"Settings...");
             AppendMenuW(menu, MF_STRING, 2, L"Next layout");
+            // 무간섭(직접 입력) 모드 — 원격 데스크톱 등에서 모든 키를 앱에 그대로 통과.
+            AppendMenuW(menu, MF_STRING | (obj->pService->passthrough ? MF_CHECKED : 0),
+                        4, L"Pass-through (direct input) mode");
             AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
             AppendMenuW(menu, MF_STRING, 3, L"About Jamotong IME...");
             POINT p = pt;
@@ -165,8 +168,11 @@ static HRESULT STDMETHODCALLTYPE LBI_InitMenu(ITfLangBarItemButton *pThis, void 
     // ITfMenu는 msctf.h(CINTERFACE)가 제공하므로 void* 파라미터를 캐스트해 사용한다.
     ITfMenu *menu = (ITfMenu*)pMenu;
     if (menu) {
+        JamotongLangBarItem *item = IMPL_LBI_BUTTON(pThis);
+        DWORD ptFlags = (item->pService && item->pService->passthrough) ? 0x1 /*TF_LBMENUF_CHECKED*/ : 0;
         menu->lpVtbl->AddMenuItem(menu, 1, 0, NULL, NULL, L"Settings...", 11, NULL);
         menu->lpVtbl->AddMenuItem(menu, 2, 0, NULL, NULL, L"Next layout", 11, NULL);
+        menu->lpVtbl->AddMenuItem(menu, 4, ptFlags, NULL, NULL, L"Pass-through (direct input) mode", 32, NULL);
         menu->lpVtbl->AddMenuItem(menu, 3, 0, NULL, NULL, L"About Jamotong IME...", 21, NULL);
     }
     return S_OK;
@@ -188,6 +194,10 @@ static void ExecMenuCmd(JamotongLangBarItem *obj, UINT wID) {
             L"Left-click the tray icon to cycle layouts;\n"
             L"right-click for this menu.",
             L"About Jamotong IME", MB_OK | MB_TOPMOST | MB_SETFOREGROUND | MB_ICONINFORMATION);
+    } else if (wID == 4) {
+        // 무간섭(직접 입력) 모드 토글 — 원격 데스크톱 등. 상태는 레지스트리로 프로세스 간 공유.
+        Jamotong_SetPassthrough(obj->pService, !obj->pService->passthrough);
+        LangBar_Update(obj);
     }
 }
 
@@ -381,6 +391,10 @@ static HRESULT STDMETHODCALLTYPE LBI_GetIcon(ITfLangBarItemButton *pThis, HICON 
     JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
     if (!phIcon) return E_INVALIDARG;
     if (!obj->pService) { *phIcon = NULL; return S_OK; }   // Deactivate 후 — UAF 방어
+    if (obj->pService->passthrough) {   // 무간섭 모드: 자판 대신 "--" 표시
+        *phIcon = CreateAbbrevIcon(L"--");
+        return S_OK;
+    }
     EnterCriticalSection(&g_configLock);
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->pService->config);
     const wchar_t *ab = (layout && layout->abbrev[0]) ? layout->abbrev : L"?";

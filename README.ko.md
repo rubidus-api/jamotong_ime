@@ -20,8 +20,11 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 - **특수문자**: 자음 + 한자키 (ㅁ=기호, ㅅ=그리스, ㅈ=로마숫자 등 관례).
 - **유니코드 직접 입력**: `Ctrl+Alt+U` → 16진 코드포인트 입력(실시간 미리보기 + 문자명 —
   한자면 훈음/음, 그 외는 유니코드 블록명) → Enter.
-- **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기)에
+- **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기·무간섭 모드)에
   **복수 단축키**(기능당 최대 8개) 지정 가능.
+- **무간섭(직접 입력) 모드**: 원격 데스크톱 등에서 자모통이 키를 일절 가로채지 않게 하는
+  토글(트레이 아이콘 우클릭 메뉴). 켜져 있는 동안 아이콘이 `--`로 바뀌고, 자판 전환키까지
+  원격으로 그대로 전달되어 원격 PC의 IME로 한글을 입력할 수 있다.
 - **관리 앱**(`jamotong.exe`): 트레이 상주가 아니라 작업 표시줄·작업 관리자에 나오는 일반 앱.
   `.jmt` 자판 파일 열기/편집/검증, TSF 없이 입력 테스트, 설정 창 열기를 한곳에서.
 - 32/64비트 앱 모두 지원(각각의 DLL), Win11 입력 표시기 브랜딩 아이콘.
@@ -61,6 +64,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 | 한자/특수문자 변환 | 한자 키 |
 | 유니코드 코드 입력 | Ctrl+Alt+U |
 | 설정 창 열기 | Ctrl+Alt+K |
+| 무간섭(직접 입력) 모드 토글 | (기본 없음 — 트레이 아이콘 우클릭 메뉴로 토글, 원하면 지정) |
 
 ## 기본 사용법
 
@@ -340,5 +344,8 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립
 
 코드: [MIT License](LICENSE). 한자 독음 데이터는 Unicode Unihan DB(Unicode License v3, 배포 zip에
 고지 동봉), 대법원 인명용 한자 공공데이터(rutopio/Korean-Name-Hanja-Charset, MIT), 단어 매핑
-(jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. GPL/LGPL/CC BY-SA
+(jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. 아이콘 글자는
+비트맵 글꼴 [Spleen 5x8](https://github.com/fcambus/spleen)
+(Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**)에서 파생한 글리프를
+사용하며, 고지는 `src/icon_font.h`와 배포 zip의 COPYRIGHT.md에 동봉됨. GPL/LGPL/CC BY-SA
 자료는 사용하지 않음.

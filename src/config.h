@@ -26,6 +26,7 @@ typedef enum {
     SC_FN_HANJA    = 1,   // 한자/특수문자 변환
     SC_FN_CODE     = 2,   // 유니코드 코드 포인트 직접 입력 (기본 Ctrl+Alt+U)
     SC_FN_SETTINGS = 3,   // 설정 창 열기 (기본 Ctrl+Alt+K)
+    SC_FN_PASSTHROUGH = 4, // 무간섭(직접 입력) 모드 토글 — 원격 데스크톱 등 (기본 단축키 없음)
     SC_FN_COUNT
 } ShortcutFn;
 

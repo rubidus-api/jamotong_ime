@@ -68,6 +68,8 @@ void Config_LoadDefault(JamotongConfig *config) {
     ShortcutList *st = &config->shortcuts[SC_FN_SETTINGS];  // 설정 창 열기: Ctrl+Alt+K
     st->count = 1;
     st->keys[0].vKey = 'K'; st->keys[0].mods = SMOD_CTRL | SMOD_ALT;
+    // 무간섭(직접 입력) 모드: 기본 단축키 없음 — 우클릭 메뉴로만 토글, 원하면 설정에서 지정.
+    config->shortcuts[SC_FN_PASSTHROUGH].count = 0;
 
     // IME 옵션 기본값
     config->options.fullWidth = false;
@@ -254,7 +256,7 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
 }
 
 // 설정 파일 [Shortcuts] 섹션의 기능별 키 이름 (ShortcutFn 인덱스)
-static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings" };
+static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings", L"Passthrough" };
 
 // Windows 예약 장치 기본 이름(확장자를 붙여도 여전히 장치로 해석됨: CON.jmt → CON 장치).
 static bool IsReservedDeviceBase(const wchar_t *name, size_t baseLen) {

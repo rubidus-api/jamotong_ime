@@ -71,6 +71,11 @@ typedef struct JamotongTextService {
     int  pathDemerits;              // 갱신 생존 없는 연속 외부 종료 카운트 (강등용)
     BOOL compUpdatedOnce;           // 현 composition이 갱신에서 생존했는가 (강등 리셋 근거)
 
+    // 무간섭(직접 입력) 모드 — 원격 데스크톱 등에서 해제 단축키 외 모든 키를 통과.
+    // TIP 인스턴스는 프로세스별이므로 상태의 원본은 HKCU 레지스트리이고(프로세스 간 공유),
+    // 이 필드는 캐시다(포커스 변경·토글 시 재읽기 — text_service.c).
+    BOOL passthrough;
+
     // Config & Engine State
     JamotongConfig config;
     FsmContext fsm;
@@ -88,8 +93,12 @@ typedef struct JamotongTextService {
 HRESULT JamotongTextService_Create(IUnknown *pUnkOuter, REFIID riid, void **ppvObject);
 
 // 현재 자판 상태를 HKCU\Software\Jamotong 에 발행(CurrentAbbrev/CurrentName) — 트레이 모니터링
-// 툴(jamotong.exe)이 읽는다. Activate·자판 전환 시 호출. (text_service.c)
+// 툴(jamotong.exe)이 읽는다. Activate·자판 전환 시 호출. 무간섭 모드면 "--"를 발행. (text_service.c)
 void Jamotong_PublishStatus(JamotongConfig *config);
+
+// 무간섭(직접 입력) 모드 — text_service.c. 상태 원본=HKCU\Software\Jamotong\Passthrough.
+BOOL Jamotong_GetPassthroughReg(void);                             // 레지스트리 읽기
+void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on);   // 조합 정리+레지스트리+발행
 
 // 함수 공급자/설정(ITfFnConfigure) — func_configure.c
 void    FuncConfig_Init(JamotongTextService *obj);       // vtbl 포인터 설정 (Create에서)

@@ -1057,6 +1057,25 @@ There is no single boundary-key resend that is guaranteed for every host.
 
 ### 9.4 Language-bar icon (ITfLangBarItemButton) — optional; barely visible on modern Windows.
 
+### 9.5 Pass-through (direct input) mode — remote desktop vs. the local IME (2026-07-24)
+
+- **Problem**: a TSF IME sits at the front of the *local* focused window's input stack.
+  With a remote-desktop client focused (Chrome Remote Desktop etc.), a local IME that
+  eats jamo and layout-toggle keys prevents the keydown from ever reaching the remote
+  machine — only the local layout toggles, and remote Korean input is impossible. Every
+  local IME shares this structural limit (automatic detection was rejected: the remote
+  client is a browser tab, leaving only window-title heuristics).
+- **Fix**: an explicit **pass-through mode** — while on, every key passes through except
+  the configurable release shortcut (default: none). The layout-toggle key passes too,
+  so the remote side's IME receives and handles it.
+- **Implementation notes**: TIP instances are per process, so the source of truth is an
+  HKCU registry DWORD; each instance re-reads its cache in `OnSetFocus` (toggles made in
+  another process follow along). Entering the mode flushes the composition and closes
+  popups (mode boundary = composition boundary); the language-bar/tray icon draws `--`
+  instead of the layout so the state is visible. The right-click menu carries a checked
+  item, and the shortcut rides the SC_FN table so the settings UI and persistence pick
+  it up automatically.
+
 ---
 
 ## 10. Gotchas
