@@ -78,6 +78,8 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.inlineComposition = true;  // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010)
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
+    wcscpy(config->options.candFont, L"Malgun Gothic");
+    config->options.candFontSize = 24;         // 한자 후보창 (판독성 우선 기본)
 }
 
 // 트리거 vKey가 모디파이어 키 자신이면 해당 모디파이어 비트 (자기 비트는 매칭에서 제외해야 함).
@@ -404,6 +406,8 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"InlineComposition=%d\n", config->options.inlineComposition ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
+    fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
+    fwprintf(fp, L"CandFont=%ls\n", config->options.candFont[0] ? config->options.candFont : L"Malgun Gothic");
 
     if (bundleLayouts) BundleUserLayouts(fp);   // Export: 사용자 자판 .jmt 본문 인라인
 
@@ -428,6 +432,8 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     temp.options.inlineComposition = true;   // 구버전 .ini 대비 기본 켜짐 (RFC-0010)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
+    temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
+    wcscpy(temp.options.candFont, L"Malgun Gothic");
     bool haveSc[SC_FN_COUNT] = { false };   // 파일에 해당 기능 목록이 명시됐는가 (없으면 기존 유지)
     wchar_t line[256];
     wchar_t fontBuf[32];
@@ -543,6 +549,11 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             // (구버전 .ini의 LegacyImm= 줄은 무시됨 — 옵션 제거, 2026-07-07)
             else if (swscanf(line, L"ShowPreview=%d", &val) == 1) temp.options.showPreview = (val != 0);
             else if (swscanf(line, L"InlineComposition=%d", &val) == 1) temp.options.inlineComposition = (val != 0);
+            else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
+                temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);
+            else if (swscanf(line, L"CandFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {
+                wcsncpy(temp.options.candFont, fontBuf, 31); temp.options.candFont[31] = L'\0';
+            }
             else if (swscanf(line, L"PreviewFontSize=%d", &val) == 1)
                 temp.options.previewFontSize = (val <= 0) ? 0 : (val < 8 ? 8 : (val > 96 ? 96 : val));
             else if (swscanf(line, L"PreviewFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {

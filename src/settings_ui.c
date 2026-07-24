@@ -56,6 +56,9 @@ static int g_curTab = 0;
 #define ID_BTN_SHORTCUT_DEL 1014
 #define ID_BTN_SHORTCUT_EDIT 1015
 #define ID_CMB_SCFN         1044   // 기능 선택 콤보 (ShortcutFn 순서)
+#define ID_LBL_CANDFONT      1046   // 한자 후보창 글꼴 표시
+#define ID_BTN_CANDFONT_SET  1047   // 한자 후보창 글꼴 선택(ChooseFont)
+#define ID_CMB_CANDSIZE      1048   // 한자 후보창 글꼴 크기 (12~72 클램프, 직접 입력 가능)
 
 // 기능 콤보 표시 이름 (ShortcutFn 인덱스와 동일 순서)
 static const wchar_t *g_scFnNames[SC_FN_COUNT] = {
@@ -305,7 +308,7 @@ static void ShowTab(HWND hwnd, int sel) {
 
 // 창 논리 크기 (세로는 리사이즈로 늘어남)
 #define WIN_W 340
-#define WIN_H_MIN 356
+#define WIN_H_MIN 408
 static int g_winH = WIN_H_MIN;   // 현재 논리 높이
 
 // UI 생성 — 탭 4개(Layouts/Shortcuts/IME Options/General) + 하단 Apply/Cancel(항상 표시)
@@ -372,6 +375,19 @@ static void CreateControls(HWND hwnd) {
             SetWindowTextW(hCmbPv, b);
         }
     }
+    // 한자 후보창 글꼴/크기 — 후보·훈음·페이지 표시 전 요소가 이 하나를 쓴다 (candidate_ui.c)
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate font:", 0, 0, 14, 236, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 256, 222, 22, ID_LBL_CANDFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 254, 82, 26, ID_BTN_CANDFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate size (px):", 0, 0, 14, 288, 312, 18, 0, TAB_OPTIONS);
+    HWND hCmbCand = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
+                          14, 308, 120, 200, ID_CMB_CANDSIZE, TAB_OPTIONS);
+    {   // 흔한 px 크기 (직접 입력도 가능 — 12~72 클램프)
+        static const wchar_t *csz[] = { L"16", L"18", L"20", L"24", L"28", L"32", L"40", L"48" };
+        for (int i = 0; i < 8; i++) SendMessageW(hCmbCand, CB_ADDSTRING, 0, (LPARAM)csz[i]);
+        wchar_t b[8]; swprintf(b, 8, L"%d", g_TempConfig.options.candFontSize);
+        SetWindowTextW(hCmbCand, b);
+    }
 
     // ── Tab: General (DPI, Import/Export, Reset/Revert) ──
     MkCtl(hwnd, L"STATIC", L"DPI:", SS_CENTERIMAGE, 0, 14, 46, 36, 22, 0, TAB_GENERAL);
@@ -398,6 +414,8 @@ static void CreateControls(HWND hwnd) {
     SendMessageW(GetDlgItem(hwnd, ID_CHK_PREVIEW),    BM_SETCHECK, g_TempConfig.options.showPreview ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_PVFONT),
                    g_TempConfig.options.previewFont[0] ? g_TempConfig.options.previewFont : L"Malgun Gothic");
+    SetWindowTextW(GetDlgItem(hwnd, ID_LBL_CANDFONT),
+                   g_TempConfig.options.candFont[0] ? g_TempConfig.options.candFont : L"Malgun Gothic");
     ShowTab(hwnd, g_curTab);
 }
 
@@ -493,19 +511,21 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         case WM_CTLCOLORSTATIC: {
             SetTextColor((HDC)wParam, g_clrText);
             // SS_SUNKEN 표시 라벨(글꼴 이름)은 읽기 전용 입력 필드처럼 보이므로 불투명 컨트롤 배경.
-            if (GetDlgCtrlID((HWND)lParam) == ID_LBL_PVFONT) {
+            if (GetDlgCtrlID((HWND)lParam) == ID_LBL_PVFONT ||
+                GetDlgCtrlID((HWND)lParam) == ID_LBL_CANDFONT) {
                 SetBkColor((HDC)wParam, g_clrCtl);
                 return (LRESULT)(INT_PTR)g_brCtl;
             }
-            // 나머지 라벨은 배경을 투명 처리 → 탭 컨트롤 안(살짝 밝음)이든 창 위(살짝 어두움)든
-            // 아래 픽셀 색을 그대로 따라가 라벨 주위의 배경색 seam이 사라진다.
-            SetBkMode((HDC)wParam, TRANSPARENT);
-            return (LRESULT)(INT_PTR)GetStockObject(NULL_BRUSH);
+            // 나머지 라벨·체크박스: 창 배경색(g_clrBg)과 '정확히 같은' 불투명 브러시를 돌려준다.
+            // 투명(NULL_BRUSH) 방식은 테마 체크박스가 자기 배경을 지우지 않아 회색 잔상이
+            // 살짝 비쳤다(실기 2026-07-24). 창 전체가 g_brBg 단일색이므로 같은 브러시면 seam이 없다.
+            SetBkColor((HDC)wParam, g_clrBg);
+            return (LRESULT)(INT_PTR)g_brBg;
         }
-        case WM_CTLCOLORBTN:   // 체크박스 텍스트 배경도 투명 → 탭/창 배경 따라감(푸시버튼은 시스템 렌더)
+        case WM_CTLCOLORBTN:   // 체크박스/버튼 텍스트 배경 = 창 배경색과 동일(위와 같은 이유)
             SetTextColor((HDC)wParam, g_clrText);
-            SetBkMode((HDC)wParam, TRANSPARENT);
-            return (LRESULT)(INT_PTR)GetStockObject(NULL_BRUSH);
+            SetBkColor((HDC)wParam, g_clrBg);
+            return (LRESULT)(INT_PTR)g_brBg;
         case WM_CTLCOLORLISTBOX:
         case WM_CTLCOLOREDIT:
             SetTextColor((HDC)wParam, g_clrText); SetBkColor((HDC)wParam, g_clrCtl);
@@ -552,6 +572,34 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         g_TempConfig.options.previewFontSize = (v <= 0) ? 0 : (v < 8 ? 8 : (v > 96 ? 96 : v));
                     }
                     break;
+                case ID_CMB_CANDSIZE:
+                    if (HIWORD(wParam) == CBN_SELCHANGE || HIWORD(wParam) == CBN_EDITCHANGE) {
+                        wchar_t b[16] = {0};
+                        GetWindowTextW((HWND)lParam, b, 16);
+                        if (HIWORD(wParam) == CBN_SELCHANGE) {
+                            int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                            if (sel >= 0) SendMessageW((HWND)lParam, CB_GETLBTEXT, sel, (LPARAM)b);
+                        }
+                        int v = _wtoi(b);
+                        g_TempConfig.options.candFontSize = (v < 12) ? 12 : (v > 72 ? 72 : v);
+                    }
+                    break;
+                case ID_BTN_CANDFONT_SET: {   // 한자 후보창 글꼴 선택 (공용 대화상자; face만 채택)
+                    LOGFONTW lf = {0};
+                    lf.lfHeight = -16; lf.lfCharSet = DEFAULT_CHARSET;
+                    wcsncpy(lf.lfFaceName, g_TempConfig.options.candFont, LF_FACESIZE - 1);
+                    CHOOSEFONTW cf = {0};
+                    cf.lStructSize = sizeof(cf);
+                    cf.hwndOwner = hwnd;
+                    cf.lpLogFont = &lf;
+                    cf.Flags = CF_INITTOLOGFONTSTRUCT | CF_SCREENFONTS | CF_NOSCRIPTSEL;
+                    if (ChooseFontW(&cf) && lf.lfFaceName[0]) {
+                        wcsncpy(g_TempConfig.options.candFont, lf.lfFaceName, 31);
+                        g_TempConfig.options.candFont[31] = L'\0';
+                        SetWindowTextW(GetDlgItem(hwnd, ID_LBL_CANDFONT), g_TempConfig.options.candFont);
+                    }
+                    break;
+                }
                 case ID_BTN_PVFONT_SET: {   // 미리보기 글꼴 선택 (공용 대화상자; face만 채택)
                     LOGFONTW lf = {0};
                     lf.lfHeight = -16; lf.lfCharSet = DEFAULT_CHARSET;

@@ -5,6 +5,28 @@
 **A Korean (Hangul) IME for Windows in pure C23 + WinAPI** — a TSF (Text Services
 Framework) text service with no frameworks and no external libraries.
 
+## Why this IME
+
+- No dependencies. C and the Win32 API only — no framework, no runtime, no external
+  libraries. The product is two statically linked DLLs (64/32-bit) plus data files.
+  Runs on Windows 10 and later.
+- It picks the input path per host at runtime. Standard TSF documents get inline
+  underlined composition; legacy (CUAS) documents get commit-only insertion with a
+  floating preview. The decision key is the document-status flag the host itself
+  declares, not the application name. Verified on device against Notepad, AkelPad,
+  PuTTY, and KakaoTalk.
+- A pass-through (direct input) mode. When enabled, no key is intercepted at all, so
+  you can type Korean with the remote machine's IME across a remote-desktop session.
+  Toggled from the tray menu or a shortcut.
+- Layouts are data. Besides the built-in Dubeolsik and Sebeolsik, plain-text `.jmt`
+  files define static remaps, Hangul automata layouts, and chorded keyboards; a single
+  settings export carries them to another machine.
+- Practical hanja data, fully offline: 9,525 unique characters (100% of standard
+  personal-name hanja), ~2,200 compound words, 6,832 meaning-reading entries.
+- Install, uninstall, and upgrade without signing out.
+- MIT licensed, with the entire implementation documented in a public field manual
+  (`winapi-c-ime-manual.md`).
+
 ## Features
 
 - **Commit-only input engine**: only completed syllables are inserted into the document.
@@ -51,8 +73,9 @@ Framework) text service with no frameworks and no external libraries.
    ```
 
 3. Right-click `install.bat` → **"Run as administrator"**.
-4. **Sign out and back in** (a full reboot is not required), then press `Win+Space`
-   and select **"Jamotong IME"**.
+4. Press `Win+Space` and select **"Jamotong IME"**. Apps that were already running pick
+   up the IME after you restart them; sign out and back in only if it does not appear
+   in the list.
 
 ### Defaults after install
 

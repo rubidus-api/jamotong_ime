@@ -86,6 +86,8 @@ typedef struct {
     bool inlineComposition; // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010). 기본 켜짐. 0=항상 commit 전용.
     wchar_t previewFont[32];// 미리보기 글꼴 face 이름 (32 = LF_FACESIZE). 기본 "Malgun Gothic".
     int previewFontSize;    // 미리보기 글꼴 크기(px). 0=Auto(캐럿 높이 근사), 8~96=고정.
+    wchar_t candFont[32];   // 한자 후보창 글꼴 face. 후보·훈음·페이지 표시 전부 이 글꼴 하나.
+    int candFontSize;       // 한자 후보창 글꼴 크기(px, 12~72). 기본 24.
 } ImeOptions;
 
 // 글로벌 환경 설정 매니저

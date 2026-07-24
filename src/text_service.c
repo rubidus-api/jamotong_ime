@@ -730,6 +730,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 int x = 100, y = 100;
                 if (GetCaretScreenRect(obj, &rcSel)) { x = rcSel.left; y = rcSel.bottom + 4; }
                 
+                // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
+                CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
                 CandidateUI_Show(x, y, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, &g_CandCtx);
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;

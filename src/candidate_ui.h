@@ -10,6 +10,9 @@ bool CandidateUI_Initialize(void);
 void CandidateUI_Uninitialize(void);
 
 // 후보창 열기
+// 후보창 스타일 지정 — 후보·훈음·페이지 표시 전 요소가 이 글꼴/크기 하나를 쓴다(12~72px 클램프).
+// Show 전에 호출(설정 변경 반영). face=NULL/빈 문자열이면 글꼴은 유지하고 크기만 갱신.
+void CandidateUI_SetStyle(const wchar_t *face, int sizePx);
 void CandidateUI_Show(int x, int y, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
 
 // 키보드 이벤트 가로채기

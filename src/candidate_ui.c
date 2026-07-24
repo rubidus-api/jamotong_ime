@@ -19,27 +19,56 @@ extern HINSTANCE g_hInst;
 
 static HFONT g_candFont = NULL;   // 후보창 글꼴 캐시 (매 WM_PAINT 생성/파괴 낭비 제거)
 
+// 후보창 스타일 — 설정(IME Options)에서 지정. 후보·훈음·페이지 표시·X버튼까지 이 글꼴/크기 하나.
+static wchar_t g_face[32] = L"Malgun Gothic";
+static int     g_fontPx   = 24;
+
+// 전 요소가 공유하는 파생 메트릭: 행 높이/여백은 글꼴 크기에서만 나온다.
+#define ROW_H   (g_fontPx + 8)
+#define PAD_TOP 6
+
 static int  PageItemCount(void);      // 전방 선언 (WndProc 마우스 처리에서 사용)
 static void SelectIndex(int realIdx);
 
-static void EnsureCandFont(void) {
-    if (!g_candFont)
-        g_candFont = CreateFontW(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
+void CandidateUI_SetStyle(const wchar_t *face, int sizePx) {
+    if (sizePx < 12) sizePx = 12;
+    if (sizePx > 72) sizePx = 72;
+    if (face && face[0] && (wcscmp(face, g_face) != 0 || sizePx != g_fontPx)) {
+        wcsncpy(g_face, face, 31); g_face[31] = L'\0';
+        g_fontPx = sizePx;
+        if (g_candFont) { DeleteObject(g_candFont); g_candFont = NULL; }   // 캐시 무효화
+    } else if ((!face || !face[0]) && sizePx != g_fontPx) {
+        g_fontPx = sizePx;
+        if (g_candFont) { DeleteObject(g_candFont); g_candFont = NULL; }
+    }
 }
 
-// i번째 후보의 표시 문자열. 단일 한자면 훈음(뜻·음) → 음만 → 코드포인트 순으로 폴백한다:
-//   훈음 있음: "N. 家  집 가" / 훈음 없고 음만: "N. 特  특" / 둘 다 없음: "N. ★  U+2605".
+static void EnsureCandFont(void) {
+    if (!g_candFont)
+        g_candFont = CreateFontW(g_fontPx, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, g_face);
+}
+
+// i번째 후보의 표시 문자열. 단일 문자 후보는 훈음(뜻·음) → 음 순으로 표기하고 항상 코드포인트를
+// 병기한다(사용자 요청 2026-07-24): "N. 家  집 가  U+5BB6" / "N. 特  특  U+7279" /
+// 훈음·음 모두 없음: "N. ★  U+2605". 여러 글자(한자 단어) 후보에는 코드포인트를 붙이지 않는다.
+// BMP 밖 단일 글자(서로게이트 쌍)도 단일 문자로 취급해 U+XXXXX를 표기한다.
 static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
     const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
-    if (cand[0] && !cand[1]) {   // 단일 문자 후보
-        const wchar_t *hunum = HunumDict_Find(cand[0]);
-        if (hunum) { swprintf(buf, cap, L"%d. %s  %s", numberInPage, cand, hunum); return; }
-        wchar_t rd = HanjaDict_ReadingOf(cand[0]);   // 훈음 미수록 → 음(kHangul)이라도 표시
-        if (rd)    swprintf(buf, cap, L"%d. %s  %c", numberInPage, cand, rd);
-        else       swprintf(buf, cap, L"%d. %s  U+%04X", numberInPage, cand, (unsigned)cand[0]);
+    unsigned cp = 0;
+    if (cand[0] && !cand[1]) cp = (unsigned)cand[0];   // BMP 단일 문자
+    else if (cand[0] >= 0xD800 && cand[0] <= 0xDBFF && cand[1] >= 0xDC00 && cand[1] <= 0xDFFF && !cand[2])
+        cp = 0x10000u + (((unsigned)cand[0] - 0xD800u) << 10) + ((unsigned)cand[1] - 0xDC00u);
+    if (cp) {
+        if (cp <= 0xFFFF) {
+            const wchar_t *hunum = HunumDict_Find((wchar_t)cp);
+            if (hunum) { swprintf(buf, cap, L"%d. %s  %s  U+%04X", numberInPage, cand, hunum, cp); return; }
+            wchar_t rd = HanjaDict_ReadingOf((wchar_t)cp);   // 훈음 미수록 → 음(kHangul)이라도 표시
+            if (rd) { swprintf(buf, cap, L"%d. %s  %c  U+%04X", numberInPage, cand, rd, cp); return; }
+        }
+        swprintf(buf, cap, L"%d. %s  U+%04X", numberInPage, cand, cp);
     } else {
-        swprintf(buf, cap, L"%d. %s", numberInPage, cand);
+        swprintf(buf, cap, L"%d. %s", numberInPage, cand);   // 한자 단어: 코드포인트 없음
     }
 }
 
@@ -60,7 +89,8 @@ static int MeasurePageWidth(void) {
         SelectObject(hdc, of);
         ReleaseDC(NULL, hdc);
     }
-    return (w > 480) ? 480 : w;   // 폭 상한
+    int cap480 = (g_fontPx * 30 > 480) ? g_fontPx * 30 : 480;   // 폭 상한(글꼴 크기 비례)
+    return (w > cap480) ? cap480 : w;
 }
 
 static void DrawCandidateUI(HWND hwnd, HDC hdc) {
@@ -76,27 +106,27 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     int end = start + g_perPage;
     if (end > g_count) end = g_count;
 
-    int y = 5;
+    int y = PAD_TOP;
     for (int i = start; i < end; i++) {
         wchar_t buf[256];
         FormatCandLine(i, (i - start) + 1, buf, 256);
         if (i - start == g_sel) {   // 선택 하이라이트 (↑↓로 이동, Enter로 확정)
-            RECT hl = { 2, y - 2, rc.right - 2, y + 21 };
+            RECT hl = { 2, y - 2, rc.right - 2, y + ROW_H - 3 };
             HBRUSH hb = CreateSolidBrush(RGB(203, 224, 252));
             FillRect(hdc, &hl, hb);
             DeleteObject(hb);
         }
         SetTextColor(hdc, RGB(0, 0, 0));
         TextOutW(hdc, 10, y, buf, (int)wcslen(buf));
-        y += 24;
+        y += ROW_H;
     }
 
-    // Page indicator
+    // 페이지 표시 — 후보와 같은 글꼴·크기(색만 회색). "현재/전체" 형식.
     wchar_t pageBuf[32];
     int totalPages = (g_count + g_perPage - 1) / g_perPage;
     swprintf(pageBuf, 32, L"[%d/%d]", g_page + 1, totalPages);
     SetTextColor(hdc, RGB(128, 128, 128));
-    TextOutW(hdc, 10, y + 5, pageBuf, (int)wcslen(pageBuf));
+    TextOutW(hdc, 10, y + 3, pageBuf, (int)wcslen(pageBuf));
 
     // 우상단 닫기(X) 버튼 — 키보드가 막혀도 마우스로 탈출 가능
     SetTextColor(hdc, RGB(160, 160, 160));
@@ -124,7 +154,7 @@ static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
                 CandidateUI_Hide();
                 return 0;
             }
-            int row = (my - 5) / 24;                                    // 항목 줄 클릭 → 선택
+            int row = (my - PAD_TOP) / ROW_H;                           // 항목 줄 클릭 → 선택
             if (row >= 0 && row < PageItemCount()) SelectIndex(g_page * g_perPage + row);
             return 0;
         }
@@ -161,7 +191,7 @@ void CandidateUI_Show(int x, int y, wchar_t **candidates, int count, int replace
     g_sel = 0;
     g_winW = MeasurePageWidth();   // 훈음 길이에 맞춘 동적 너비
 
-    int h = (g_perPage + 1) * 24 + 10;
+    int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
     if (!g_hwndCandi) {
         g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             L"JamotongCandidateUI", L"", WS_POPUP | WS_VISIBLE | WS_BORDER,
@@ -178,7 +208,7 @@ static void RefreshCandWindow(void) {
     int w = MeasurePageWidth();
     if (w != g_winW) {
         g_winW = w;
-        SetWindowPos(g_hwndCandi, NULL, 0, 0, g_winW, (g_perPage + 1) * 24 + 10,
+        SetWindowPos(g_hwndCandi, NULL, 0, 0, g_winW, (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
     InvalidateRect(g_hwndCandi, NULL, TRUE);
