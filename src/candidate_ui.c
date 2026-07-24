@@ -15,6 +15,15 @@ static CandidateSelectCallback g_onSelect = NULL;
 static CandidateCancelCallback g_onCancel = NULL;
 static void *g_ctx = NULL;
 
+// 배치 앵커(캐럿 기준 좌표) — 화면 클램프·페이지 리사이즈가 공유한다.
+static int g_anchorX = 0, g_anchorY = 0, g_anchorTop = 0;
+
+// 후보창 표시 중에만 설치하는 저수준 키보드 훅 — 일부 터미널(PuTTY)은 후보창이 뜬 상태에서
+// 키를 TSF 키 싱크로 넘기지 않아 키보드 탐색이 죽는다(마우스만 동작; 실기 2026-07-24).
+// 탐색 키를 여기서 직접 처리·차단하면 호스트의 키 라우팅과 무관하게 동작한다.
+static HHOOK g_kbHook = NULL;
+#define CANDMSG_HOOKKEY (WM_APP + 1)   // 훅 → 창으로 넘기는 탐색 키 (훅 콜백은 즉시 반환해야 함)
+
 extern HINSTANCE g_hInst;
 
 static HFONT g_candFont = NULL;   // 후보창 글꼴 캐시 (매 WM_PAINT 생성/파괴 낭비 제거)
@@ -135,6 +144,57 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     SelectObject(hdc, hOldFont);
 }
 
+// 화면(모니터 작업영역) 안으로 클램프해 배치한다. 아래로 넘치면 캐럿 '위'로 뒤집고,
+// 그래도 안 되면 작업영역 하단에 맞춘다(가장자리에서 후보창이 잘리던 실기 2026-07-24).
+static void PlaceCandWindow(void) {
+    if (!g_hwndCandi) return;
+    int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
+    int x = g_anchorX, y = g_anchorY;
+    POINT pt = { x, y };
+    HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi; mi.cbSize = sizeof(mi);
+    if (mon && GetMonitorInfoW(mon, &mi)) {
+        if (x + g_winW > mi.rcWork.right) x = mi.rcWork.right - g_winW;
+        if (x < mi.rcWork.left)           x = mi.rcWork.left;
+        if (y + h > mi.rcWork.bottom) {
+            int above = g_anchorTop - h - 4;   // 캐럿 줄 위로 뒤집기 (조합 줄을 덮지 않음)
+            y = (above >= mi.rcWork.top) ? above : mi.rcWork.bottom - h;
+        }
+        if (y < mi.rcWork.top) y = mi.rcWork.top;
+    }
+    SetWindowPos(g_hwndCandi, HWND_TOPMOST, x, y, g_winW, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+// 저수준 키보드 훅: 탐색 키만 차단하고 CANDMSG_HOOKKEY로 창에 넘긴다(훅 콜백은 오래 걸리면
+// OS가 떼어내므로 실제 처리는 창 프로시저에서). 합성 입력(LLKHF_INJECTED — 코드 자판
+// SendInput 포함)은 건드리지 않는다. 탐색 키 외(문자 등)는 통과 → 기존 TSF 싱크 경로가
+// 처리한다(정상 호스트에서는 훅이 먼저 먹으므로 이중 처리 없음 — 집합이 서로소).
+static LRESULT CALLBACK CandKbHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION && g_hwndCandi) {
+        const KBDLLHOOKSTRUCT *k = (const KBDLLHOOKSTRUCT*)lParam;
+        if (!(k->flags & LLKHF_INJECTED)) {
+            UINT vk = (UINT)k->vkCode;
+            bool nav = (vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_UP || vk == VK_DOWN ||
+                        vk == VK_LEFT || vk == VK_RIGHT || vk == VK_PRIOR || vk == VK_NEXT ||
+                        vk == VK_SPACE || (vk >= '1' && vk <= '9'));
+            if (nav) {
+                if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
+                    PostMessageW(g_hwndCandi, CANDMSG_HOOKKEY, (WPARAM)vk, 0);
+                return 1;   // keydown/keyup 모두 차단 — 앱(터미널 너머 원격 포함)에 새지 않게
+            }
+        }
+    }
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
+static void InstallKbHook(void) {
+    if (!g_kbHook)
+        g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, CandKbHookProc, g_hInst, 0);
+}
+static void RemoveKbHook(void) {
+    if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = NULL; }
+}
+
 #define XBTN_SZ 16   // 우상단 닫기(X) 버튼 한 변
 
 static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -158,6 +218,9 @@ static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             if (row >= 0 && row < PageItemCount()) SelectIndex(g_page * g_perPage + row);
             return 0;
         }
+        case CANDMSG_HOOKKEY:   // 저수준 훅이 차단·전달한 탐색 키 (PuTTY류 키 라우팅 폴백)
+            CandidateUI_HandleKey((UINT)wParam);
+            return 0;
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;   // 클릭해도 포커스 탈취 금지 (입력 앱 유지)
     }
@@ -180,7 +243,7 @@ void CandidateUI_Uninitialize(void) {
     UnregisterClassW(L"JamotongCandidateUI", g_hInst);
 }
 
-void CandidateUI_Show(int x, int y, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx) {
+void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx) {
     g_candidates = candidates;
     g_count = count;
     g_replaceLen = replaceLen;
@@ -190,31 +253,30 @@ void CandidateUI_Show(int x, int y, wchar_t **candidates, int count, int replace
     g_page = 0;
     g_sel = 0;
     g_winW = MeasurePageWidth();   // 훈음 길이에 맞춘 동적 너비
+    g_anchorX = x; g_anchorY = y;
+    g_anchorTop = (caretTop < y) ? caretTop : y;   // 뒤집기 기준(캐럿 줄 위) — 방어적 정규화
 
     int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
     if (!g_hwndCandi) {
         g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            L"JamotongCandidateUI", L"", WS_POPUP | WS_VISIBLE | WS_BORDER,
+            L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
             x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
-    } else {
-        SetWindowPos(g_hwndCandi, HWND_TOPMOST, x, y, g_winW, h, SWP_SHOWWINDOW);
-        InvalidateRect(g_hwndCandi, NULL, TRUE);
     }
+    PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
+    InvalidateRect(g_hwndCandi, NULL, TRUE);
+    InstallKbHook();     // PuTTY류 키 라우팅 폴백 — 표시 중에만
 }
 
 // 페이지 이동/선택 변경 후 크기·내용 갱신
 static void RefreshCandWindow(void) {
     if (!g_hwndCandi) return;
-    int w = MeasurePageWidth();
-    if (w != g_winW) {
-        g_winW = w;
-        SetWindowPos(g_hwndCandi, NULL, 0, 0, g_winW, (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4,
-                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    }
+    g_winW = MeasurePageWidth();
+    PlaceCandWindow();   // 폭 변화·화면 클램프 반영 (앵커 기준 재배치)
     InvalidateRect(g_hwndCandi, NULL, TRUE);
 }
 
 void CandidateUI_Hide(void) {
+    RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
     if (g_hwndCandi) {
         DestroyWindow(g_hwndCandi);
         g_hwndCandi = NULL;

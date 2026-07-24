@@ -1113,6 +1113,16 @@ There is no single boundary-key resend that is guaranteed for every host.
   `ITfComposition *result = NULL`, then require both a successful HRESULT and a non-NULL
   result. `S_OK + NULL` is the documented context-owner rejection case.
 - **Reversed input**: move the caret to the end after inserting (`MoveCaretToEnd`), or
+- **Do not rely on the TSF key sink alone for candidate-window navigation**: some
+  terminals (PuTTY, on device 2026-07-24) stop feeding keys to the sink while the
+  candidate window is up — only the mouse works. Install a `WH_KEYBOARD_LL` hook **only
+  while the window is visible**, handle/block the navigation keys there (pass
+  `LLKHF_INJECTED` synthetic input through; defer real work via `PostMessage` so the
+  hook callback returns immediately), and remove it on hide. The key set is disjoint
+  from the sink path, so well-behaved hosts never double-process.
+- **Clamp popups into the monitor work area**: at screen edges the candidate window gets
+  cut off (on device 2026-07-24). Clamp x with `MonitorFromPoint`+`rcWork`, and flip the
+  window **above the caret line** when it overflows the bottom.
   `가나` becomes `나가`.
 - **OnTestKeyDown ↔ OnKeyDown condition mismatch**: lost keys / handler never called.
 - **Synthetic-input re-entry**: plant `dwExtraInfo` magic in `SendInput` and filter at entry.
