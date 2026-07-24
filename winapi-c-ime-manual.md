@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (AkelPad R3 structural result and R4 same-binary probe)*
+*Last updated: 2026-07-24 (TRANSITORY reclassification ported to the product: §13.0 non-transitory inline standard composition branch, RFC-0010)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -2082,6 +2082,57 @@ terminations.
 This is a causal test plan, not a result. Do not promote any branch to product policy until
 all four structurally valid field captures exist.
 
+**R4 field result (2026-07-24).** One collector run completed all four slots in order and
+all four `validation.json` files passed. Each complete trace carried the intended mode
+event (0, 1, 2, 0), six sessions, six metadata updates, six nonempty ranges, and
+`hangul_step.failed=0`. In the read-back slot `GetValue` succeeded all six times and
+matched the expected value all six times (`probe_result_success=6`,
+`probe_result_match=6`). The lifetime outcome was **terminate in all four slots** — six
+new compositions, zero reuse, six per-key external terminations — with the same
+fingerprint as R3: our transaction closed with `S_OK`, then a `txn=0` composing change
+and `OnCompositionTerminated` repeated on every key. The user's visible-output report
+agreed: jamo separation (no composed syllables) in all four slots.
+
+The pre-registered branch that applies is **"either baseline terminates."** Baseline A
+and B agreed with each other, so there was no within-series drift, but the R2
+Reading-only "retain" positive control did not reproduce in the current environment.
+R3's failure is therefore not attributed to read-back. One additional narrow conclusion
+is supported: both baselines ran the Set-only path with zero probe events and still
+terminated, so the synchronous trace and immediate read-back added in R3 are **not
+necessary conditions** for termination in this host scenario. What this run could not
+answer is why the single R2 Reading-only capture retained; that capture is now the only
+retain observation on record. The next discriminating test is to re-run the preserved R2
+kit's Reading profile — the same DLL, identity, and procedure — on the same machine. If
+it still retains, the binary/identity difference between R2 and R4 remains a causal
+candidate; if it now terminates, the R2 retain becomes a run- or environment-specific
+event and the Reading-metadata hypothesis loses its only support.
+
+**R2 re-run result and rejection of the Reading hypothesis (2026-07-24).** The user
+re-ran the preserved R2 kit's Reading profile — same DLL, identity, and procedure, same
+machine — and reported jamo separation on screen: **the retain did not reproduce.** No
+structural log was collected for this re-run, so it is recorded on the visible axis
+only, and that axis suffices here: the single R2 "retain" is now an **unreproduced
+anomaly** even under its own original conditions. As pre-stated, the Reading-metadata
+hypothesis loses its only support and is **rejected**. The observation record for this
+AkelPad scenario now stands at twelve terminating captures (three in R2, five in R3,
+four in R4) against one unreproduced retain.
+
+**Post-hoc analysis — the answer was in the logs from the start.** Comparing
+`context.caps` across the preserved captures: the AkelPad context reported
+`static_flags=0x4` = **`TS_SS_TRANSITORY`** in every run — the documented marker of a
+short-lived document, the kind of proxy document CUAS creates for IMM32-only
+applications — while Notepad reported `0x12` (REGIONS etc., non-transitory). Two things
+follow. First, the flag does not separate retain from terminate across runs — the one
+retaining R2 capture carried the same `0x4`. What it separates is the **kind of host**.
+Second, AkelPad's per-key external termination is reclassified: it is not a "broken
+native TSF host" but behavior within the normal range of a **transitory CUAS document**,
+which is why termination was observed 12-to-1 no matter how metadata, instrumentation,
+or identity were varied. The practical lesson: **check `TS_SS_TRANSITORY` from
+`GetStatus` before designing protocol experiments.** In a transitory context, do not
+depend on persistent composition — use a commit-style path (and per-app-class
+injection); the flag is a principled candidate for a **runtime branching signal**,
+better than app-name sniffing, though verification in other CUAS hosts remains open.
+
 #### 12.7.9 Time-saving procedure for the next implementation
 
 1. **Build a control first.** Pass a minimal TIP in a comparison host whose lifetime is
@@ -2130,6 +2181,38 @@ testing (v0.12) forced a sharper conclusion: **even `InsertTextAtSelection` is n
 universal.** Supporting the tested application matrix took a routing policy plus a cluster
 of related fixes. This chapter records that product policy; it is not a Windows capability
 classifier for every application.
+
+### 13.0 The TS_SS_TRANSITORY runtime branch — standard composition for non-transitory contexts (RFC-0010, 2026-07-24)
+
+The §12.7.8 verdict (per-key termination is normal behavior for transitory CUAS documents;
+standard composition survives in non-transitory hosts such as the tested Notepad setup)
+has been ported to the product. Sequential Hangul FSM output now takes one of two paths.
+
+1. **Decision** — once per context, feed `ITfContext::GetStatus` (no edit cookie needed)
+   `dwStaticFlags & TS_SS_TRANSITORY (0x4)` plus the QI results for `ITfInsertAtSelection`
+   and `ITfContextComposition` into a pure decision function (`comp_path.c`). Transitory,
+   status failure, or a missing interface → the existing commit-only path (§8 + overlay).
+   Non-transitory and healthy → **inline standard composition in the document**
+   (`comp_inline.c`, the lab recipe verbatim: QUERYONLY range → `StartComposition` with a
+   real sink, treating `S_OK`+NULL as failure → `SetText` flag 0 → display attribute →
+   caret to the composition end → commit prefix via `ShiftStart` → `EndComposition` when
+   the preedit empties).
+2. **Behavioral fallback (demotion)** — the flag is a classifier validated on two hosts,
+   not a guarantee. If a composition that never survived an update is externally
+   terminated twice in a row, or a session fails, the context is demoted to commit-only
+   (re-evaluated on focus change). EDIT-family detection (§13.1) and the config kill
+   switch (`InlineComposition=0`) take precedence over the branch.
+3. **One new flush rule** — while an inline composition is active, a flush (space,
+   non-jamo key, app shortcut, hanja key, layout rotation) means **finalize, not
+   re-insert**. The composed text is already in the document; inserting the flush result
+   again duplicates it. For the same reason Esc cancels via `SetText("")` then end, and a
+   focus change ends the composition keeping its text (the MS IME convention).
+4. **External-termination sink** — `OnCompositionTerminated` matches our composition by
+   pointer identity, forgets it, resets the FSM, and counts a demotion demerit when the
+   composition had never survived an update. Failures and terminations are never hidden.
+
+Until field verification, the gate for this branch is "Notepad (non-transitory) passes on
+device + AkelPad (transitory) shows no regression."
 
 ### 13.1 ★★The core reversal — the tested AkelEdit-family host accepted a TSF insert with hr=0 and showed no text
 
@@ -2604,6 +2687,8 @@ static void CandidateContext_Clear(CandidateContext *cc) {
 | COM entry points, class factory | `src/dllmain.c` |
 | TIP, key sink, OnKeyDown | `src/text_service.c` |
 | Edit sessions (commit-only) | `src/edit_session.c` |
+| TRANSITORY path decision (§13.0, pure logic) | `src/comp_path.c` |
+| Inline standard composition (§13.0) | `src/comp_inline.c`, `OutputResultSeq` in `text_service.c` |
 | Registration (profile, categories) | `src/register.c` |
 | Hangul automaton | `src/fsm.c`, `src/layout.c`, `src/hangul_layout.c` |
 | Hanja dictionary, candidate window | `src/hanja_dict.c`, `src/candidate_ui.c` |

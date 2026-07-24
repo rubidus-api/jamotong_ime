@@ -2,7 +2,7 @@
 
 **한국어** | [English](winapi-c-ime-manual.md)
 
-*최종 갱신: 2026-07-24 (AkelPad Meta R3 구조 실기 결과·R4 관찰자 효과 분리 설계)*
+*최종 갱신: 2026-07-24 (TRANSITORY 재분류 → 제품 이식: §13.0 비단명=인라인 표준 composition 분기, RFC-0010)*
 
 
 이 문서는 **순수 C(C23)와 Win32 API만으로**(C++·ATL·MFC·프레임워크 없이) Windows용
@@ -1909,6 +1909,46 @@ composition의 생성·재사용·종료 횟수는 **보고값**이지 캡처 �
 이 표는 **시험 전 인과 판정 규칙**이지 R4 실기 결과가 아니다. 네 슬롯의 구조적으로 유효한
 현장 캡처가 모두 모이기 전에는 어느 분기도 제품 정책으로 승격하지 않는다.
 
+**R4 실기 결과 (2026-07-24).** 한 collector 실행이 네 슬롯을 순서대로 완결했고 네
+`validation.json` 모두 `pass`였다. 각 complete trace의 모드 사건은 0·1·2·0으로 의도와
+일치했고, 슬롯마다 session 6·metadata update 6·nonempty range 6·`hangul_step.failed=0`
+이었다. Read-back 슬롯의 `GetValue`는 6회 모두 성공했고 기대값과 6회 모두 일치했다
+(`probe_result_success=6`, `probe_result_match=6`). 수명 결과는 **네 슬롯 모두 종료**다
+— 새 composition 6·재사용 0·키별 외부 종료 6이며, 종료 지문도 R3와 같았다(우리
+transaction이 `S_OK`로 닫힌 직후 `txn=0` composing 변경 → `OnCompositionTerminated`가
+매 키 반복). 사용자 화면 보고도 네 슬롯 모두 자모 분리(음절 미조합)로 구조 수명과
+일치했다.
+
+판정은 사전 규칙의 **"어느 baseline이든 종료"** 분기다. Baseline A와 B는 서로 같았으므로
+슬롯 간 drift는 없었지만, R2 Reading-only의 "유지" 양성 대조는 현재 환경에서 재현되지
+않았다. 따라서 R3 실패를 read-back 탓으로 돌리지 않는다. 추가로 지지되는 좁은 결론이
+하나 있다: 두 baseline은 probe 사건이 0인 Set-only 경로였는데도 종료했으므로, R3에서
+추가된 동기 trace와 즉시 read-back은 이 호스트 시나리오의 종료에 **필요조건이 아니다**.
+이 실행이 답하지 못한 것은 "그렇다면 R2 Reading-only 1회는 왜 유지였는가"이며, 유효한
+유지 관측은 이제 그 R2 1회뿐이다. 다음 판별 시험은 보존된 R2 시험판(그때의 DLL·identity
+·절차 그대로)의 Reading profile을 같은 기기에서 재실행하는 것이다 — 지금도 유지라면
+R2와 R4의 binary/identity 차이가 원인 후보로 남고, 지금은 종료라면 R2의 유지는 당시
+실행·환경 특이 사건이 되어 Reading metadata 가설은 유일한 근거를 잃는다.
+
+**R2 재실행 결과와 Reading 가설 기각 (2026-07-24).** 보존된 R2 시험판의 Reading
+profile을 같은 기기에서 재실행한 사용자 화면 보고는 자모 분리 — **재현 실패**였다. 이
+재실행은 구조 로그가 수집되지 않았으므로 화면 축만으로 기록하며, 그 축으로 충분하다:
+R2의 "유지" 1회는 이제 같은 DLL·identity·절차로도 반복되지 않은 **미재현 예외**다. 사전
+규칙대로 Reading metadata 가설은 유일한 근거를 잃고 **기각**한다. 이 AkelPad 시나리오의
+관측 기록은 종료 12회(R2 3 + R3 5 + R4 4) 대 유지 1회(미재현)다.
+
+**사후 분석 — 답은 처음부터 로그에 있었다.** 보존된 캡처들의 `context.caps`를 대조하면
+AkelPad context는 모든 실행에서 `static_flags=0x4` = **`TS_SS_TRANSITORY`**(문서 수명이
+짧다고 선언된 context — CUAS가 IMM32 전용 앱에 세우는 단명 프록시 문서의 표식)이고,
+메모장은 `0x12`(REGIONS 등, 비단명)다. 두 가지가 따라 나온다. 첫째, 이 플래그는 실행별
+유지/종료를 가르지 않는다 — "유지"였던 R2 캡처도 같은 `0x4`였다. 가르는 것은 **호스트의
+종류**다. 둘째, AkelPad의 키별 외부 종료는 "고장난 native TSF 호스트"가 아니라 **단명
+CUAS 문서의 정상 동작 범위**로 재분류된다. metadata·계측·identity를 아무리 바꿔도 12:1로
+종료가 관측된 이유다. 실무 교훈: **프로토콜 실험을 설계하기 전에 `GetStatus`의
+`TS_SS_TRANSITORY`부터 확인하라.** 단명 context에서는 지속 composition에 의존하지 말고
+commit 전용 경로(그리고 앱 클래스별 주입)를 쓰는 것이 맞으며, 이 플래그는 앱 이름
+스니핑보다 원칙적인 **런타임 분기 신호 후보**다(다른 CUAS 호스트에서의 검증은 남아 있다).
+
 #### 12.7.9 다음 구현자가 따라야 할 시간 절약 절차
 
 1. **대조군부터 만든다.** 최소 TIP를 메모장처럼 이 시험에서 정상 수명이 확인된 비교 호스트에서
@@ -1956,6 +1996,31 @@ insert-first를 **같은 방식으로 단독 반복**하는 것이다. 다시 �
 결론이 나왔다: **`InsertTextAtSelection`조차 만능이 아니다.** 지원 행렬의 서로 다른 앱에
 텍스트를 신뢰성 있게 넣으려면 앱 클래스별 주입 전략과 그에 딸린 수정 묶음이 필요했다.
 이 장은 그 관찰과 전략을 설명하며, 아직 시험하지 않은 모든 Windows 앱에 대한 보장은 아니다.
+
+### 13.0 TS_SS_TRANSITORY 런타임 분기 — 비단명 컨텍스트는 표준 composition (RFC-0010, 2026-07-24)
+
+§12.7.8의 판정(단명 CUAS 문서의 키별 종료는 정상 동작, 메모장류 비단명 호스트의 표준
+조합은 lab에서 유지 PASS)을 제품에 이식했다. 순차 한글 FSM 출력은 이제 두 경로다.
+
+1. **판정** — 컨텍스트당 1회, `ITfContext::GetStatus`(edit cookie 불필요)의
+   `dwStaticFlags & TS_SS_TRANSITORY(0x4)`와 `ITfInsertAtSelection`·`ITfContextComposition`
+   QI 성공 여부를 순수 결정 함수(`comp_path.c`)에 넣는다. 단명·판정 실패·인터페이스 결여
+   → 기존 commit 전용(§8 + 오버레이). 비단명·건강 → **문서 인라인 표준 composition**
+   (`comp_inline.c` — lab 레시피 그대로: QUERYONLY range → `StartComposition`(실제 sink,
+   `S_OK`+NULL=실패) → `SetText`(flag 0) → 표시 속성 → 캐럿을 조합 끝으로 → 확정 prefix
+   `ShiftStart` → preedit가 비면 `EndComposition`).
+2. **행동 폴백(강등)** — 플래그는 시험 호스트 2종에서만 검증된 분류자이지 보증이 아니다.
+   갱신에서 한 번도 생존하지 못한 조합이 연속 2회 외부 종료되거나 세션이 실패하면 그
+   컨텍스트를 commit 전용으로 강등한다(포커스 이동 시 재평가). EDIT 계열 검출(§13.1)과
+   config 킬스위치(`InlineComposition=0`)는 분기보다 우선한다.
+3. **플러시 규약이 하나 늘었다** — 인라인 조합이 활성일 때의 플러시(스페이스·비자모 키·
+   앱 단축키·한자키·자판 전환)는 **재삽입이 아니라 finalize**다. 조합 텍스트는 이미 문서
+   안에 있으므로 flush 결과를 다시 삽입하면 글자가 중복된다. 같은 이유로 Esc 취소는
+   `SetText("")` 후 종료, 포커스 이동은 텍스트를 보존한 채 종료(MS IME 관례)다.
+4. **외부 종료 sink** — `OnCompositionTerminated`에서 pointer identity로 우리 조합인지
+   확인하고 forget + FSM 리셋 + (생존 이력 없으면) 강등 카운트. 실패·종료를 감추지 않는다.
+
+실기 확인 전까지 이 분기는 "메모장(비단명) 실기 PASS + AkelPad(단명) 무회귀"가 gate다.
 
 ### 13.1 ★★핵심 반전 — 일부 호환 RichEdit 컨트롤은 TSF 삽입을 hr=0으로 받고도 버렸다
 
@@ -2412,6 +2477,8 @@ static void CandidateContext_Clear(CandidateContext *cc)
 | COM 진입점·클래스 팩토리 | `src/dllmain.c` |
 | TIP·키 싱크·OnKeyDown | `src/text_service.c` |
 | 편집 세션(커밋 전용) | `src/edit_session.c` |
+| TRANSITORY 경로 결정 (§13.0, 순수 로직) | `src/comp_path.c` |
+| 문서 인라인 표준 composition (§13.0) | `src/comp_inline.c`, `text_service.c`의 `OutputResultSeq` |
 | 등록(프로파일·카테고리) | `src/register.c` |
 | 한글 오토마타 | `src/fsm.c`, `src/layout.c`, `src/hangul_layout.c` |
 | 한자 사전·후보창 | `src/hanja_dict.c`, `src/candidate_ui.c` |

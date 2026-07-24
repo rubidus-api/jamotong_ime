@@ -6,6 +6,15 @@
 ## [Unreleased]
 
 ### Added
+- **비단명 컨텍스트 문서 인라인 표준 composition (RFC-0010)**: 순차 한글 입력이
+  `ITfContext::GetStatus`의 `TS_SS_TRANSITORY` 플래그로 호스트를 분기한다 — 단명(CUAS
+  프록시) 문서는 종전 커밋 전용+오버레이 그대로, 메모장류 비단명 호스트는 문서 안에서
+  밑줄 preedit로 조합하는 표준 `ITfComposition` 경로를 쓴다(실험체에서 실기 검증된 레시피
+  이식: 실제 sink·`SetText` flag 0·표시 속성·캐럿=조합 끝·확정 prefix `ShiftStart`).
+  플래그가 보증이 아니므로 조합이 갱신 생존 없이 연속 외부 종료되면 그 컨텍스트를 커밋
+  전용으로 자동 강등하고, `InlineComposition=0` 설정으로 전체를 끌 수 있다. 인라인 조합
+  활성 중의 플러시(스페이스·비자모 키·한자키·자판 전환)는 재삽입 대신 finalize로 처리해
+  글자 중복을 막고, Esc는 조합 텍스트를 제거, 포커스 이동은 텍스트를 보존한 채 종료한다.
 - 표준 TSF 실험체에 기존 등록과 공존하는 `Jamotong TSF Trace Lab` 빌드를 추가했다.
   프로세스별 JSONL에 composition 단계·HRESULT·외부 종료·편집 종료 순서만 남기며,
   입력 글자·키값·문서 내용·메모리 주소는 기록하지 않는다.
@@ -43,6 +52,16 @@
 - R3 구조 로그 결과(모든 AkelPad profile의 키별 외부 종료, 메모장 대조군의 composition
   유지)를 기록하고, validator 통과와 기능 성공을 분리했다. R3의 추가 동기 trace와 즉시
   `GetValue`가 함께 바뀐 confound 및 R4 판정 절차도 한·영 매뉴얼에 반영했다.
+- R4 실기 결과를 한·영 매뉴얼에 기록했다: 네 슬롯 모두 구조 검증 통과·수명은 전부 키별
+  종료(화면도 자모 분리)로, 사전 규칙의 "어느 baseline이든 종료" 분기 — R2 Reading-only
+  양성 대조가 재현되지 않았고, R3에 추가된 동기 trace/즉시 read-back은 종료의 필요조건이
+  아님이 확인됐다. 다음 판별 시험(보존된 R2 시험판 재실행)도 함께 기록했다.
+- R2 시험판 Reading profile 재실행이 화면 축에서 재현에 실패해 **Reading metadata 가설을
+  기각**했다(종료 12회 대 미재현 유지 1회). 보존 캡처의 `context.caps` 사후 대조로
+  AkelPad context가 전 실행에서 `TS_SS_TRANSITORY`(CUAS 단명 프록시 문서 표식),
+  메모장은 비단명임을 확인 — AkelPad 키별 종료를 단명 CUAS 문서의 정상 동작 범위로
+  재분류하고, 단명 플래그를 commit 전용 경로의 런타임 분기 신호 후보로 한·영 매뉴얼에
+  기록했다.
 
 ## [0.13.1] - 2026-07-20
 

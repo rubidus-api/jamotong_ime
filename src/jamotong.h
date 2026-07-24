@@ -39,7 +39,7 @@ extern const GUID IID_ITfFunction_J;      // {101d6610-0990-11d3-8df0-00105a2799
 typedef struct JamotongTextService {
     ITfTextInputProcessorVtbl *lpVtblTIP;
     ITfKeyEventSinkVtbl *lpVtblKES;                     // 키 입력(ITfKeyEventSink)
-    const ITfDisplayAttributeProviderVtbl *lpVtblDAP;   // 디스플레이 속성 공급자(등록만; 커밋전용이라 미사용)
+    const ITfDisplayAttributeProviderVtbl *lpVtblDAP;   // 디스플레이 속성 공급자(RFC-0010 인라인 조합 밑줄)
     ITfFunctionProviderVtbl *lpVtblFuncProv;            // 함수 공급자(설정 옵션 노출)
     const ITfFnConfigureVtbl *lpVtblFnConfig;           // "옵션" 버튼 → 설정창
     ITfThreadMgrEventSinkVtbl *lpVtblTMES;              // 문서 포커스 추적(문서 '관여')
@@ -61,6 +61,15 @@ typedef struct JamotongTextService {
     RECT prevChipRect;
     BOOL prevChipValid;
     int  chipPendingAdv;   // 낡은 rect가 여러 키 지속(빠른 타이핑)될 때의 누적 보정 폭(px)
+
+    // ── RFC-0010 문서 인라인 표준 composition (비단명 컨텍스트, comp_inline.c) ──
+    const ITfCompositionSinkVtbl *lpVtblCompSink;   // 외부 종료 통지 sink
+    ITfComposition *pComposition;   // 활성 문서 composition (입력 스레드 전용)
+    ITfContext *pCompContext;       // composition 소유 컨텍스트 (AddRef 보유)
+    ITfContext *pPathContext;       // 경로 판정 캐시 대상 (weak — 포인터 비교 전용)
+    int  pathKind;                  // JamoPathKind (pPathContext에 대한 판정)
+    int  pathDemerits;              // 갱신 생존 없는 연속 외부 종료 카운트 (강등용)
+    BOOL compUpdatedOnce;           // 현 composition이 갱신에서 생존했는가 (강등 리셋 근거)
 
     // Config & Engine State
     JamotongConfig config;

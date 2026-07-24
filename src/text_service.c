@@ -9,6 +9,7 @@
 #include "settings_ui.h"
 #include "preedit_overlay.h"
 #include "code_input.h"
+#include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
 
 // 현재 자판 상태 발행 — 트레이 툴(jamotong.exe)이 폴링. 호출자가 g_configLock 보유 여부 무관(재진입).
@@ -115,13 +116,45 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
 // (프리뷰 숨김/칩 상태 리셋이 여러 경로에 흩어져 있어, 조합이 깨졌을 때 칩이 갇히거나
 // 상태가 어긋나던 문제의 단일 진입점 — 실기 2026-07-08. 표시 갱신은 OutputResult가 유일한
 // 표시 경로이고, 리셋은 이 함수가 유일한 정리 경로다.)
+// RFC-0010: 문서 인라인 조합이 남아 있으면 '확정'(텍스트 보존)하고 경로 캐시를 비운다 —
+// 포커스 이동 시 MS IME 관례(조합 텍스트 유지). Esc 취소는 호출 전에 JamoComp_Cancel.
 static void ResetComposition(JamotongTextService *obj) {
+    JamoComp_Finalize(obj);        // 문서 인라인 조합 확정 (없으면 no-op)
+    JamoComp_ResetPathCache(obj);  // 컨텍스트 경로 캐시 무효화 (stale 포인터 방지)
     Fsm_Init(&obj->fsm);
     Chord_Init(&obj->chord);
     obj->lastCaretValid = FALSE;
     obj->prevChipValid = FALSE;
     obj->chipPendingAdv = 0;
     PreeditOverlay_Hide();
+}
+
+// 순차 FSM 결과 출력 — RFC-0010 분기: 비단명 컨텍스트(표준 composition 지원)는 문서 인라인
+// 조합, 그 외(단명·EDIT 계열·강등·킬스위치)는 기존 commit 전용 + 오버레이(OutputResult).
+//   isFlush=TRUE: res.commitChar는 '현재 조합의 확정'이다. 인라인 조합이 활성이면 그 텍스트가
+//   이미 문서 안에 있으므로 재삽입하지 않고 composition만 확정한다(재삽입=글자 중복).
+// 모아치기/코드/정적/플러그인 경로는 기존 OutputResult를 그대로 쓴다.
+static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
+static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
+    if (pic && !EditCtl_FocusEditWindow()   // EDIT 계열은 실기 검증된 EM_REPLACESEL 경로 유지
+        && JamoComp_PathForContext(obj, pic) == JAMO_PATH_STANDARD) {
+        if (JamoComp_IsActive(obj) && isFlush) {
+            JamoComp_Finalize(obj);   // 조합 텍스트는 이미 문서에 있다 — 확정만
+            obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
+            PreeditOverlay_Hide();
+            return;
+        }
+        if (!isFlush) {
+            if (SUCCEEDED(JamoComp_Apply(obj, pic, res))) {
+                obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
+                PreeditOverlay_Hide();   // 문서가 밑줄 preedit를 직접 표시한다
+                return;
+            }
+            // 실패: Apply가 rollback+강등까지 마쳤다 — 이 키 결과는 아래 기존 경로로 커밋.
+        }
+        // isFlush인데 인라인 조합이 없으면(첫 키 실패·외부 종료 직후 등) 기존 경로로 확정.
+    }
+    OutputResult(obj, pic, res, isFlush);
 }
 
 // 유니코드 직접 입력용 16진수 헬퍼
@@ -373,7 +406,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             JamoDiag("TK  vk=%02X ctrl/alt/win flush-in-test commit=U+%04X", (unsigned)wParam, (unsigned)res.commitChar);
-            OutputResult(obj, pic, res, TRUE);   // 음절 확정 (통과 전에 동기 완료)
+            OutputResultSeq(obj, pic, res, TRUE);   // 음절 확정 (통과 전에 동기 완료)
         }
         goto tk_done;   // pfEaten=FALSE — 앱이 단축키를 네이티브로 처리
     }
@@ -488,7 +521,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResult(obj, pic, res, TRUE);
+            OutputResultSeq(obj, pic, res, TRUE);
         }
         RECT rc; int x = 100, y = 100;
         if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
@@ -515,7 +548,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             special = true;
             Fsm_Init(&obj->fsm);
             FsmResult res = {ch, 0, false};
-            OutputResult(obj, pic, res, TRUE);   // 문서에 자모 커밋
+            // RFC-0010: 인라인 조합 활성이면 자모가 이미 문서에 있다 — 확정만(재삽입 금지)
+            OutputResultSeq(obj, pic, res, TRUE);   // 문서에 자모 커밋
             replaceLen = 1;
         } else if (obj->fsm.state != STATE_EMPTY) {
             // 조합 중 음절 + 한자키 → 음절을 '문서에 먼저 커밋'(취소 시 원본 보존), 선택 시 교체.
@@ -523,7 +557,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             searchStr[0] = syl; searchStr[1] = L'\0';
             Fsm_Init(&obj->fsm);
             FsmResult res = {syl, 0, false};
-            OutputResult(obj, pic, res, TRUE);   // 문서에 음절 커밋
+            // RFC-0010: 인라인 조합 활성이면 음절이 이미 문서에 있다 — 확정만(재삽입 금지)
+            OutputResultSeq(obj, pic, res, TRUE);   // 문서에 음절 커밋
             replaceLen = 1;
         } else {
             // [RFC-0003] 블록 선택 텍스트 변환 — 선택이 있으면 최우선.
@@ -622,7 +657,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             }
         } else if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResult(obj, pic, res, TRUE);   // 현재 음절 확정
+            OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
         }
         Chord_Init(&obj->chord);   // 모아치기 잔여 상태도 정리 (자판 전환 = 조합 경계)
         Config_RotateLayout(&obj->config);
@@ -639,7 +674,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if (HasCtrlAltWin()) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResult(obj, pic, res, TRUE);   // 현재 음절 확정
+            OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
         }
         goto kd_done;   // pfEaten=FALSE 유지 → 앱이 단축키 직접 처리
     }
@@ -711,6 +746,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // Esc = 조합 취소 (확정하지 않고 비움) — MS IME 관례이자, 상태가 어긋난 조합/칩의
         // 확실한 탈출구(순차 FSM·모아치기 공통. 실기 2026-07-08 '갇힌 글자' 대응).
         if (wParam == VK_ESCAPE && (obj->fsm.state != STATE_EMPTY || obj->chord.activeKeys > 0)) {
+            JamoComp_Cancel(obj);   // RFC-0010: 인라인 조합 텍스트를 문서에서 제거 (취소 관례)
             ResetComposition(obj);
             if (pfEaten) *pfEaten = TRUE;
             goto kd_done;
@@ -740,7 +776,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     Fsm_Init(&obj->fsm);                     // 음절 단위: 조합 전체 삭제
                 }
                 FsmResult res = {0, pe, true};               // pe==0 이면 조합 비움
-                OutputResult(obj, pic, res, FALSE);
+                OutputResultSeq(obj, pic, res, FALSE);
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
             }
@@ -751,7 +787,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 FsmResult res = Fsm_ProcessKey(&obj->fsm, keyChar, layout->kbdVariant, hl);
                 if (pfEaten) *pfEaten = res.eaten;
                 JamoDiag("FSM key=%c commit=U+%04X preedit=U+%04X", (char)keyChar, (unsigned)res.commitChar, (unsigned)res.preeditChar);
-                if (res.commitChar || res.preeditChar) OutputResult(obj, pic, res, FALSE);
+                if (res.commitChar || res.preeditChar) OutputResultSeq(obj, pic, res, FALSE);
                 goto kd_done;
             } else if (!IsModifierOrLock(wParam) && obj->fsm.state != STATE_EMPTY) {
                 // [실험] 스페이스 경계: 확정 음절+공백을 '한 번의 삽입'으로 처리(재전달 없음).
@@ -760,11 +796,17 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 //   (공백은 '문자'라 터미널 포함 삽입으로 전달 가능. 엔터/방향키는 제어키라 기존 재전달 유지)
                 if (wParam == VK_SPACE) {
                     wchar_t c = Fsm_Flush(&obj->fsm);
-                    wchar_t buf[3]; int n = 0;
-                    if (c) buf[n++] = c;
-                    buf[n++] = L' '; buf[n] = L'\0';
                     JamoDiag("FLUSH+SPACE commit=U+%04X", (unsigned)c);
-                    CommitText(obj, pic, buf);   // EDIT=EM_REPLACESEL / 비-EDIT=TSF
+                    if (JamoComp_IsActive(obj)) {
+                        // RFC-0010: 조합 음절은 이미 문서 인라인 조합 안에 있다 — 확정 후 공백만 삽입.
+                        JamoComp_Finalize(obj);
+                        CommitText(obj, pic, L" ");
+                    } else {
+                        wchar_t buf[3]; int n = 0;
+                        if (c) buf[n++] = c;
+                        buf[n++] = L' '; buf[n] = L'\0';
+                        CommitText(obj, pic, buf);   // EDIT=EM_REPLACESEL / 비-EDIT=TSF
+                    }
                     obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
                     PreeditOverlay_Hide();   // 조합 종료 → 미리보기 제거
                     if (pfEaten) *pfEaten = TRUE;
@@ -774,7 +816,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // (편집세션 텍스트 삽입은 터미널(PuTTY 등)엔 안 통함. 방향키 이동·엔터·터미널 모두 지원.)
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
                 JamoDiag("FLUSH commit=U+%04X then resend vk=%02X (delayed)", (unsigned)res.commitChar, (unsigned)wParam);
-                OutputResult(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
+                OutputResultSeq(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
                 ScheduleKeyResend(wParam, lParam);   // 지연 재전달 — CUAS 전달 경합 방지 (AkelPad 엔터 소실)
                 if (pfEaten) *pfEaten = TRUE;   // 원본 소비(재전달본이 대신 처리)
             }
@@ -784,7 +826,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // If there is an active FSM composition (shouldn't happen here, but safe to flush)
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResult(obj, pic, res, TRUE);
+            OutputResultSeq(obj, pic, res, TRUE);
         }
     }
 
@@ -864,6 +906,8 @@ static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis
         *ppvObject = &obj->lpVtblTIP;
     } else if (IsEqualIID(riid, &IID_ITfKeyEventSink)) {
         *ppvObject = &obj->lpVtblKES;
+    } else if (IsEqualIID(riid, &IID_ITfCompositionSink)) {
+        *ppvObject = &obj->lpVtblCompSink;   // RFC-0010 인라인 조합 외부 종료 sink
     } else if (IsEqualIID(riid, &IID_ITfDisplayAttributeProvider_J)) {
         *ppvObject = &obj->lpVtblDAP;   // composition display attribute provider
     } else if (IsEqualIID(riid, &IID_ITfFunctionProvider)) {
@@ -1072,6 +1116,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 g_CandCtx.obj(raw 서비스 포인터)를 정리 —
     // 열린 채 Deactivate되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
     CandidateUI_Cancel();
+    JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리
     Fsm_Init(&obj->fsm);
     Chord_Init(&obj->chord);
     PreeditOverlay_Uninitialize();
@@ -1129,6 +1174,7 @@ HRESULT JamotongTextService_Create(IUnknown *pUnkOuter, REFIID riid, void **ppvO
     obj->tmesCookie = TF_INVALID_COOKIE;
     obj->tesCookie = TF_INVALID_COOKIE;
     obj->pTESContext = NULL;
+    JamoComp_Init(obj);     // RFC-0010 인라인 조합 sink/상태 초기화
     FuncConfig_Init(obj);   // ITfFunctionProvider/ITfFnConfigure vtbl (설정 "옵션")
     obj->refCount = 1;
     Config_LoadDefault(&obj->config);

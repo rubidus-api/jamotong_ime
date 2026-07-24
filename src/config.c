@@ -73,6 +73,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.fullWidth = false;
     config->options.jamoDelete = true;         // 백스페이스 = 자소 단위 삭제
     config->options.showPreview = true;        // 조합 미리보기 오버레이 (RFC-0002)
+    config->options.inlineComposition = true;  // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010)
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
 }
@@ -398,6 +399,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"FullWidth=%d\n", config->options.fullWidth ? 1 : 0);
     fwprintf(fp, L"JamoDelete=%d\n", config->options.jamoDelete ? 1 : 0);
     fwprintf(fp, L"ShowPreview=%d\n", config->options.showPreview ? 1 : 0);
+    fwprintf(fp, L"InlineComposition=%d\n", config->options.inlineComposition ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
 
@@ -421,6 +423,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     JamotongConfig temp = {0};
     temp.options.jamoDelete = true;   // [Options] 없는 .ini 대비 기본값
     temp.options.showPreview = true; // 구버전 .ini 대비 기본 켜짐 (RFC-0002)
+    temp.options.inlineComposition = true;   // 구버전 .ini 대비 기본 켜짐 (RFC-0010)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
     bool haveSc[SC_FN_COUNT] = { false };   // 파일에 해당 기능 목록이 명시됐는가 (없으면 기존 유지)
@@ -537,6 +540,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             else if (swscanf(line, L"JamoDelete=%d", &val) == 1) temp.options.jamoDelete = (val != 0);
             // (구버전 .ini의 LegacyImm= 줄은 무시됨 — 옵션 제거, 2026-07-07)
             else if (swscanf(line, L"ShowPreview=%d", &val) == 1) temp.options.showPreview = (val != 0);
+            else if (swscanf(line, L"InlineComposition=%d", &val) == 1) temp.options.inlineComposition = (val != 0);
             else if (swscanf(line, L"PreviewFontSize=%d", &val) == 1)
                 temp.options.previewFontSize = (val <= 0) ? 0 : (val < 8 ? 8 : (val > 96 ? 96 : val));
             else if (swscanf(line, L"PreviewFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {

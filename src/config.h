@@ -81,6 +81,7 @@ typedef struct {
     bool fullWidth;         // 전각 입력 (영문/기호를 전각 폭 U+FF01~ 으로)
     bool jamoDelete;        // 백스페이스 = 자소 단위 삭제 (끄면 조합 음절 전체 삭제). 기본 켜짐.
     bool showPreview;       // 조합 미리보기 플로팅 오버레이 (RFC-0002). 기본 켜짐.
+    bool inlineComposition; // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010). 기본 켜짐. 0=항상 commit 전용.
     wchar_t previewFont[32];// 미리보기 글꼴 face 이름 (32 = LF_FACESIZE). 기본 "Malgun Gothic".
     int previewFontSize;    // 미리보기 글꼴 크기(px). 0=Auto(캐럿 높이 근사), 8~96=고정.
 } ImeOptions;
