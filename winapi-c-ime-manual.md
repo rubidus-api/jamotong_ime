@@ -2,7 +2,7 @@
 
 [한국어](winapi-c-ime-manual.ko.md) | **English**
 
-*Last updated: 2026-07-24 (TRANSITORY reclassification ported to the product: §13.0 non-transitory inline standard composition branch, RFC-0010)*
+*Last updated: 2026-07-24 (v0.14.0 — the TRANSITORY branch §13.0, Notepad inline field PASS, underline-caret overlay §12.1, closing notes in §2.2/§8)*
 
 This document explains how to build a Korean input method (IME) for Windows from
 scratch **in pure C (C23) and the Win32 API only** — no C++, no ATL/MFC, no frameworks —
@@ -326,6 +326,12 @@ Implement `IClassFactory` in C the same way as §1.2
 - Caret insertion covered many hosts, but was not a literal universal denominator (§13).
   Commit-only is a **fallback policy** that reduced failures in the tested matrix, not a
   guarantee stated by the Windows API.
+- **Closing note (2026-07-24)**: the practical runtime signal separating these classes is
+  not the app name but **`TS_SS_TRANSITORY`** from `ITfContext::GetStatus` (established in
+  §12.7.8, productized as the branch in §13.0). Transitory contexts terminate compositions
+  per key by design → commit-only; non-transitory hosts support standard composition.
+  On device: Notepad inline underline composition **PASS (2026-07-24)**; AkelPad stays on
+  the commit path via the transitory verdict.
 
 > **Field note, 2026-07-23.** A separate standard-TSF lab retained composition correctly
 > in Windows Notepad. In 64-bit AkelPad, each compatibility jamo was finalized separately
@@ -897,6 +903,12 @@ not prove that all CUAS paths reject either protocol.
 ---
 
 ## 8. The big lesson
+
+> **Update (2026-07-24) — this chapter's conclusion survived by half.** "Commit-only for
+> every host" was later narrowed by field work (§12.7.8) to "the correct policy for the
+> transitory (`TS_SS_TRANSITORY`) host class"; non-transitory hosts sustain standard
+> composition and the product now branches at runtime (§13.0). The chapter is preserved
+> as the road to that verdict and as the field evidence for the transitory class.
 
 This chapter is the reason this document exists — what jamotong learned over **20+ rounds
 of on-device testing.**
@@ -2227,8 +2239,9 @@ has been ported to the product. Sequential Hangul FSM output now takes one of tw
    pointer identity, forgets it, resets the FSM, and counts a demotion demerit when the
    composition had never survived an update. Failures and terminations are never hidden.
 
-Until field verification, the gate for this branch is "Notepad (non-transitory) passes on
-device + AkelPad (transitory) shows no regression."
+Field gate progress: **Notepad (non-transitory) inline underline composition passed on
+device (2026-07-24)**. AkelPad (transitory) non-regression and the remaining details
+(backspace, Esc, hanja, boundary keys) stay under observation in daily use.
 
 ### 13.1 ★★The core reversal — the tested AkelEdit-family host accepted a TSF insert with hr=0 and showed no text
 
