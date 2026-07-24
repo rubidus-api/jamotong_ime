@@ -2200,8 +2200,16 @@ has been ported to the product. Sequential Hangul FSM output now takes one of tw
 2. **Behavioral fallback (demotion)** — the flag is a classifier validated on two hosts,
    not a guarantee. If a composition that never survived an update is externally
    terminated twice in a row, or a session fails, the context is demoted to commit-only
-   (re-evaluated on focus change). EDIT-family detection (§13.1) and the config kill
-   switch (`InlineComposition=0`) take precedence over the branch.
+   (re-evaluated on focus change). The config kill switch (`InlineComposition=0`) takes
+   precedence over the branch. **EDIT-family detection (§13.1), however, is not a path
+   selector** — it is only the injection method (EM_REPLACESEL vs TSF insert) *inside*
+   the commit path. The first implementation gated the branch behind that detection and
+   **Windows 11 Notepad fell into the commit path wholesale** (on device, 2026-07-24):
+   Notepad's edit control class is `RichEditD2DPT`, whose name contains "edit" and which
+   answers EM_* messages. Class-name sniffing can misclassify the primary target of
+   standard composition — the document-status flag must decide first. Legacy EDIT hosts
+   like AkelPad end up in the commit path anyway via the transitory verdict, so the
+   leading guard was never needed.
 3. **One new flush rule** — while an inline composition is active, a flush (space,
    non-jamo key, app shortcut, hanja key, layout rotation) means **finalize, not
    re-insert**. The composed text is already in the document; inserting the flush result

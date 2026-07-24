@@ -136,8 +136,12 @@ static void ResetComposition(JamotongTextService *obj) {
 // 모아치기/코드/정적/플러그인 경로는 기존 OutputResult를 그대로 쓴다.
 static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
 static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
-    if (pic && !EditCtl_FocusEditWindow()   // EDIT 계열은 실기 검증된 EM_REPLACESEL 경로 유지
-        && JamoComp_PathForContext(obj, pic) == JAMO_PATH_STANDARD) {
+    // 경로 선택은 transitory 판정이 단독으로 한다. EDIT 계열 검출(EditCtl_*)은 경로 선택자가
+    // 아니라 COMMIT 경로 '안'의 주입 방식이다 — Win11 메모장 편집 컨트롤이 RichEditD2DPT
+    // (클래스명에 'edit', EM_* 응답)라서 EDIT 검출을 선행시키면 표준 조합의 1차 대상인
+    // 메모장이 통째로 COMMIT으로 굴러떨어진다(실기 2026-07-24). AkelPad류는 어차피
+    // 단명(TRANSITORY) 판정으로 COMMIT이 되므로 선행 가드는 필요 없다.
+    if (pic && JamoComp_PathForContext(obj, pic) == JAMO_PATH_STANDARD) {
         if (JamoComp_IsActive(obj) && isFlush) {
             JamoComp_Finalize(obj);   // 조합 텍스트는 이미 문서에 있다 — 확정만
             obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
