@@ -39,6 +39,11 @@ if not exist "%~dp0jamotong.dll" (
   exit /B 1
 )
 
+REM ---- 3b) Sweep *.old.* leftovers from a previous version ---------
+REM  uninstall.bat moves locked binaries aside instead of requiring a
+REM  sign-out; whatever is no longer mapped gets deleted here.
+del /F /Q "%~dp0*.old.*" >nul 2>&1
+
 REM ---- 4) Unblock downloaded files (Mark-of-the-Web) --------------
 echo [*] Unblocking downloaded files ...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File" >nul 2>&1
@@ -73,8 +78,10 @@ echo   [OK] Installed
 echo ================================================================
 echo.
 echo  NEXT STEPS
-echo   1) Sign out and back in ^(a full reboot is not required^).
-echo   2) Press Win+Space and select "Jamotong IME".
+echo   1) Press Win+Space and select "Jamotong IME".
+echo      - New app windows use this build right away. Apps that were
+echo        already running keep the previous copy until you restart
+echo        them ^(sign out/in only if the IME is missing from the list^).
 echo.
 echo  DEFAULT LAYOUTS  ^(enabled out of the box^)
 echo   - English QWERTY
@@ -92,4 +99,14 @@ echo.
 echo  Settings file:  %%APPDATA%%\Jamotong\config.ini
 echo  Full manual:    README.md ^(English^) / README.ko.md ^(Korean^)
 echo.
+
+REM ---- Optional: restart Explorer so tray/profile icons refresh ----
+REM  De-elevated via runas /trustlevel so the new shell does not
+REM  inherit administrator rights from this script.
+choice /C YN /N /T 20 /D N /M "Restart Explorer now to refresh the tray/icons? [Y/N] (auto-N in 20s) "
+if "%errorlevel%"=="1" (
+  echo [*] Restarting Explorer ...
+  taskkill /F /IM explorer.exe >nul 2>&1
+  runas /trustlevel:0x20000 "%SystemRoot%\explorer.exe" >nul 2>&1 || start "" "%SystemRoot%\explorer.exe"
+)
 pause
