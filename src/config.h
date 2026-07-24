@@ -54,7 +54,8 @@ typedef struct {
     LayoutType type;
     int kbdVariant;      // KOREAN_FSM일 때 자판 종류 (KBD_DUBEOL/KBD_SEBEOL, layout.h)
     const wchar_t *name; // C 변수 스타일 식별자. e.g. "en_qwerty", "ko_2bul", "ko_3bul", "en_dvorak"
-    wchar_t abbrev[8];   // 언어창/트레이 아이콘용 식별자. 1~4글자를 2x2 격자로 렌더. e.g. "EN","Dv","2벌","eSt","ART". (.jmt 필수)
+    wchar_t abbrev[8];   // 언어창/트레이 아이콘용 식별자. 1~4글자를 2x2 격자로 렌더 — A-Z/0-9는 내장
+                         // 비트맵 글꼴(icon_font.h), 그 외(한글 등)는 돋움 폴백. e.g. "ENQW","KO2B","ART". (.jmt 필수)
     
     // LAYOUT_TYPE_STATIC_MAP용 매핑 테이블 (QWERTY 기준 ASCII -> 변환 문자)
     wchar_t charMap[256];

@@ -16,7 +16,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     memset(&en, 0, sizeof(en));
     en.type = LAYOUT_TYPE_PASSTHROUGH;
     en.name = _wcsdup(L"en_qwerty");   // 모든 name을 heap으로 통일 → Config_Free가 균일하게 해제
-    wcscpy(en.abbrev, L"EN");
+    wcscpy(en.abbrev, L"ENQW");   // 2x2 아이콘: EN/QW (비트맵 글꼴, langbar.c)
     en.enabled = true;                  // 기본 켜짐
     config->layouts[config->layoutCount++] = en;
 
@@ -25,7 +25,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     dv.type = LAYOUT_TYPE_STATIC_MAP;
     Layout_FillDvorak(dv.charMap);     // 드보락 (공개 표준 ANSI)
     dv.name = _wcsdup(L"en_dvorak");
-    wcscpy(dv.abbrev, L"Dv");
+    wcscpy(dv.abbrev, L"ENDV");   // 2x2 아이콘: EN/DV
     dv.enabled = false;                 // 기본 꺼짐 (설정 체크박스로 켬)
     config->layouts[config->layoutCount++] = dv;
 
@@ -34,7 +34,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     ko.type = LAYOUT_TYPE_KOREAN_FSM;
     ko.kbdVariant = KBD_DUBEOL;
     ko.name = _wcsdup(L"ko_2bul");
-    wcscpy(ko.abbrev, L"2\xBC8C");   // "2벌"
+    wcscpy(ko.abbrev, L"KO2B");   // 2x2 아이콘: KO/2B (구 "2벌")
     ko.enabled = true;                  // 기본 켜짐
     config->layouts[config->layoutCount++] = ko;
 
@@ -43,7 +43,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     ko3.type = LAYOUT_TYPE_KOREAN_FSM;
     ko3.kbdVariant = KBD_SEBEOL;
     ko3.name = _wcsdup(L"ko_3bul");   // 세벌식 최종 (표는 provisional — 실기 검증 필요)
-    wcscpy(ko3.abbrev, L"3\xBC8C");   // "3벌"
+    wcscpy(ko3.abbrev, L"KO3B");   // 2x2 아이콘: KO/3B (구 "3벌")
     ko3.enabled = false;                // 기본 꺼짐
     config->layouts[config->layoutCount++] = ko3;
 

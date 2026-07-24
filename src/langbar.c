@@ -2,6 +2,7 @@
 #include "jamotong.h"
 #include "settings_ui.h"
 #include "version.h"
+#include "icon_font.h"   // 아이콘용 5x8 비트맵 글리프 (Spleen, BSD-2 — 헤더 상단 고지 참조)
 #include <stddef.h>
 
 #ifndef TF_LBI_ICON
@@ -197,11 +198,34 @@ static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, U
     return S_OK;
 }
 
-// 현재 자판 식별자(abbrev, 2~4글자)를 파란 배지에 흰 글씨로 실시간 렌더한 언어바/트레이 아이콘.
+// 글리프 하나를 셀 안에 정수 배율로 확대해 그린다 — 픽셀 경계가 셀 크기의 약수라 흐려지지
+// 않는다(안티에일리어스 없음, 의도된 비트맵 룩). x/y 배율을 따로 잡아 셀을 최대한 채운다.
+static void DrawIconGlyph(HDC hdc, int glyphIndex, const RECT *cell) {
+    int cellW = cell->right - cell->left, cellH = cell->bottom - cell->top;
+    int sx = cellW / ICONFONT_W; if (sx < 1) sx = 1;
+    int sy = cellH / ICONFONT_H; if (sy < 1) sy = 1;
+    int ox = cell->left + (cellW - ICONFONT_W * sx) / 2;
+    int oy = cell->top  + (cellH - ICONFONT_H * sy) / 2;
+    HBRUSH white = (HBRUSH)GetStockObject(WHITE_BRUSH);
+    for (int r = 0; r < ICONFONT_H; r++) {
+        unsigned bits = g_iconFontBits[glyphIndex][r];
+        for (int c = 0; c < ICONFONT_W; c++) {
+            if (bits & (0x80u >> c)) {
+                RECT px = { ox + c * sx, oy + r * sy, ox + (c + 1) * sx, oy + (r + 1) * sy };
+                FillRect(hdc, &px, white);
+            }
+        }
+    }
+}
+
+// 현재 자판 식별자(abbrev, 2~4글자)를 흑배경·백글자로 실시간 렌더한 언어바/트레이 아이콘.
 // - 글자를 2x2 격자로 배치해 작은 아이콘에서도 각 글자를 최대 크기로 → 3글자도 판독 가능.
 //   1글자=꽉 채움, 2글자=가로 2칸, 3글자=위 2·아래 1(가운데), 4글자=2x2.
-// - 글꼴은 '돋움'(Dotum): 작은 크기용 힌팅/내장비트맵이 좋은 시스템 한글 글꼴. 파일을 번들하지 않고
-//   GDI로 시스템 설치본을 '이름 참조'만 하므로 폰트 재배포 라이선스가 발생하지 않음(→ COPYRIGHT.md).
+// - 1차: abbrev 전 글자가 A-Z/0-9/'?'면 내장 5x8 비트맵 글꼴(Spleen, BSD-2 — icon_font.h)을
+//   정수 배율로 확대해 그린다. 기본 자판 아이콘(ENQW/ENDV/KO2B/KO3B)과 프로필 아이콘(JMTO)이
+//   같은 글꼴·같은 규칙을 공유해 스타일이 일치한다(사용자 요청 2026-07-24).
+// - 폴백: 한글 등 미수록 글자가 있으면 종전대로 시스템 '돋움'(Dotum)을 GDI 이름 참조로 렌더
+//   (파일 미번들 → 폰트 재배포 라이선스 없음, COPYRIGHT.md).
 // - 캔버스는 DPI 반영(SM_CXSMICON) 하되 최소 32px로 렌더 → 언어 전환창(24~32px)에서 선명, 트레이(16px)는
 //   셸이 축소. 호출자(셸)가 아이콘을 소유·파괴하므로 매 호출 새 HICON.
 static HICON CreateAbbrevIcon(const wchar_t *text) {
@@ -247,15 +271,23 @@ static HICON CreateAbbrevIcon(const wchar_t *text) {
         DeleteObject(bg);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
-        // '돋움' 우선, 없으면 GDI가 유사 글꼴 대체. 굵게+안티에일리어스(32px 렌더→축소 시 매끈).
-        HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                               DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
-        HGDIOBJ oldFont = SelectObject(hdc, hf);
+        bool bitmapOk = true;   // 전 글자 수록 여부 — 하나라도 빠지면 GDI 폴백
         for (int i = 0; i < len; i++)
-            DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
-        SelectObject(hdc, oldFont);
-        DeleteObject(hf);
+            if (IconFont_Index((unsigned int)text[i]) < 0) { bitmapOk = false; break; }
+        if (bitmapOk) {
+            for (int i = 0; i < len; i++)
+                DrawIconGlyph(hdc, IconFont_Index((unsigned int)text[i]), &cell[i]);
+        } else {
+            // '돋움' 우선, 없으면 GDI가 유사 글꼴 대체. 굵게+안티에일리어스(32px 렌더→축소 시 매끈).
+            HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                                   DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
+            HGDIOBJ oldFont = SelectObject(hdc, hf);
+            for (int i = 0; i < len; i++)
+                DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+            SelectObject(hdc, oldFont);
+            DeleteObject(hf);
+        }
         SelectObject(hdc, oldBmp);
         // 마스크 전부 불투명(0) → 색 비트맵 전체가 보임.
         HDC hdcM = CreateCompatibleDC(hdcScr);
