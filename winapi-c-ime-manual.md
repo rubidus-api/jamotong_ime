@@ -1181,6 +1181,14 @@ without claiming the same mechanism for every CUAS path.
     as the commit insert → on failure `GetGUIThreadInfo` (system caret; old EDIT controls
     and many terminals set it) → if both fail, just skip the preview.
   - Create lazily on the input thread; hide on focus change, destroy on Deactivate.
+  - **★Underline-caret trap (on device 2026-07-24, PuTTY)**: terminals report the caret
+    rect as the **thickness of an underline/block cursor (a few px)**, not the line
+    height. Using that height as the font size renders the chip microscopically, and
+    anchoring at the caret top covers the cursor. Handling: when caret height ≤ 8 px,
+    discard it and estimate the line height as **caret width (terminal cell width) × 2**
+    (clamped 16–64 px), then bottom-anchor the chip **above the cursor** (falling back
+    below it at the screen edge). Text carets (I-beams) report full line height, so this
+    branch only triggers for underline cursors.
 
 ### 12.2 ★A tested compatibility store's GetTextExt returned a stale successful rect
 - **Problem**: the chip overlaps the just-committed character, or trails the caret by

@@ -55,10 +55,29 @@ static BOOL GuitiCaretRect(RECT *out) {
     return TRUE;
 }
 
+// 밑줄형 커서 판정 한계(px): 이보다 낮은 캐럿은 줄 높이가 아니라 '밑줄/블록 커서의 두께'다.
+// 텍스트 캐럿(I-beam)은 줄 높이 전체로 보고되므로 이 값 이하로 내려오지 않는다.
+#define UNDERLINE_CARET_MAX_H 8
+
 // 캐럿 rect에 맞춰 글꼴(Auto=줄높이)·칩 크기·위치를 한 번에 적용.
 // face=NULL이면 현재 글꼴 캐시 유지 (타이머 보정 경로).
+// 밑줄형 커서(PuTTY 등 터미널: 높이 몇 px)는 그 높이를 무시한다 — 크기는 커서 '폭'
+// (터미널 셀 폭 ≈ 글자높이/2 → 폭*2)으로 추정하고, 칩을 커서 '위'에 바닥 정렬로 띄워
+// 커서를 가리지 않는다(실기 2026-07-24: 칩이 밑줄 위에서 너무 작게 그려짐).
 static void PlaceChip(const RECT *rcCaret, const wchar_t *face) {
-    int lineH = (g_fixedSize > 0) ? g_fixedSize : (rcCaret->bottom - rcCaret->top);
+    int caretH = rcCaret->bottom - rcCaret->top;
+    int caretW = rcCaret->right - rcCaret->left;
+    bool underlineCaret = (caretH > 0 && caretH <= UNDERLINE_CARET_MAX_H);
+    int lineH;
+    if (g_fixedSize > 0) {
+        lineH = g_fixedSize;
+    } else if (underlineCaret) {
+        lineH = caretW * 2;                 // 셀 폭으로 줄 높이 근사 (모노스페이스 ≈ 1:2)
+        if (lineH < 16) lineH = 16;
+        if (lineH > 64) lineH = 64;
+    } else {
+        lineH = caretH;
+    }
     if (lineH <= 0) lineH = 20;
     wchar_t f[32];
     wcsncpy(f, (face && face[0]) ? face : (g_fontFace[0] ? g_fontFace : L"Malgun Gothic"), 31);
@@ -76,8 +95,13 @@ static void PlaceChip(const RECT *rcCaret, const wchar_t *face) {
         SelectObject(hdc, of);
         ReleaseDC(g_hwnd, hdc);
     }
+    // 밑줄형 커서: 칩 바닥을 커서 바로 위에 붙인다(커서·해당 줄을 덮지 않음).
+    // 화면 위로 벗어나면 커서 아래로 폴백.
+    int x = rcCaret->left;
+    int y = underlineCaret ? rcCaret->top - h - 1 : rcCaret->top;
+    if (y < 0) y = rcCaret->bottom + 2;
     g_shownRect = *rcCaret;
-    SetWindowPos(g_hwnd, HWND_TOPMOST, rcCaret->left, rcCaret->top, w, h,
+    SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, w, h,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(g_hwnd, NULL, TRUE);
 }

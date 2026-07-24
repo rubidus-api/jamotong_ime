@@ -198,34 +198,101 @@ static HRESULT STDMETHODCALLTYPE LBI_OnMenuSelect(ITfLangBarItemButton *pThis, U
     return S_OK;
 }
 
-// 글리프 하나를 셀 안에 정수 배율로 확대해 그린다 — 픽셀 경계가 셀 크기의 약수라 흐려지지
-// 않는다(안티에일리어스 없음, 의도된 비트맵 룩). x/y 배율을 따로 잡아 셀을 최대한 채운다.
-static void DrawIconGlyph(HDC hdc, int glyphIndex, const RECT *cell) {
-    int cellW = cell->right - cell->left, cellH = cell->bottom - cell->top;
-    int sx = cellW / ICONFONT_W; if (sx < 1) sx = 1;
-    int sy = cellH / ICONFONT_H; if (sy < 1) sy = 1;
-    int ox = cell->left + (cellW - ICONFONT_W * sx) / 2;
-    int oy = cell->top  + (cellH - ICONFONT_H * sy) / 2;
-    HBRUSH white = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    for (int r = 0; r < ICONFONT_H; r++) {
-        unsigned bits = g_iconFontBits[glyphIndex][r];
-        for (int c = 0; c < ICONFONT_W; c++) {
-            if (bits & (0x80u >> c)) {
-                RECT px = { ox + c * sx, oy + r * sy, ox + (c + 1) * sx, oy + (r + 1) * sy };
-                FillRect(hdc, &px, white);
-            }
+// ── 아이콘 색 (사용자 지정 2026-07-24): 투명 배경 + 흰 외곽선 + 어두운 보라 글자 ──
+//   ARGB(리틀엔디언 UINT32 = 0xAARRGGBB). 프로필 아이콘 생성기(gen_profile_icon.py)와 동일 값.
+#define ICON_GLYPH_ARGB   0xFF4B0082u   // dark purple (#4B0082)
+#define ICON_OUTLINE_ARGB 0xFFFFFFFFu   // white outline
+
+// 글리프의 폰트 픽셀 (r,c)가 켜져 있는가 (범위 밖=꺼짐 — 외곽선 패스의 패딩 접근용).
+static int GlyphBit(int glyphIndex, int r, int c) {
+    if (r < 0 || r >= ICONFONT_H || c < 0 || c >= ICONFONT_W) return 0;
+    return (g_iconFontBits[glyphIndex][r] & (0x80u >> c)) != 0;
+}
+
+// 확대 블록 채우기 (캔버스 경계 클립). onlyTransparent=외곽선용: 이미 칠해진(글자) 픽셀 보존.
+static void FillArgbBlock(UINT32 *px, int sz, int x0, int y0, int w, int h,
+                          UINT32 color, BOOL onlyTransparent) {
+    for (int y = y0; y < y0 + h; y++) {
+        if (y < 0 || y >= sz) continue;
+        for (int x = x0; x < x0 + w; x++) {
+            if (x < 0 || x >= sz) continue;
+            if (!onlyTransparent || px[y * sz + x] == 0)
+                px[y * sz + x] = color;
         }
     }
 }
 
-// 현재 자판 식별자(abbrev, 2~4글자)를 흑배경·백글자로 실시간 렌더한 언어바/트레이 아이콘.
+// 비트맵 글꼴 아이콘: 32bpp ARGB DIB에 직접 그린다 — 투명 배경, 어두운 보라 글자,
+// 외곽선은 '캔버스 픽셀' 1px 팽창(투명 픽셀 중 8방향 이웃에 글자가 있는 곳만 흰색).
+// 폰트 픽셀 단위 팽창은 글자 사이를 흰 덩어리로 메워서 기각(2026-07-24).
+// 정수 배율(x/y 독립)이라 픽셀 경계가 또렷하다(안티에일리어스 없음, 의도된 비트맵 룩).
+static HICON CreateGlyphAbbrevIcon(const wchar_t *text, int len, const RECT *cell, int sz) {
+    BITMAPINFO bi;
+    ZeroMemory(&bi, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = sz;
+    bi.bmiHeader.biHeight = -sz;   // top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = NULL;
+    HBITMAP hbmColor = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    // 32bpp ARGB 아이콘은 알파가 가시성을 결정하지만 CreateIconIndirect는 마스크가 필수 —
+    // 0으로 채운 1bpp 마스크를 명시적으로 만든다(CreateBitmap(NULL)은 내용 미정의).
+    int maskStride = ((sz + 15) / 16) * 2;   // 1bpp, WORD 정렬
+    void *maskBits = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (SIZE_T)maskStride * sz);
+    HBITMAP hbmMask = maskBits ? CreateBitmap(sz, sz, 1, 1, maskBits) : NULL;
+    HICON hIcon = NULL;
+    if (hbmColor && bits && hbmMask) {
+        UINT32 *px = (UINT32*)bits;   // DIB는 0으로 초기화 = 전부 투명
+        for (int i = 0; i < len; i++) {   // 1) 글자(보라)
+            int gi = IconFont_Index((unsigned int)text[i]);
+            int cellW = cell[i].right - cell[i].left, cellH = cell[i].bottom - cell[i].top;
+            int sx = cellW / ICONFONT_W; if (sx < 1) sx = 1;
+            int sy = cellH / ICONFONT_H; if (sy < 1) sy = 1;
+            int ox = cell[i].left + (cellW - ICONFONT_W * sx) / 2;
+            int oy = cell[i].top  + (cellH - ICONFONT_H * sy) / 2;
+            for (int r = 0; r < ICONFONT_H; r++)
+                for (int c = 0; c < ICONFONT_W; c++)
+                    if (GlyphBit(gi, r, c))
+                        FillArgbBlock(px, sz, ox + c * sx, oy + r * sy, sx, sy,
+                                      ICON_GLYPH_ARGB, FALSE);
+        }
+        // 2) 외곽선: 투명 픽셀 중 8방향 이웃에 글자 색이 있는 곳만 흰색.
+        //    글자 색만 이웃 판정에 쓰므로 in-place로도 순서 무관.
+        for (int y = 0; y < sz; y++) {
+            for (int x = 0; x < sz; x++) {
+                if (px[y * sz + x] != 0) continue;
+                int touching = 0;   /* 'near'는 windows.h 레거시 매크로(빈 정의)라 쓰면 안 됨 */
+                for (int dy = -1; dy <= 1 && !touching; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int ny = y + dy, nx = x + dx;
+                        if (ny >= 0 && ny < sz && nx >= 0 && nx < sz &&
+                            px[ny * sz + nx] == ICON_GLYPH_ARGB) { touching = 1; break; }
+                    }
+                if (touching) px[y * sz + x] = ICON_OUTLINE_ARGB;
+            }
+        }
+        ICONINFO ii = { 0 };
+        ii.fIcon = TRUE;
+        ii.hbmColor = hbmColor;
+        ii.hbmMask = hbmMask;
+        hIcon = CreateIconIndirect(&ii);
+    }
+    if (hbmColor) DeleteObject(hbmColor);
+    if (hbmMask) DeleteObject(hbmMask);
+    if (maskBits) HeapFree(GetProcessHeap(), 0, maskBits);
+    return hIcon;
+}
+
+// 현재 자판 식별자(abbrev, 2~4글자)를 실시간 렌더한 언어바/트레이 아이콘.
 // - 글자를 2x2 격자로 배치해 작은 아이콘에서도 각 글자를 최대 크기로 → 3글자도 판독 가능.
 //   1글자=꽉 채움, 2글자=가로 2칸, 3글자=위 2·아래 1(가운데), 4글자=2x2.
-// - 1차: abbrev 전 글자가 A-Z/0-9/'?'면 내장 5x8 비트맵 글꼴(Spleen, BSD-2 — icon_font.h)을
-//   정수 배율로 확대해 그린다. 기본 자판 아이콘(ENQW/ENDV/KO2B/KO3B)과 프로필 아이콘(JMTO)이
-//   같은 글꼴·같은 규칙을 공유해 스타일이 일치한다(사용자 요청 2026-07-24).
-// - 폴백: 한글 등 미수록 글자가 있으면 종전대로 시스템 '돋움'(Dotum)을 GDI 이름 참조로 렌더
-//   (파일 미번들 → 폰트 재배포 라이선스 없음, COPYRIGHT.md).
+// - 1차: abbrev 전 글자가 A-Z/0-9/'?'면 내장 5x8 비트맵 글꼴(Spleen, BSD-2 — icon_font.h)로
+//   **투명 배경 + 흰 외곽선 + 어두운 보라 글자**를 그린다(사용자 지정 2026-07-24). 기본 자판
+//   (ENQW/ENDV/KO2B/KO3B)과 프로필 아이콘(JMTO)이 같은 글꼴·색·규칙을 공유한다.
+// - 폴백: 한글 등 미수록 글자가 있으면 종전 스타일(흑배경·백글자, 시스템 '돋움' GDI 이름
+//   참조 — 파일 미번들이라 폰트 재배포 라이선스 없음, COPYRIGHT.md)로 렌더.
 // - 캔버스는 DPI 반영(SM_CXSMICON) 하되 최소 32px로 렌더 → 언어 전환창(24~32px)에서 선명, 트레이(16px)는
 //   셸이 축소. 호출자(셸)가 아이콘을 소유·파괴하므로 매 호출 새 HICON.
 static HICON CreateAbbrevIcon(const wchar_t *text) {
@@ -257,6 +324,14 @@ static HICON CreateAbbrevIcon(const wchar_t *text) {
         fontH = (int)(half * 0.95);
     }
 
+    // 비트맵 글꼴 경로: 전 글자가 수록 글리프면 투명 배경 ARGB 아이콘 (아래 GDI 경로는 폴백)
+    {
+        bool bitmapOk = true;
+        for (int i = 0; i < len; i++)
+            if (IconFont_Index((unsigned int)text[i]) < 0) { bitmapOk = false; break; }
+        if (bitmapOk) return CreateGlyphAbbrevIcon(text, len, cell, sz);
+    }
+
     HDC hdcScr = GetDC(NULL);
     if (!hdcScr) return NULL;
     HDC hdc = CreateCompatibleDC(hdcScr);
@@ -271,23 +346,15 @@ static HICON CreateAbbrevIcon(const wchar_t *text) {
         DeleteObject(bg);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
-        bool bitmapOk = true;   // 전 글자 수록 여부 — 하나라도 빠지면 GDI 폴백
+        // '돋움' 우선, 없으면 GDI가 유사 글꼴 대체. 굵게+안티에일리어스(32px 렌더→축소 시 매끈).
+        HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                               DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
+        HGDIOBJ oldFont = SelectObject(hdc, hf);
         for (int i = 0; i < len; i++)
-            if (IconFont_Index((unsigned int)text[i]) < 0) { bitmapOk = false; break; }
-        if (bitmapOk) {
-            for (int i = 0; i < len; i++)
-                DrawIconGlyph(hdc, IconFont_Index((unsigned int)text[i]), &cell[i]);
-        } else {
-            // '돋움' 우선, 없으면 GDI가 유사 글꼴 대체. 굵게+안티에일리어스(32px 렌더→축소 시 매끈).
-            HFONT hf = CreateFontW(fontH, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                                   DEFAULT_PITCH, L"\xB3CB\xC6C0" /* 돋움 */);
-            HGDIOBJ oldFont = SelectObject(hdc, hf);
-            for (int i = 0; i < len; i++)
-                DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
-            SelectObject(hdc, oldFont);
-            DeleteObject(hf);
-        }
+            DrawTextW(hdc, &text[i], 1, &cell[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+        SelectObject(hdc, oldFont);
+        DeleteObject(hf);
         SelectObject(hdc, oldBmp);
         // 마스크 전부 불투명(0) → 색 비트맵 전체가 보임.
         HDC hdcM = CreateCompatibleDC(hdcScr);
