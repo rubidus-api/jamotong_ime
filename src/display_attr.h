@@ -20,7 +20,9 @@ typedef struct ITfDisplayAttributeProviderVtbl {
     ULONG   (STDMETHODCALLTYPE *AddRef)(ITfDisplayAttributeProvider*);
     ULONG   (STDMETHODCALLTYPE *Release)(ITfDisplayAttributeProvider*);
     HRESULT (STDMETHODCALLTYPE *EnumDisplayAttributeInfo)(ITfDisplayAttributeProvider*, IEnumTfDisplayAttributeInfo**);
-    HRESULT (STDMETHODCALLTYPE *GetDisplayAttributeInfo)(ITfDisplayAttributeProvider*, REFGUID, ITfDisplayAttributeInfo**, TfGuidAtom*);
+    HRESULT (STDMETHODCALLTYPE *GetDisplayAttributeInfo)(ITfDisplayAttributeProvider*,
+                                                         REFGUID,
+                                                         ITfDisplayAttributeInfo**);
 } ITfDisplayAttributeProviderVtbl;
 struct ITfDisplayAttributeProvider { const ITfDisplayAttributeProviderVtbl *lpVtbl; };
 

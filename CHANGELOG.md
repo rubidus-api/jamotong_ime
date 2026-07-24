@@ -14,26 +14,42 @@
 - R2에서 AkelPad의 Reading-only만 composition을 유지한 원인을 좁히기 위해
   Reading→LANGID 순서와 context 최초 1회 LANGID를 독립 비교하는 `Meta R3` x64 프로필
   4종을 추가했다. Schema 3은 속성 순서·횟수와 내용 없는 expected-value 일치까지 검증한다.
+- R3에서 양성 대조군을 바꾼 관측자 효과를 분리하기 위해 하나의 DLL/COM identity에서
+  Reading baseline, 동일 trace control, 즉시 property read-back을 비교하는 `Meta R4`
+  x64 probe를 추가했다.
 
 ### Fixed
 - 직접 선언한 `ITfDisplayAttributeProvider::GetDisplayAttributeInfo` vtbl 함수에 공식
-  인터페이스에 없는 `BSTR *` 인자가 들어 있던 COM ABI 오류를 수정했다.
+  인터페이스에 없는 `TfGuidAtom *` 인자가 들어 있던 COM ABI 오류를 수정했다. Provider
+  이름으로 보관하던 `ITfDisplayAttributeMgr` IID도 실제 Provider IID로 교체하고, x64/x86
+  제품 빌드가 헤더 변경을 추적하게 했다.
+- 언어바의 수기 상수 `TF_LBI_ICON`/`TF_LBI_STYLE_SHOWNINTRAY`에 각각 다른 비트를
+  잘못 옮긴 오류를 수정하고, 아이콘이 없을 때 `GetIcon`이 문서화되지 않은 `S_FALSE` 대신
+  `S_OK`와 NULL을 반환하게 했다. `ITfSource::AdviseSink`의 `S_OK + NULL`도 거부하고
+  sink/cookie 소유권을 명시했다. Button vtbl은 Windows SDK IDL의
+  `ITfLangBarItemButton : ITfLangBarItem` 순서로 회귀 검사한다.
 - 표준 TSF 실험체의 잘못 옮긴 `GUID_PROP_LANGID`/`GUID_PROP_READING` 값을 공식 바이트로
   교체하고 portable 실행 테스트로 고정했다. `SetText` 뒤 range를 다시 얻으며,
   선택적 metadata 실패가 성공한 문서 편집을 실패 처리해 원래 키를 중복 전달하지 않게 했다.
+- 최소 TIP 예제가 동기 edit session 실패 뒤에도 키를 무조건 소비하던 입력 유실 패턴을
+  수정했다. 문서 편집 성공 뒤에만 `eaten=TRUE`를 publish하고 예제 빌드도 경고를 오류로
+  처리한다.
 
 ### Changed
 - 한·영 매뉴얼에 64비트 AkelPad 자모 분리 현상의 미확정 실기 상태, composition 수명 추적
   방법, COM vtbl 시그니처 검증 함정을 추가했다.
 - 정정된 R2 8셀 실기 결과(Reading-only는 AkelPad·메모장 통과, 나머지 AkelPad 프로필은
   키별 종료)와 R3 판정 기준을 한·영 매뉴얼에 기록했다.
+- R3 구조 로그 결과(모든 AkelPad profile의 키별 외부 종료, 메모장 대조군의 composition
+  유지)를 기록하고, validator 통과와 기능 성공을 분리했다. R3의 추가 동기 trace와 즉시
+  `GetValue`가 함께 바뀐 confound 및 R4 판정 절차도 한·영 매뉴얼에 반영했다.
 
 ## [0.13.1] - 2026-07-20
 
 문서·예제 릴리스. IME 동작 변경 없음.
 
 ### Added
-- **`examples/minimal-tip/`** — 동작하는 최소 TSF IME(약 200줄 + `.def` 6줄).
+- **`examples/minimal-tip/`** — 동작하는 단일 C 파일 TSF IME(+ `.def` 6줄).
   Windows 언어 목록에 뜨고 `a` 키를 먹어 `ㄱ`을 넣는 것까지가 전부다. x64·x86 모두 빌드 확인.
   처음 IME를 만드는 사람이 "COM 서버 → 등록 → 키 싱크 → 삽입" 네 관문을 먼저 통과해 보라고
   만들었다 — 이 중 하나라도 빠지면 **오류 없이 아무 일도 안 일어나기** 때문이다.

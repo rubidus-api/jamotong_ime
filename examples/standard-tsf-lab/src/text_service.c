@@ -370,6 +370,11 @@ static STDMETHODIMP SVC_Activate(ITfTextInputProcessor *me, ITfThreadMgr *tm, Tf
     /* 켜진 상태로 시작하지 않는다 — 사용자가 한/영으로 켠다 */
     Lab_SetKeyboardOpen(s, false);
     Lab_TraceEvent("service.activate", NULL, S_OK, 0);
+#ifdef LAB_AKEL_META_R4_READING_PROBE_BUILD
+    LabMetadataR4Mode mode = Lab_GetMetadataR4Mode();
+    Lab_TraceEvent("metadata.probe.mode", NULL,
+                   mode == LAB_META_R4_INVALID ? E_INVALIDARG : S_OK, (LONG)mode);
+#endif
     return S_OK;
 }
 static STDMETHODIMP SVC_Deactivate(ITfTextInputProcessor *me) {

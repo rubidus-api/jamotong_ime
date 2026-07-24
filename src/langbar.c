@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #ifndef TF_LBI_ICON
-#define TF_LBI_ICON 0x00000004   // 이 MinGW msctf.h엔 없음 (표준값). 아이콘 갱신 통지 플래그.
+#define TF_LBI_ICON 0x00000001   // 이 MinGW msctf.h엔 없음 (표준값). 아이콘 갱신 통지 플래그.
 #endif
 
 // TSF ITfMenu (langbar right-click menu). This MinGW's msctf.h does not expose it under
@@ -33,33 +33,15 @@ const GUID IID_ITfLangBarItemButton =
 #define IMPL_LBI_SOURCE(ptr) ((JamotongLangBarItem*)((char*)(ptr) - offsetof(JamotongLangBarItem, lpVtblSource)))
 
 // ------------------------------------------------------------------
-// ITfLangBarItemButton
+// ITfLangBarItemButton (inherits the ITfLangBarItem vtable prefix)
 // ------------------------------------------------------------------
 
-static HRESULT STDMETHODCALLTYPE LBI_QueryInterface(ITfLangBarItemButton *pThis, REFIID riid, void **ppvObject) {
-    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
-    if (IsEqualIID(riid, &IID_IUnknown) || 
-        IsEqualIID(riid, &IID_ITfLangBarItem) || 
-        IsEqualIID(riid, &IID_ITfLangBarItemButton)) {
-        *ppvObject = &obj->lpVtblButton;
-    } else if (IsEqualIID(riid, &IID_ITfSource)) {
-        *ppvObject = &obj->lpVtblSource;
-    } else {
-        *ppvObject = NULL;
-        return E_NOINTERFACE;
-    }
-    InterlockedIncrement(&obj->refCount);
-    return S_OK;
+static ULONG LBI_AddRefObject(JamotongLangBarItem *obj) {
+    return (ULONG)InterlockedIncrement(&obj->refCount);
 }
 
-static ULONG STDMETHODCALLTYPE LBI_AddRef(ITfLangBarItemButton *pThis) {
-    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
-    return InterlockedIncrement(&obj->refCount);
-}
-
-static ULONG STDMETHODCALLTYPE LBI_Release(ITfLangBarItemButton *pThis) {
-    JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
-    ULONG res = InterlockedDecrement(&obj->refCount);
+static ULONG LBI_ReleaseObject(JamotongLangBarItem *obj) {
+    ULONG res = (ULONG)InterlockedDecrement(&obj->refCount);
     if (res == 0) {
         if (obj->pSink) obj->pSink->lpVtbl->Release(obj->pSink);
         HeapFree(GetProcessHeap(), 0, obj);
@@ -67,19 +49,55 @@ static ULONG STDMETHODCALLTYPE LBI_Release(ITfLangBarItemButton *pThis) {
     return res;
 }
 
-static HRESULT STDMETHODCALLTYPE LBI_GetInfo(ITfLangBarItemButton *pThis, TF_LANGBARITEMINFO *pInfo) {
+static HRESULT LBI_QueryInterfaceObject(JamotongLangBarItem *obj, REFIID riid,
+                                        void **ppvObject) {
+    if (!ppvObject) return E_POINTER;
+    *ppvObject = NULL;
+    if (IsEqualIID(riid, &IID_IUnknown) ||
+        IsEqualIID(riid, &IID_ITfLangBarItem) ||
+        IsEqualIID(riid, &IID_ITfLangBarItemButton)) {
+        *ppvObject = &obj->lpVtblButton;
+    } else if (IsEqualIID(riid, &IID_ITfSource)) {
+        *ppvObject = &obj->lpVtblSource;
+    } else {
+        return E_NOINTERFACE;
+    }
+    LBI_AddRefObject(obj);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_QueryInterface(ITfLangBarItemButton *pThis,
+                                                    REFIID riid,
+                                                    void **ppvObject) {
+    return LBI_QueryInterfaceObject(IMPL_LBI_BUTTON(pThis), riid, ppvObject);
+}
+
+static ULONG STDMETHODCALLTYPE LBI_AddRef(ITfLangBarItemButton *pThis) {
+    return LBI_AddRefObject(IMPL_LBI_BUTTON(pThis));
+}
+
+static ULONG STDMETHODCALLTYPE LBI_Release(ITfLangBarItemButton *pThis) {
+    return LBI_ReleaseObject(IMPL_LBI_BUTTON(pThis));
+}
+
+static HRESULT STDMETHODCALLTYPE LBI_GetInfo(ITfLangBarItemButton *pThis,
+                                             TF_LANGBARITEMINFO *pInfo) {
     (void)pThis;
     if (!pInfo) return E_INVALIDARG;
     pInfo->clsidService = CLSID_JamotongIME;
     pInfo->guidItem = GUID_LBI_INPUTMODE_J;   // ★트레이 입력 표시기 호스팅의 필수 조건
-    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;   // 트레이 표시 (아이콘은 GetIcon)
+    // Keep the official legacy tray-style bit, but modern input-indicator hosting is keyed by
+    // GUID_LBI_INPUTMODE_J above; SHOWNINTRAY alone is not a visibility guarantee.
+    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
     pInfo->ulSort = 0;
     lstrcpyW(pInfo->szDescription, L"Jamotong Layout");
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE LBI_GetStatus(ITfLangBarItemButton *pThis, DWORD *pdwStatus) {
+static HRESULT STDMETHODCALLTYPE LBI_GetStatus(ITfLangBarItemButton *pThis,
+                                               DWORD *pdwStatus) {
     (void)pThis;
+    if (!pdwStatus) return E_INVALIDARG;
     *pdwStatus = 0;
     return S_OK;
 }
@@ -89,7 +107,8 @@ static HRESULT STDMETHODCALLTYPE LBI_Show(ITfLangBarItemButton *pThis, BOOL fSho
     return S_OK;   // 표시 요청 수락 (E_NOTIMPL을 돌려주면 셸 랭바 처리가 꼬일 수 있음)
 }
 
-static HRESULT STDMETHODCALLTYPE LBI_GetTooltipString(ITfLangBarItemButton *pThis, BSTR *pbstrToolTip) {
+static HRESULT STDMETHODCALLTYPE LBI_GetTooltipString(ITfLangBarItemButton *pThis,
+                                                      BSTR *pbstrToolTip) {
     (void)pThis;
     if (!pbstrToolTip) return E_INVALIDARG;
     *pbstrToolTip = SysAllocString(L"Jamotong IME");
@@ -262,13 +281,13 @@ static HICON CreateAbbrevIcon(const wchar_t *text) {
 static HRESULT STDMETHODCALLTYPE LBI_GetIcon(ITfLangBarItemButton *pThis, HICON *phIcon) {
     JamotongLangBarItem *obj = IMPL_LBI_BUTTON(pThis);
     if (!phIcon) return E_INVALIDARG;
-    if (!obj->pService) { *phIcon = NULL; return S_FALSE; }   // Deactivate 후 — UAF 방어
+    if (!obj->pService) { *phIcon = NULL; return S_OK; }   // Deactivate 후 — UAF 방어
     EnterCriticalSection(&g_configLock);
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->pService->config);
     const wchar_t *ab = (layout && layout->abbrev[0]) ? layout->abbrev : L"?";
     *phIcon = CreateAbbrevIcon(ab);   // 셸이 소유·파괴. 현재 자판 축약 표시.
     LeaveCriticalSection(&g_configLock);
-    return *phIcon ? S_OK : S_FALSE;
+    return S_OK;   // API contract permits a successful NULL icon.
 }
 
 static HRESULT STDMETHODCALLTYPE LBI_GetText(ITfLangBarItemButton *pThis, BSTR *pbstrText) {
@@ -293,32 +312,38 @@ static struct ITfLangBarItemButtonVtbl LangBarItemButtonVtbl = {
 // ------------------------------------------------------------------
 
 static HRESULT STDMETHODCALLTYPE LBS_QueryInterface(ITfSource *pThis, REFIID riid, void **ppvObject) {
-    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
-    return obj->lpVtblButton->QueryInterface((ITfLangBarItemButton*)obj, riid, ppvObject);
+    return LBI_QueryInterfaceObject(IMPL_LBI_SOURCE(pThis), riid, ppvObject);
 }
 
 static ULONG STDMETHODCALLTYPE LBS_AddRef(ITfSource *pThis) {
-    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
-    return obj->lpVtblButton->AddRef((ITfLangBarItemButton*)obj);
+    return LBI_AddRefObject(IMPL_LBI_SOURCE(pThis));
 }
 
 static ULONG STDMETHODCALLTYPE LBS_Release(ITfSource *pThis) {
-    JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
-    return obj->lpVtblButton->Release((ITfLangBarItemButton*)obj);
+    return LBI_ReleaseObject(IMPL_LBI_SOURCE(pThis));
 }
 
 static HRESULT STDMETHODCALLTYPE LBS_AdviseSink(ITfSource *pThis, REFIID riid, IUnknown *punk, DWORD *pdwCookie) {
     JamotongLangBarItem *obj = IMPL_LBI_SOURCE(pThis);
+    ITfLangBarItemSink *sink = NULL;
+    HRESULT hr;
     if (!punk || !pdwCookie) return E_INVALIDARG;
-    if (IsEqualIID(riid, &IID_ITfLangBarItemSink)) {
-        if (obj->pSink) return CONNECT_E_ADVISELIMIT;
-        if (SUCCEEDED(punk->lpVtbl->QueryInterface(punk, &IID_ITfLangBarItemSink, (void**)&obj->pSink))) {
-            obj->sinkCookie = 1;
-            *pdwCookie = obj->sinkCookie;
-            return S_OK;
-        }
+    *pdwCookie = 0;
+    if (!IsEqualIID(riid, &IID_ITfLangBarItemSink))
+        return CONNECT_E_CANNOTCONNECT;
+    if (obj->pSink) return CONNECT_E_ADVISELIMIT;
+
+    hr = punk->lpVtbl->QueryInterface(
+        punk, &IID_ITfLangBarItemSink, (void**)&sink);
+    if (SUCCEEDED(hr) && !sink) hr = E_NOINTERFACE;
+    if (FAILED(hr)) {
+        if (sink) sink->lpVtbl->Release(sink);
+        return CONNECT_E_CANNOTCONNECT;
     }
-    return CONNECT_E_CANNOTCONNECT;
+    obj->pSink = sink;
+    obj->sinkCookie = 1;
+    *pdwCookie = obj->sinkCookie;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE LBS_UnadviseSink(ITfSource *pThis, DWORD dwCookie) {

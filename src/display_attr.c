@@ -3,7 +3,7 @@
 
 // Standard TSF IID for ITfDisplayAttributeProvider (not in this msctf.h).
 const IID IID_ITfDisplayAttributeProvider_J =
-    { 0x8ded7393, 0x5db1, 0x475c, { 0x9e, 0x71, 0xa3, 0x91, 0x11, 0xb0, 0xff, 0x67 } };
+    { 0xfee47777, 0x163c, 0x4769, { 0x99, 0x6a, 0x6e, 0x9c, 0x50, 0xad, 0x8f, 0x54 } };
 // Jamotong composing display attribute id: {7C9C1A20-4F3B-4E8D-9A11-2B3C4D5E6F70}
 const GUID GUID_JamotongComposingDA =
     { 0x7c9c1a20, 0x4f3b, 0x4e8d, { 0x9a, 0x11, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, 0x70 } };
@@ -81,8 +81,8 @@ static HRESULT STDMETHODCALLTYPE DAP_EnumDisplayAttributeInfo(ITfDisplayAttribut
     (void)pThis; if (!ppEnum) return E_INVALIDARG;
     g_enumPos = 0; *ppEnum = &g_DAE; return S_OK;
 }
-static HRESULT STDMETHODCALLTYPE DAP_GetDisplayAttributeInfo(ITfDisplayAttributeProvider *pThis, REFGUID guid, ITfDisplayAttributeInfo **ppInfo, TfGuidAtom *pAtom) {
-    (void)pThis; (void)pAtom;
+static HRESULT STDMETHODCALLTYPE DAP_GetDisplayAttributeInfo(ITfDisplayAttributeProvider *pThis, REFGUID guid, ITfDisplayAttributeInfo **ppInfo) {
+    (void)pThis;
     if (!ppInfo) return E_INVALIDARG;
     if (IsEqualGUID(guid, &GUID_JamotongComposingDA)) { *ppInfo = &g_DAI; return S_OK; }
     *ppInfo = NULL; return E_INVALIDARG;

@@ -3,7 +3,7 @@
 #include <msctf.h>
 
 #define TF_LBI_STYLE_BTN_BUTTON 0x00010000
-#define TF_LBI_STYLE_SHOWNINTRAY 0x00000200
+#define TF_LBI_STYLE_SHOWNINTRAY 0x00000002
 #define TF_LBI_TEXT 0x00000002
 
 typedef enum {
@@ -45,9 +45,6 @@ typedef struct JamotongLangBarItem {
     ITfLangBarItemSink *pSink;
     DWORD sinkCookie;
 } JamotongLangBarItem;
-
-JamotongLangBarItem* LangBar_Create(JamotongTextService *pService);
-void LangBar_Update(JamotongLangBarItem *pItem);
 
 JamotongLangBarItem* LangBar_Create(JamotongTextService *pService);
 void LangBar_Update(JamotongLangBarItem *pItem);

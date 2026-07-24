@@ -3,7 +3,7 @@
 #   make win32  : minimal32.dll (x86 — 32비트 앱에서 쓰려면 이것도 등록)
 CC   = x86_64-w64-mingw32-gcc
 CC32 = i686-w64-mingw32-gcc
-CFLAGS  = -Wall -Wextra -std=c2x -D_UNICODE -DUNICODE -O2
+CFLAGS  = -Wall -Wextra -Werror -std=c2x -D_UNICODE -DUNICODE -O2
 LDFLAGS = -shared -static -static-libgcc -lole32 -loleaut32 -luuid
 
 all: minimal.dll

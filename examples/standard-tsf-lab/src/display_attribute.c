@@ -11,7 +11,10 @@ const GUID IID_ITfDisplayAttributeProvider_Lab =
     { 0xfee47777, 0x163c, 0x4769, { 0x99, 0x6a, 0x6e, 0x9c, 0x50, 0xad, 0x8f, 0x54 } };
 
 /* Every side-by-side build uses an independent display-attribute GUID. */
-#if defined(LAB_AKEL_META_R3_READING_BUILD)
+#if defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
+const GUID GUID_LabDisplayAttributeInput =
+    { 0xd153ff81, 0x1d48, 0x4a80, { 0x8b, 0xed, 0x81, 0x86, 0x8f, 0x3a, 0xc1, 0xb9 } };
+#elif defined(LAB_AKEL_META_R3_READING_BUILD)
 const GUID GUID_LabDisplayAttributeInput =
     { 0xbf0f4904, 0x02a5, 0x4753, { 0x99, 0x1d, 0xba, 0x3a, 0x62, 0x63, 0x35, 0x1e } };
 #elif defined(LAB_AKEL_META_R3_LANGID_READING_BUILD)

@@ -54,11 +54,17 @@ extern const GUID  GUID_LabProfile;
      defined(LAB_AKEL_META_R2_BOTH_BUILD) + defined(LAB_AKEL_META_R3_READING_BUILD) + \
      defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) + \
      defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) + \
-     defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)) > 1
+     defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD) + \
+     defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)) > 1
 #  error "Select exactly one standard-lab build variant"
 #endif
 
-#if defined(LAB_AKEL_META_R3_READING_BUILD)
+#if defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
+#  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R4 Reading Probe"
+#  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r4-reading-probe-%lu.jsonl"
+#  define LAB_TRACE_VARIANT      "meta-r4-reading-probe"
+#  define LAB_ALWAYS_TRACE       1
+#elif defined(LAB_AKEL_META_R3_READING_BUILD)
 #  define LAB_DISPLAY_NAME       L"Jamotong TSF Meta R3 0 Reading"
 #  define LAB_TRACE_FILE_FORMAT  L"jamotong-tsf-meta-r3-0-reading-%lu.jsonl"
 #  define LAB_TRACE_VARIANT      "meta-r3-reading"
@@ -149,7 +155,10 @@ extern const GUID  GUID_LabProfile;
 #  define LAB_TRACE_VARIANT      "standard"
 #endif
 
-#if defined(LAB_AKEL_META_R3_READING_BUILD) || \
+#if defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
+#  define LAB_TRACE_SCHEMA       4
+#  define LAB_TRACE_BUILD_ID     "akel-meta-r4-260724"
+#elif defined(LAB_AKEL_META_R3_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
     defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
@@ -165,6 +174,15 @@ extern const GUID  GUID_LabProfile;
 #endif
 
 #define LAB_LANGID        MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN)
+
+#ifdef LAB_AKEL_META_R4_READING_PROBE_BUILD
+typedef enum LabMetadataR4Mode {
+    LAB_META_R4_INVALID = -1,
+    LAB_META_R4_BASELINE = 0,
+    LAB_META_R4_TRACE_CONTROL = 1,
+    LAB_META_R4_READBACK = 2
+} LabMetadataR4Mode;
+#endif
 
 /* Trace callbacks report the current transaction stage without recording input data. */
 typedef enum LabTracePhase {
@@ -255,6 +273,9 @@ HRESULT Lab_FinalizeComposition(LabTextService *svc, LabContextState *st,
                                 LabCompositionCommand cmd);
 void    Lab_ForgetComposition(LabContextState *st);
 void    Lab_InitCompositionSink(LabTextService *svc);
+#ifdef LAB_AKEL_META_R4_READING_PROBE_BUILD
+LabMetadataR4Mode Lab_GetMetadataR4Mode(void);
+#endif
 
 /* display_attribute.c */
 extern const GUID GUID_LabDisplayAttributeInput;

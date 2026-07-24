@@ -13,6 +13,7 @@ LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup -lole32 -
 
 TARGET = dist/jamotong.dll
 SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/func_configure.c src/preedit_overlay.c src/code_input.c
+HEADERS = $(wildcard src/*.h)
 
 # src/jamotong.def: DllRegisterServer 등 진입점을 장식 없는 이름으로 export (32비트 regsvr32 필수)
 DEF = src/jamotong.def
@@ -24,13 +25,13 @@ WINDRES32 = i686-w64-mingw32-windres
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) $(DEF) $(RCDEP)
+$(TARGET): $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 	@mkdir -p dist
 	$(WINDRES64) -I src $(RC) -O coff -o dist/jamotong_res64.o
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(DEF) dist/jamotong_res64.o $(LDFLAGS)
 
 win32: dist/jamotong32.dll
-dist/jamotong32.dll: $(SRCS) $(DEF) $(RCDEP)
+dist/jamotong32.dll: $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 	@mkdir -p dist
 	$(WINDRES32) -I src $(RC) -O coff -o dist/jamotong_res32.o
 	$(CC32) $(CFLAGS) -o $@ $(SRCS) $(DEF) dist/jamotong_res32.o $(LDFLAGS)

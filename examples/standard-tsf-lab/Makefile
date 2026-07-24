@@ -8,7 +8,8 @@
 #   make akel-metadata-suite : four isolated x64 composition-metadata variants
 #   make akel-metadata-r2-suite : corrected four-profile x64 metadata suite
 #   make akel-metadata-r3-suite : property-order/first-update interaction suite
-#   make all     : 위 전부
+#   make akel-metadata-r4-probe : same-identity trace/read-back observer probe
+#   make all     : standard x64+x86 (diagnostic suites are explicit targets above)
 CC      = x86_64-w64-mingw32-gcc
 CC32    = i686-w64-mingw32-gcc
 HOSTCC  = cc
@@ -33,11 +34,13 @@ AKEL_META_R3_LANGID_READING_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R3_LANGID_READING
 AKEL_META_R3_READING_LANGID_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R3_READING_LANGID_BUILD
 AKEL_META_R3_LANGID_ONCE_READING_CFLAGS = $(CFLAGS) \
 	-DLAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD
+AKEL_META_R4_READING_PROBE_CFLAGS = $(CFLAGS) -DLAB_AKEL_META_R4_READING_PROBE_BUILD
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup \
           -lole32 -loleaut32 -luuid
 
 SRCS = src/dllmain.c src/text_service.c src/context_state.c src/register.c \
        src/composition.c src/display_attribute.c src/diagnostics.c src/key_policy.c src/hangul2.c
+HEADERS = $(wildcard include/*.h)
 DEF  = standard-lab.def
 
 PORTABLE_SRCS = src/hangul2.c src/key_policy.c
@@ -160,6 +163,15 @@ dist-akel-metadata-r3/jamotong-tsf-meta-r3-3-langid-once-reading.dll: $(SRCS) $(
 	@mkdir -p dist-akel-metadata-r3
 	$(CC) $(AKEL_META_R3_LANGID_ONCE_READING_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
 
+# R4 uses one binary and one identity. An inherited process-local mode changes only
+# synchronous probe instrumentation around the same Reading SetValue path.
+akel-metadata-r4-probe: \
+	dist-akel-metadata-r4/jamotong-tsf-meta-r4-reading-probe.dll
+
+dist-akel-metadata-r4/jamotong-tsf-meta-r4-reading-probe.dll: $(SRCS) $(HEADERS) $(DEF)
+	@mkdir -p dist-akel-metadata-r4
+	$(CC) $(AKEL_META_R4_READING_PROBE_CFLAGS) -o $@ $(SRCS) $(DEF) $(LDFLAGS)
+
 # portable test — Windows 없이 리눅스에서도 돈다 (RFC-0009 §21)
 test:
 	$(HOSTCC) $(TEST_FLAGS) -o /tmp/lab_hangul2_test tests/hangul2_test.c src/hangul2.c
@@ -184,7 +196,8 @@ test-san:
 
 clean:
 	rm -rf dist dist32 dist-trace dist32-trace dist-akel dist-akel-metadata \
-	       dist-akel-metadata-r2 dist-akel-metadata-r3
+	       dist-akel-metadata-r2 dist-akel-metadata-r3 dist-akel-metadata-r4
 
 .PHONY: all dll win32 trace trace32 trace-all akel-suite akel-metadata-suite \
-        akel-metadata-r2-suite akel-metadata-r3-suite test guid-test test-san clean
+        akel-metadata-r2-suite akel-metadata-r3-suite akel-metadata-r4-probe \
+        test guid-test test-san clean

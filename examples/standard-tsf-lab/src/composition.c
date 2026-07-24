@@ -22,7 +22,8 @@ static const GUID kPropReading = LAB_GUID_PROP_READING_INITIALIZER;
     defined(LAB_AKEL_META_R3_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
-    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD) || \
+    defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
 #  define LAB_AKEL_METADATA_BUILD 1
 #endif
 #if defined(LAB_AKEL_META_LANGID_BUILD) || defined(LAB_AKEL_META_BOTH_BUILD) || \
@@ -37,7 +38,8 @@ static const GUID kPropReading = LAB_GUID_PROP_READING_INITIALIZER;
     defined(LAB_AKEL_META_R3_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_LANGID_READING_BUILD) || \
     defined(LAB_AKEL_META_R3_READING_LANGID_BUILD) || \
-    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
+    defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD) || \
+    defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
 #  define LAB_APPLY_READING 1
 #endif
 #if defined(LAB_AKEL_META_R3_READING_BUILD) || \
@@ -54,6 +56,32 @@ static const GUID kPropReading = LAB_GUID_PROP_READING_INITIALIZER;
 #endif
 #ifdef LAB_APPLY_LANGID
 static const GUID kPropLangId = LAB_GUID_PROP_LANGID_INITIALIZER;
+#endif
+
+#ifdef LAB_AKEL_META_R4_READING_PROBE_BUILD
+static INIT_ONCE g_metadata_r4_mode_once = INIT_ONCE_STATIC_INIT;
+static LabMetadataR4Mode g_metadata_r4_mode = LAB_META_R4_INVALID;
+
+static BOOL CALLBACK InitMetadataR4Mode(PINIT_ONCE once, PVOID parameter, PVOID *context) {
+    (void)once;
+    (void)parameter;
+    (void)context;
+    WCHAR value[2] = { 0, 0 };
+    DWORD length = GetEnvironmentVariableW(L"JAMOTONG_META_R4_MODE", value, 2);
+    if (length == 1 && value[0] == L'0') {
+        g_metadata_r4_mode = LAB_META_R4_BASELINE;
+    } else if (length == 1 && value[0] == L'1') {
+        g_metadata_r4_mode = LAB_META_R4_TRACE_CONTROL;
+    } else if (length == 1 && value[0] == L'2') {
+        g_metadata_r4_mode = LAB_META_R4_READBACK;
+    }
+    return TRUE;
+}
+
+LabMetadataR4Mode Lab_GetMetadataR4Mode(void) {
+    InitOnceExecuteOnce(&g_metadata_r4_mode_once, InitMetadataR4Mode, NULL, NULL);
+    return g_metadata_r4_mode;
+}
 #endif
 
 /* StartComposition이 S_OK인데 결과가 NULL인 경우를 실패로 다룬다(§7.1). */
@@ -297,6 +325,31 @@ static void ApplyReadingMetadata(LabEditSession *es, TfEditCookie ec,
         VariantClear(&actual);
     }
 #endif
+#ifdef LAB_AKEL_META_R4_READING_PROBE_BUILD
+    LabMetadataR4Mode mode = Lab_GetMetadataR4Mode();
+    if (SUCCEEDED(set_hr) &&
+        (mode == LAB_META_R4_TRACE_CONTROL || mode == LAB_META_R4_READBACK)) {
+        VARIANT actual;
+        VariantInit(&actual);
+        HRESULT probe_hr = S_OK;
+        bool matches = false;
+        if (mode == LAB_META_R4_READBACK) {
+            probe_hr = ITfProperty_GetValue(reading, ec, property_range, &actual);
+            matches = SUCCEEDED(probe_hr) && actual.vt == VT_BSTR &&
+                      actual.bstrVal != NULL &&
+                      SysStringLen(actual.bstrVal) == (UINT)len &&
+                      (len == 0 ||
+                       memcmp(actual.bstrVal, text,
+                              (size_t)len * sizeof(WCHAR)) == 0);
+            RememberMetadataFailure(first_failure, probe_hr);
+            if (SUCCEEDED(probe_hr) && !matches) {
+                RememberMetadataFailure(first_failure, E_FAIL);
+            }
+        }
+        Lab_TraceEvent("metadata.probe.result", st, probe_hr, matches ? 1 : 0);
+        VariantClear(&actual);
+    }
+#endif
     ITfProperty_Release(reading);
 }
 #endif
@@ -371,6 +424,11 @@ static void ApplyCompositionMetadata(LabEditSession *es, TfEditCookie ec,
 #elif defined(LAB_AKEL_META_R3_LANGID_ONCE_READING_BUILD)
     Lab_TraceEvent("metadata.plan.langid-once-reading", st, S_OK,
                    apply_langid ? 1 : 0);
+#elif defined(LAB_AKEL_META_R4_READING_PROBE_BUILD)
+    LabMetadataR4Mode mode = Lab_GetMetadataR4Mode();
+    if (mode == LAB_META_R4_TRACE_CONTROL || mode == LAB_META_R4_READBACK) {
+        Lab_TraceEvent("metadata.probe.before", st, S_OK, 0);
+    }
 #endif
 
 #ifdef LAB_METADATA_READING_FIRST

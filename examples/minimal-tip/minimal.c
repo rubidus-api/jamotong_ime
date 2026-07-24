@@ -1,4 +1,4 @@
-/* minimal.c — "뜨고, 키 하나를 먹는" 최소 TSF IME (약 200줄)
+/* minimal.c — "뜨고, 키 하나를 먹는" 최소 TSF IME
  *
  * 이 파일 하나 + minimal.def 만으로 Windows 언어 목록에 뜨는 IME가 된다.
  * 하는 일: 한/영 상태 없이, `a` 키를 먹어서 문서에 'ㄱ'을 넣는다. 그게 전부다.
@@ -6,7 +6,7 @@
  *
  * 빌드 (MinGW-w64):
  *   x86_64-w64-mingw32-gcc -shared -o minimal.dll minimal.c minimal.def \
- *       -static -static-libgcc -municode -D_UNICODE -DUNICODE \
+ *       -static -static-libgcc -D_UNICODE -DUNICODE \
  *       -lole32 -loleaut32 -luuid
  *
  * 설치 (관리자 권한 명령 프롬프트):
@@ -141,8 +141,8 @@ static STDMETHODIMP KS_OnKeyDown(ITfKeyEventSink *me, ITfContext *ctx,
     Svc *s = FROM_KEY(me);
     *eaten = FALSE;
     if (w == 'A' && ctx) {
-        InsertChar(ctx, s->cid, L'ㄱ');   /* U+3131 = 'ㄱ' */
-        *eaten = TRUE;
+        HRESULT hr = InsertChar(ctx, s->cid, L'ㄱ');   /* U+3131 = 'ㄱ' */
+        *eaten = SUCCEEDED(hr);
     }
     return S_OK;
 }
