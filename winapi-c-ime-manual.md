@@ -2663,7 +2663,7 @@ universal repeat detector or blindly substitute another global key-state API.
   composition** (MS-IME convention; sequential *and* moa-chigi), and **Backspace clears a
   moa-chigi composition** (the old gate tested `fsm.state`, which moa-chigi never sets).
 
-### 13.6 Keep the original on cancel — commit *then* replace
+### 13.6 Keep the original on cancel — commit *then* replace (replace-capable hosts only)
 
 - **Problem**: type 가, press the Hanja key, leave the candidate window **without choosing**
   → the 가 **disappeared**. The composing syllable was never in the document; the engine had
@@ -2671,6 +2671,15 @@ universal repeat detector or blindly substitute another global key-state API.
 - **Fix**: on Hanja-key while composing, **commit the syllable to the document first**
   (making it `replaceLen=1`, targeting that just-committed char), then convert by *replacing*
   it. Cancelling leaves the committed original in place — the same pattern as word conversion.
+
+> **Update (2026-07-24, v0.16.2)**: "commit first, then replace" is only safe in hosts
+> where the replace actually lands (EDIT-family `EM_REPLACESEL`, inline-composition TSF
+> range editing). Commit-only terminals (PuTTY) cannot edit ranges, so the selected
+> hanja was appended after the committed syllable ("가家", confirmed on device). Such
+> hosts now keep the composition (chip) alive without committing, show the candidates,
+> and on selection insert only the hanja (the original syllable is never sent); on
+> cancel the composition simply continues — the original is preserved as a *live
+> composition* rather than as committed text.
 
 ### 13.7 Required reset choke point + a captured target window
 

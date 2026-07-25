@@ -632,27 +632,46 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         bool special = false;
         bool fromSelection = false;   // 블록 선택 변환 여부 (EM_REPLACESEL 교체 경로 선택)
 
+        // 조합 중 변환의 '커밋 후 교체' 흐름은 교체가 실제로 되는 호스트에서만 안전하다.
+        // EDIT 계열(EM_REPLACESEL)과 인라인 조합(TSF range 교체)은 교체 가능. 그 외
+        // commit 전용 호스트(PuTTY류 터미널)는 range 편집이 안 되어 '가'를 먼저 커밋하면
+        // 선택한 한자가 그 뒤에 덧붙었다("가家" — 실기 2026-07-24, 백로그 예고 이슈).
+        // → 교체 불가 호스트는 커밋하지 않고 조합(칩)을 유지한 채 후보를 띄우고,
+        //   선택 시 한자만 삽입(replaceLen=0), 취소 시 조합이 그대로 이어진다(원본 보존).
+        bool canReplace = (EditCtl_FocusEditWindow() != NULL) || JamoComp_IsActive(obj);
+        bool keepComposing = false;   // 교체 불가 호스트: 조합 유지 중 변환
+
         if (obj->fsm.state == STATE_CHO) {
             // 단일 자음 + 한자키 → 특수문자 표 (호환 자모로 조회).
-            // 조합 자음을 '문서에 먼저 커밋'한다 → 변환 취소 시 원본 자모가 남는다(실기 2026-07-08:
-            // 취소하면 조합 중이던 글자가 사라지던 문제). 선택 시엔 이 커밋 글자를 교체(replaceLen=1).
+            // 교체 가능 호스트: 자음을 '문서에 먼저 커밋' → 취소 시 원본 보존(실기 2026-07-08),
+            // 선택 시 커밋 글자를 교체(replaceLen=1).
             wchar_t ch = Layout_ChoToCompatJamo(obj->fsm.cho);
             searchStr[0] = ch; searchStr[1] = L'\0';
             special = true;
-            Fsm_Init(&obj->fsm);
-            FsmResult res = {ch, 0, false};
-            // RFC-0010: 인라인 조합 활성이면 자모가 이미 문서에 있다 — 확정만(재삽입 금지)
-            OutputResultSeq(obj, pic, res, TRUE);   // 문서에 자모 커밋
-            replaceLen = 1;
+            if (canReplace) {
+                Fsm_Init(&obj->fsm);
+                FsmResult res = {ch, 0, false};
+                // RFC-0010: 인라인 조합 활성이면 자모가 이미 문서에 있다 — 확정만(재삽입 금지)
+                OutputResultSeq(obj, pic, res, TRUE);   // 문서에 자모 커밋
+                replaceLen = 1;
+            } else {
+                keepComposing = true;   // 커밋·리셋 없이 후보만 — 선택=삽입, 취소=조합 계속
+                replaceLen = 0;
+            }
         } else if (obj->fsm.state != STATE_EMPTY) {
-            // 조합 중 음절 + 한자키 → 음절을 '문서에 먼저 커밋'(취소 시 원본 보존), 선택 시 교체.
+            // 조합 중 음절 + 한자키.
             wchar_t syl = ComposeHangul(obj->fsm.cho, obj->fsm.jung, obj->fsm.jong);
             searchStr[0] = syl; searchStr[1] = L'\0';
-            Fsm_Init(&obj->fsm);
-            FsmResult res = {syl, 0, false};
-            // RFC-0010: 인라인 조합 활성이면 음절이 이미 문서에 있다 — 확정만(재삽입 금지)
-            OutputResultSeq(obj, pic, res, TRUE);   // 문서에 음절 커밋
-            replaceLen = 1;
+            if (canReplace) {
+                Fsm_Init(&obj->fsm);
+                FsmResult res = {syl, 0, false};
+                // RFC-0010: 인라인 조합 활성이면 음절이 이미 문서에 있다 — 확정만(재삽입 금지)
+                OutputResultSeq(obj, pic, res, TRUE);   // 문서에 음절 커밋
+                replaceLen = 1;
+            } else {
+                keepComposing = true;
+                replaceLen = 0;
+            }
         } else {
             // [RFC-0003] 블록 선택 텍스트 변환 — 선택이 있으면 최우선.
             //   선택 교체 = InsertTextAtSelection 삽입(타이핑 덮어쓰기와 동일 경로)이라
@@ -715,6 +734,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             int count = 0;
             bool found = special ? SpecialChar_Find(searchStr[0], &cands, &count)
                                  : HanjaDict_Find(searchStr, &cands, &count);
+            JamoDiag("HANJA canReplace=%d keepComposing=%d found=%d", (int)canReplace,
+                     (int)keepComposing, (int)found);
             if (found) {
                 g_CandCtx.obj = obj;
                 g_CandCtx.fromSelection = fromSelection;
