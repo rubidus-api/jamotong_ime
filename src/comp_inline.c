@@ -256,6 +256,13 @@ static HRESULT RequestInline(JamotongTextService *svc, ITfContext *ctx, CompOp o
     HRESULT hrSession = S_OK;
     HRESULT hr = ctx->lpVtbl->RequestEditSession(ctx, svc->clientId, (ITfEditSession*)es,
                                                  TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+    // 키 이벤트 밖(compartment 통지로 온 자판 전환 등)에서는 동기 세션이 TF_E_SYNCHRONOUS 로 거부된다.
+    // MS SampleIME 의 _TerminateComposition 처럼 비동기(ASYNCDONTCARE)로 다시 건다 — 세션 객체는 힙+참조계수라 안전.
+    if (hr == TF_E_SYNCHRONOUS) {
+        hrSession = S_OK;
+        hr = ctx->lpVtbl->RequestEditSession(ctx, svc->clientId, (ITfEditSession*)es,
+                                             TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &hrSession);
+    }
     es->lpVtbl->Release((ITfEditSession*)es);
     return FAILED(hr) ? hr : hrSession;
 }

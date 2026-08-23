@@ -1,0 +1,6 @@
+LIBRARY jamotong-conf-lab.dll
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE
+    DllRegisterServer   PRIVATE
+    DllUnregisterServer PRIVATE

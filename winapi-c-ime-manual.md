@@ -38,6 +38,7 @@ Goal: to let you build another IME from the ground up using this document alone.
 11. [Minimal IME checklist](#11-minimal-checklist)
 12. [★Field lessons after commit-only](#12-field-lessons-after-commit-only)
 13. [★★Text injection is not one thing — the per-app-class strategy](#13-text-injection-per-app-class)
+14. [★★★Standard contracts we were not using — compartments, preserved keys, ActivateEx, UI elements](#14-standard-contracts-we-were-not-using)
 
 Appendix A. [jamotong source map](#appendix-a-jamotong-source-map)
 Appendix B. [★References (official docs)](#appendix-b-references)
@@ -2746,6 +2747,114 @@ static void CandidateContext_Clear(CandidateContext *cc) {
 ```
 
 ---
+
+---
+
+## 14. Standard contracts we were not using
+
+*(Survey of 2026-08-20. Basis: Microsoft Learn docs plus structural analysis of public IMEs.
+Test bed: `examples/tsf-conformance-lab/`. **Not yet verified on real hardware** — this section
+contrasts "what the docs say" with "what we do", it is not a measurement report.)*
+
+Sections 8, 12, and 13 record how we survive hosts that fight us. Several of those survival
+tools, however, are hand-built replacements for contracts **TSF already provides and we simply
+were not using**.
+
+| Our workaround | Standard contract | Docs |
+|---|---|---|
+| `SendInput` re-send of the original key + synthetic marker | `ITfKeystrokeMgr::PreserveKey` → `OnPreservedKey` | [PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey) |
+| Sharing hangul/passthrough state through HKCU | `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `..._INPUTMODE_CONVERSION` | [Compartments](https://learn.microsoft.com/en-us/windows/win32/tsf/compartments) |
+| A global `WH_KEYBOARD_LL` hook for the candidate window | `ITfUIElementMgr::BeginUIElement` + `ITfCandidateListUIElement` | [UILess Mode](https://learn.microsoft.com/en-us/windows/win32/tsf/uiless-mode-overview) |
+| (nothing — the TIP simply never activates there) | `ITfTextInputProcessorEx::ActivateEx` | [ITfTextInputProcessorEx](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessorex) |
+| Giving up composition in transitory documents (§13.0) | reach the **parent document** via `GUID_COMPARTMENT_TRANSITORYEXTENSION_PARENT` | [Predefined Compartments](https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-compartments) |
+
+### 14.1 Preserved keys — command keys are reserved, not stolen
+
+`PreserveKey(tid, commandGUID, {vk, modifiers}, description, cch)` routes that chord to
+`OnPreservedKey(context, commandGUID, &eaten)`. A duplicate registration returns
+`TF_E_ALREADY_EXISTS`.
+
+**The boundary rule** (get it wrong and composition breaks): only keys that are **commands
+independent of document content** belong here — hangul/english toggle, start hanja conversion,
+open settings. Enter, Esc, and BackSpace mean different things depending on composition state,
+so they stay in `OnTestKeyDown`/`OnKeyDown` (§5.1).
+
+### 14.2 Compartments — the standard place to keep state
+
+Four scopes exist (global / thread manager / document manager / context). Values are `VARIANT`s,
+read and written with `ITfCompartment::GetValue/SetValue`; for change notifications, QI the
+compartment for `ITfSource` and advise an `ITfCompartmentEventSink` — `OnChange(GUID)` then
+fires, so **no polling is needed**.
+
+The proper home for hangul/english state is `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` (thread
+manager scope); conversion mode lives in `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`
+(equivalent to IMM32's `IME_CMODE`; `TF_CONVERSIONMODE_NATIVE` = 0x1 means hangul). An
+application says "no IME here" through the **context-scoped**
+`GUID_COMPARTMENT_KEYBOARD_DISABLED` — if you never read it, you will start compositions where
+you were asked not to.
+
+**Shipped to the product (2026-08-21, RFC-0012 Phase 1, field test pending)**: `src/compartment.c`
+publishes both values and subscribes to OPENCLOSE changes (an outside change switches to an
+enabled layout of the matching kind — policy in `comp_state.c`, natively tested). The focused
+context's `KEYBOARD_DISABLED` is read and honoured by passing every key. Kill switch:
+`UseCompartments=0`. The HKCU channel stays for one release. **Field PASS (2026-08-23, 0.16.90)**:
+indicator 한↔A follows our layout, clicking the indicator switches our layout, no regression in five
+hosts. One trap: on an outside switch (OnChange) merely *resetting* the composition leaves the chip on
+screen with later keys appended — commit first. But **outside a key event TSF refuses `TF_ES_SYNC`
+edit sessions** (`TF_E_SYNCHRONOUS`; 0.16.91's synchronous commit did nothing in the field). Do what
+other IMEs do (Microsoft SampleIME `_TerminateComposition`): request **`TF_ES_ASYNCDONTCARE`** and keep
+the session object heap-allocated and ref-counted (0.16.92). Also: the 한/A indicator may toggle the
+CONVERSION compartment's NATIVE bit rather than OPENCLOSE — subscribe to both.
+★And the real culprit was elsewhere: the tray 한/A chip the user clicked is **our own language-bar
+button** (`ITfLangBarItemButton::OnClick`), and that path rotated the layout without committing
+(fixed in 0.16.93). Two days went into the compartment path on the strength of the phrase "indicator
+click" — **establish which code path fired (one diagnostic log) before fixing anything.**
+
+### 14.3 ActivateEx and UI-less mode — without it you do not exist on that thread
+
+When an application activates a thread with `ITfThreadMgrEx::ActivateEx(TF_TMAE_UIELEMENTENABLEDONLY)`,
+**only TIPs that can control their own UI are activated there**. Qualifying means implementing
+`ITfTextInputProcessorEx`, registering `GUID_TFCAT_TIPCAP_UIELEMENTENABLED`, and routing **every**
+piece of UI through `ITfUIElementMgr`. Note that once `ITfTextInputProcessorEx` exists, `Activate`
+is no longer called — only `ActivateEx` — so keep initialization in one shared function.
+
+The UI element protocol: `BeginUIElement(element, &show)`. If the application answers `TRUE` we
+draw our own window (but must still call `EndUIElement`); if it answers `FALSE`, the application
+draws, and we must keep feeding it through `UpdateUIElement`. Candidate movement must be
+**paged, not scrolled** — the docs are explicit that scrolling changes the page index and forces
+the application to recompute it, with results the TIP did not intend.
+
+### 14.4 Transitory extension — the next step after §13.0
+
+The short-lived documents CUAS creates (`TS_SS_TRANSITORY`) carry a **documented path to the
+parent document**: document-manager-scoped `GUID_COMPARTMENT_TRANSITORYEXTENSION_PARENT`
+(the parent `ITfDocumentMgr`), the reverse `..._DOCUMENTMANAGER`, and
+`GUID_COMPARTMENT_TRANSITORYEXTENSION` (`NONE`/`FLOATING`/`ATSELECTION`) which selects behavior.
+
+**Not tested yet.** If the parent is actually populated, §13.0's branch gains a "use the parent
+context" option; if it is empty, the current branch is confirmed as the best available answer, on
+documented grounds. Either outcome is knowledge — which is why this test is worth running.
+
+### 14.5 ★Gotcha: "missing from the MinGW headers" is not "missing from Windows"
+
+MinGW-w64's `msctf.h`/`libuuid` contain **neither the `ITfTextInputProcessorEx` type nor the GUID
+values above** (there is no `ctffunc.h` at all). You must declare them yourself — and **a wrong
+GUID fails silently, as if the feature did not exist**, after which you write the false sentence
+"Windows does not support this" into a manual like this one.
+
+Rule: for every hand-declared GUID, **record the source and confidence in a comment**, and do not
+ship it before verification. Verify against the SDK `uuid.lib` symbols, or against the registry
+categories of a TIP that already uses the contract
+(`HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\Category\Category\`).
+(Verified values: `ITfTextInputProcessorEx` IID = `6e4e2102-f9cd-433d-b496-303ce03a6507`,
+`..._INPUTMODE_CONVERSION` = `ccf05dd8-4a87-11d7-a6e2-00065b84435c`,
+`..._TRANSITORYEXTENSION_PARENT` = `8be347f8-c7a0-11d7-b408-00065b84435c`.)
+
+### 14.6 ★Gotcha: a capability category is a promise
+
+Register `GUID_TFCAT_TIPCAP_UIELEMENTENABLED` and then show UI without going through
+`ITfUIElementMgr`, and you break **worse** on the very hosts that trusted the declaration and
+activated UI-less. The order is always **implement → test → register**.
 
 ## Appendix A: jamotong source map
 

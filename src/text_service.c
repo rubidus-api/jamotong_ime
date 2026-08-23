@@ -10,6 +10,7 @@
 #include "preedit_overlay.h"
 #include "code_input.h"
 #include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
+#include "compartment.h"   // RFC-0012 Phase 1 compartment (한/영 상태의 표준 자리)
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
 
 // 무간섭(직접 입력) 모드 상태의 원본 — TIP 인스턴스는 프로세스별이라 레지스트리로 공유한다.
@@ -26,30 +27,6 @@ static void WritePassthroughReg(BOOL on) {
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, NULL, 0, KEY_SET_VALUE, NULL, &hk, NULL) == ERROR_SUCCESS) {
         DWORD v = on ? 1u : 0u;
         RegSetValueExW(hk, L"Passthrough", 0, REG_DWORD, (const BYTE*)&v, sizeof(v));
-        RegCloseKey(hk);
-    }
-}
-
-// 현재 자판 상태 발행 — 트레이 툴(jamotong.exe)이 폴링. 호출자가 g_configLock 보유 여부 무관(재진입).
-// 무간섭 모드면 자판 대신 "--"/"direct input"을 발행한다(상태 원본=레지스트리 플래그).
-void Jamotong_PublishStatus(JamotongConfig *config) {
-    wchar_t ab[8] = L"?", nm[64] = L"?";
-    if (Jamotong_GetPassthroughReg()) {
-        wcscpy(ab, L"--");
-        wcscpy(nm, L"direct input (pass-through)");
-    } else {
-        EnterCriticalSection(&g_configLock);
-        LayoutConfig *layout = Config_GetCurrentLayout(config);
-        if (layout) {
-            if (layout->abbrev[0]) { wcsncpy(ab, layout->abbrev, 7); ab[7] = L'\0'; }
-            if (layout->name)      { wcsncpy(nm, layout->name, 63); nm[63] = L'\0'; }
-        }
-        LeaveCriticalSection(&g_configLock);
-    }
-    HKEY hk;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, NULL, 0, KEY_SET_VALUE, NULL, &hk, NULL) == ERROR_SUCCESS) {
-        RegSetValueExW(hk, L"CurrentAbbrev", 0, REG_SZ, (const BYTE*)ab, (DWORD)((wcslen(ab)+1)*sizeof(wchar_t)));
-        RegSetValueExW(hk, L"CurrentName",   0, REG_SZ, (const BYTE*)nm, (DWORD)((wcslen(nm)+1)*sizeof(wchar_t)));
         RegCloseKey(hk);
     }
 }
@@ -137,6 +114,7 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
 }
 
 static void ResetComposition(JamotongTextService *obj);
+static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
 
 // 무간섭(직접 입력) 모드 토글 — 조합·팝업을 정리하고 레지스트리에 기록·발행한다.
 // 켜져 있는 동안 키 싱크는 해제 단축키 외 모든 키를 통과시킨다(원격 데스크톱 등).
@@ -146,8 +124,50 @@ void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on) {
     CandidateUI_Cancel();
     obj->passthrough = on;
     WritePassthroughReg(on);
-    Jamotong_PublishStatus(&obj->config);   // 트레이 모니터링에 "--"/자판명 반영
+    Compart_Publish(obj);    // compartment 에도 반영 (RFC-0012 Phase 1; HKCU 는 한 판 병행)
     JamoDiag("PASSTHROUGH %s", on ? "ON" : "OFF");
+}
+
+// compartment 통지 등 '밖'에서 자판이 바뀐 뒤의 공통 뒤처리. 키 싱크의 자판 전환 경로와 같은 순서:
+// 조합 경계(인라인 조합 확정·FSM/칩·모아치기 정리) → 언어바. (compartment 발행은 호출자가 한다.)
+void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
+    // 키 전환 경로(SC_FN_ROTATE)와 같은 규칙: 조합 중 음절은 **확정**하고 넘어간다(버리지 않는다).
+    // 여기는 키 이벤트 밖이다(compartment 통지 = 표시기 클릭/앱). 실기 2026-08-23:
+    //   ① ResetComposition 만 → 칩 잔존(확정 없음)  ② 동기 세션(OutputResultSeq) → 키 밖이라 거부됨.
+    // 다른 IME(MS SampleIME _TerminateComposition)의 방식 = 키 밖에서는 **비동기(ASYNCDONTCARE)** 세션.
+    // 순서: 인라인 조합은 ResetComposition 의 Finalize(동기 거부 시 비동기 재시도, comp_inline.c) —
+    //       칩(commit 전용) 경로는 EDIT 컨트롤이면 EM_REPLACESEL(세션 불필요), 아니면 포커스 컨텍스트에
+    //       비동기 삽입. 둘 다 안 되면 음절을 보류해 다음 키 이벤트(pic 있음)에서 먼저 확정한다.
+    if (!JamoComp_IsActive(obj) && obj->fsm.state != STATE_EMPTY) {
+        wchar_t ch = Fsm_Flush(&obj->fsm);
+        if (ch) {
+            wchar_t cs[2] = { ch, L'\0' };
+            BOOL done = FALSE;
+            HWND edit = EditCtl_FocusEditWindow();
+            if (edit && EditCtl_ReplaceSelection(edit, cs)) done = TRUE;
+            if (!done && obj->threadMgr) {
+                ITfDocumentMgr *dm = NULL; ITfContext *ctx = NULL;
+                if (SUCCEEDED(obj->threadMgr->lpVtbl->GetFocus(obj->threadMgr, &dm)) && dm) {
+                    if (SUCCEEDED(dm->lpVtbl->GetTop(dm, &ctx)) && ctx) {
+                        EditSessionData esd = {0}; esd.committed[0] = ch;
+                        HRESULT hr = RequestEditSessionDataEx(obj, ctx, &esd, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE);
+                        done = SUCCEEDED(hr);
+                        JamoDiag("EXT-SWITCH flush U+%04X async hr=0x%08lX", (unsigned)ch, (unsigned long)hr);
+                        ctx->lpVtbl->Release(ctx);
+                    }
+                    dm->lpVtbl->Release(dm);
+                }
+            }
+            if (!done) obj->cpPendingCommit = ch;   // 다음 키 이벤트에서 확정 (OnTestKeyDown 머리)
+        }
+    }
+    ResetComposition(obj);           // 인라인 Finalize(동기→비동기 폴백) + FSM/칩/캐시 정리
+    Chord_Init(&obj->chord);
+}
+
+void Jamotong_OnLayoutSwitched(JamotongTextService *obj) {
+    Jamotong_FlushForExternalSwitch(obj);
+    LangBar_Update(obj->pLangBarItem);
 }
 
 // 조합 상태 전면 리셋 — FSM·모아치기(chord)·미리보기 칩 상태를 '한 곳에서' 비운다.
@@ -396,7 +416,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fFo
         BOOL pt = Jamotong_GetPassthroughReg();
         if (pt != obj->passthrough) {
             obj->passthrough = pt;
-            LangBar_Update(obj->pLangBarItem);   // 아이콘 "--" ↔ 자판 갱신
+            LangBar_Update(obj->pLangBarItem);
+        Compart_Publish(obj);   // 아이콘 "--" ↔ 자판 갱신
         }
     }
     return S_OK;
@@ -407,13 +428,27 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     (void)pic;
     if (pfEaten) *pfEaten = FALSE;
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) return S_OK;   // 합성 입력 통과
+    // 단축키 판정에 쓰는 가상키/모디파이어는 이 호출 안에서 불변 — 한 번만 읽는다
+    // (Config_CurrentMods 는 GetKeyState 5회; 기능마다 다시 부르면 키 하나에 수십 회 syscall).
+    const UINT skVk = Config_ResolveVK(wParam, lParam);
+    const UINT skMods = Config_CurrentMods();
+
+    // 앱이 이 문맥의 입력기를 껐다(KEYBOARD_DISABLED) → 아무 키도 건드리지 않는다 (RFC-0012 Phase 1).
+    if (obj->ctxKeyboardDisabled) return S_OK;
+
+    // 밖에서 온 자판 전환 때 확정 못 한 음절이 있으면, 키 이벤트 안(동기 세션 허용)인 지금 먼저 넣는다.
+    if (obj->cpPendingCommit && pic) {
+        wchar_t cs[2] = { obj->cpPendingCommit, L'\0' };
+        obj->cpPendingCommit = 0;
+        CommitText(obj, pic, cs);
+    }
 
     // 무간섭(직접 입력) 모드: 해제 단축키만 예측-소비하고 그 외 전부 통과 —
     // 원격 데스크톱 클라이언트 등이 키를 그대로 받아 원격 IME가 처리하게 한다.
     if (obj->passthrough) {
         EnterCriticalSection(&g_configLock);
         bool ptHit = Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH,
-                                       Config_ResolveVK(wParam, lParam), Config_CurrentMods());
+                                       skVk, skMods);
         LeaveCriticalSection(&g_configLock);
         if (ptHit && pfEaten) *pfEaten = TRUE;
         return S_OK;
@@ -435,31 +470,31 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     EnterCriticalSection(&g_configLock);
 
     // 설정창 단축키 (설정 가능, 기본 Ctrl+Alt+K) 예측-소비 (OnKeyDown이 불려 설정창을 열도록).
-    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, skVk, skMods)) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
 
     // 유니코드 코드 입력 단축키 (설정 가능, 기본 Ctrl+Alt+U) 예측-소비.
-    if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_CODE, skVk, skMods)) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
 
     // 무간섭 모드 켜기 단축키 (설정 가능, 기본 없음) 예측-소비.
-    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, skVk, skMods)) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
 
-    if (Config_IsShortcut(&obj->config, SC_FN_HANJA, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
+    if (Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods)
         || wParam == VK_KANJI) {   // 한자/변환 트리거 키 (기본 VK_HANJA — IsModifierOrLock이라 아래선 못 잡음)
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
 
     // Check if it's a layout rotate shortcut
-    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, skVk, skMods)) {
         if (pfEaten) *pfEaten = TRUE;
         goto tk_done;
     }
@@ -543,17 +578,21 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if (pfEaten) *pfEaten = FALSE;
     // 우리가 SendInput으로 넣은 합성 입력(코드 자판의 키/모디파이어 등)은 재처리하지 않고 통과
     if ((ULONG_PTR)GetMessageExtraInfo() == JAMO_SYNTH_MARK) { JamoDiag("KD  vk=%02X SYNTH-pass", (unsigned)wParam); return S_OK; }
+    const UINT skVk = Config_ResolveVK(wParam, lParam);    // OnTestKeyDown 과 같은 이유로 1회만
+    const UINT skMods = Config_CurrentMods();
     JamoDiag("KD  vk=%02X state=%d", (unsigned)wParam, (int)obj->fsm.state);
 
     // 무간섭(직접 입력) 모드: 해제 단축키만 처리, 그 외 전부 통과 (OnTestKeyDown과 동일 판단).
+    if (obj->ctxKeyboardDisabled) return S_OK;   // 앱이 끈 문맥 — 통과 (OnTestKeyDown 과 동일)
     if (obj->passthrough) {
         EnterCriticalSection(&g_configLock);
         bool ptHit = Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH,
-                                       Config_ResolveVK(wParam, lParam), Config_CurrentMods());
+                                       skVk, skMods);
         LeaveCriticalSection(&g_configLock);
         if (ptHit) {
             Jamotong_SetPassthrough(obj, FALSE);
             LangBar_Update(obj->pLangBarItem);
+        Compart_Publish(obj);
             if (pfEaten) *pfEaten = TRUE;
         }
         return S_OK;
@@ -592,26 +631,27 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     EnterCriticalSection(&g_configLock);
 
     // 설정창 단축키 (설정 가능, 기본 Ctrl+Alt+K — Win11 모던 설정엔 IME "옵션" 버튼이 없어 단축키로 연다).
-    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_SETTINGS, skVk, skMods)) {
         SettingsUI_Show(&obj->config);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
 
     // 무간섭 모드 켜기 (설정 가능한 단축키, 기본 없음 — 우클릭 메뉴로도 토글).
-    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, skVk, skMods)) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);   // 조합 중이면 먼저 확정
         }
         Jamotong_SetPassthrough(obj, TRUE);
         LangBar_Update(obj->pLangBarItem);
+        Compart_Publish(obj);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
 
     // 코드 입력 트리거 (설정 가능한 단축키, 기본 Ctrl+Alt+U) — 조합 중이면 먼저 확정하고 캐럿 근처에 팝업.
-    if (Config_IsShortcut(&obj->config, SC_FN_CODE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_CODE, skVk, skMods)) {
         if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);
@@ -624,7 +664,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     }
 
     // Hanja trigger (설정된 한자 키 목록 — 기본 VK_HANJA, 복수 지정 가능). VK_KANJI는 항상 허용.
-    if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, Config_ResolveVK(wParam, lParam), Config_CurrentMods())
+    if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods)
          || wParam == VK_KANJI) && !CandidateUI_IsVisible()) {
         EnsureHanjaDicts();   // lazy-load (첫 한자 요청 시 1회)
         wchar_t searchStr[64] = {0};
@@ -761,7 +801,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     }
 
     // Handle layout rotation
-    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, Config_ResolveVK(wParam, lParam), Config_CurrentMods())) {
+    if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, skVk, skMods)) {
         // Flush composition before rotating
         LayoutConfig *curLayout = Config_GetCurrentLayout(&obj->config);
         if (curLayout && curLayout->type == LAYOUT_TYPE_DLL_PLUGIN) {
@@ -778,7 +818,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         Chord_Init(&obj->chord);   // 모아치기 잔여 상태도 정리 (자판 전환 = 조합 경계)
         Config_RotateLayout(&obj->config);
         LangBar_Update(obj->pLangBarItem);
-        Jamotong_PublishStatus(&obj->config);   // 트레이 모니터링 갱신
+        Compart_Publish(obj);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
@@ -1100,9 +1140,11 @@ static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, I
     ITfContext *pCtx = NULL;
     if (pdimFocus && SUCCEEDED(pdimFocus->lpVtbl->GetTop(pdimFocus, &pCtx)) && pCtx) {
         AdviseTextEditSink(obj, pCtx);        // 새 포커스 컨텍스트에 텍스트편집 싱크 부착
+        Compart_ReadContextDisabled(obj, pCtx);   // 앱이 이 문맥의 입력기를 껐는가 (RFC-0012 Phase 1)
         pCtx->lpVtbl->Release(pCtx);
     } else {
         AdviseTextEditSink(obj, NULL);
+        Compart_ReadContextDisabled(obj, NULL);
     }
     ResetComposition(obj);   // 문서 포커스 이동 → 조합·미리보기 잔상 전면 리셋
     CodeInput_Hide();
@@ -1196,6 +1238,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfT
 
     obj->daAtom = DA_RegisterAtom(ptim);   // composition display-attribute atom (per thread)
     obj->passthrough = Jamotong_GetPassthroughReg();   // 무간섭 모드 초기 상태 (프로세스 간 공유)
+    Compart_Attach(obj);   // RFC-0012 Phase 1: OPENCLOSE/CONVERSION 발행 + OPENCLOSE 통지 구독 (킬스위치 UseCompartments)
 
     // 최초 1회 전역 초기화: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸).
     // 한자/훈음 사전은 여기서 로드하지 않는다 — TIP은 텍스트를 쓰는 모든 프로세스에 로드되므로
@@ -1207,8 +1250,6 @@ static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfT
             CandidateUI_Initialize();
         }
     }
-
-    Jamotong_PublishStatus(&obj->config);   // 활성화 시 현재 자판 상태 발행
 
     // 언어 바 아이템 등록
     ITfLangBarItemMgr *pLangBarMgr = NULL;
@@ -1252,6 +1293,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
         obj->pLangBarItem = NULL;
     }
     
+    Compart_Detach(obj);     // compartment sink 해제 (threadMgr 해제 전)
     FuncConfig_Unadvise(obj);
     UnadviseThreadMgrEventSink(obj);
     UnadviseKeyEventSink(obj);

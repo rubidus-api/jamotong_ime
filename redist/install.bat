@@ -22,6 +22,22 @@ if not "%errorlevel%"=="0" (
   exit /B 1
 )
 
+REM ---- 1b) Log next to this file + show where we are -------------
+set "LOG=%~dp0install-log.txt"
+> "%LOG%" echo Jamotong install log %DATE% %TIME%
+>>"%LOG%" echo folder: %~dp0
+echo [*] Install folder: %~dp0
+echo [*] Log file      : %LOG%
+echo.
+echo %~dp0 | find /I "\Temp\" >nul && (
+  echo [!] This looks like a TEMP folder. If you double-clicked install.bat INSIDE the zip,
+  echo     Explorer extracted only this file. Extract the WHOLE zip to a permanent folder
+  echo     ^(e.g. C:\Jamotong^) first, then run install.bat from there.
+  >>"%LOG%" echo ERROR: running from TEMP folder ^(zip not extracted^)
+  pause
+  exit /B 1
+)
+
 REM ---- 2) 64-bit Windows required ---------------------------------
 set "ARCH=%PROCESSOR_ARCHITECTURE%"
 if defined PROCESSOR_ARCHITEW6432 set "ARCH=%PROCESSOR_ARCHITEW6432%"
@@ -35,6 +51,9 @@ if /I not "%ARCH%"=="AMD64" (
 REM ---- 3) Files present? ------------------------------------------
 if not exist "%~dp0jamotong.dll" (
   echo [!] jamotong.dll not found in: %~dp0
+  echo     Files here:
+  dir /B "%~dp0"
+  >>"%LOG%" echo ERROR: jamotong.dll not found
   pause
   exit /B 1
 )
@@ -51,20 +70,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPa
 REM ---- 5) Register 64-bit TSF DLL ---------------------------------
 echo [*] Registering 64-bit:  regsvr32 jamotong.dll
 regsvr32 /s "%~dp0jamotong.dll"
-if not "%errorlevel%"=="0" (
+set "RC=%errorlevel%"
+>>"%LOG%" echo regsvr32 x64 exit=%RC%
+if not "%RC%"=="0" (
   echo.
-  echo [FAIL] 64-bit registration failed ^(code %errorlevel%^).
+  echo [FAIL] 64-bit registration failed ^(code %RC%^).
+  if "%RC%"=="3" echo   code 3 = LoadLibrary failed: file blocked/quarantined, or a dependency is missing
+  if "%RC%"=="4" echo   code 4 = DllRegisterServer entry point not found: wrong/corrupt file
+  if "%RC%"=="5" echo   code 5 = DllRegisterServer returned an error: registry/TSF profile registration denied
+  echo   Showing the exact Windows message now ^(close the dialog to continue^)...
+  regsvr32 "%~dp0jamotong.dll"
   echo   - Check antivirus quarantine / file unblock, then retry.
   echo.
   pause
   exit /B 1
 )
 echo    [OK] 64-bit registered.
+>>"%LOG%" echo OK x64
 
 REM ---- 6) Register 32-bit TSF DLL (for 32-bit apps) ---------------
 if exist "%~dp0jamotong32.dll" (
   echo [*] Registering 32-bit:  SysWOW64\regsvr32 jamotong32.dll
   "%SystemRoot%\SysWOW64\regsvr32.exe" /s "%~dp0jamotong32.dll"
+  >>"%LOG%" echo regsvr32 x86 exit=%errorlevel%
   if not "%errorlevel%"=="0" (
     echo    [warn] 32-bit registration failed ^(64-bit apps still work^).
   ) else (
@@ -79,6 +107,8 @@ echo ================================================================
 echo.
 echo  NEXT STEPS
 echo   1) Press Win+Space and select "Jamotong IME".
+echo      If it is NOT in the list: the profile was registered machine-wide but your account
+echo      list was not updated. Run the tsfdoctor "2-fix-enable.bat" WITHOUT admin, or sign out/in.
 echo      - New app windows use this build right away. Apps that were
 echo        already running keep the previous copy until you restart
 echo        them ^(sign out/in only if the IME is missing from the list^).

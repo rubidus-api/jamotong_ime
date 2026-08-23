@@ -1,4 +1,5 @@
 #include "langbar.h"
+#include "compartment.h"
 #include "jamotong.h"
 #include "settings_ui.h"
 #include "version.h"
@@ -125,9 +126,10 @@ static HRESULT STDMETHODCALLTYPE LBI_OnClick(ITfLangBarItemButton *pThis, TfLBIC
 
     if (click == TF_LBI_CLK_LEFT) {
         // 좌클릭: 레이아웃 순환
+        Jamotong_FlushForExternalSwitch(obj->pService);   // 조합 중 음절 확정 (실기 B-3: 클릭 전환은 확정을 안 했다)
         Config_RotateLayout(&obj->pService->config);
         LangBar_Update(obj);
-        Jamotong_PublishStatus(&obj->pService->config);
+        Compart_Publish(obj->pService);   // RFC-0012 Phase 1
     } else if (click == TF_LBI_CLK_RIGHT) {
         // 우클릭: 자체 컨텍스트 메뉴. BTN_BUTTON 스타일은 우클릭도 OnClick으로 오며
         // InitMenu(ITfMenu)는 호출되지 않는다(BTN_MENU 전용) — Mozc와 동일 방식.
@@ -184,9 +186,10 @@ static void ExecMenuCmd(JamotongLangBarItem *obj, UINT wID) {
     if (wID == 1) {
         SettingsUI_Show(&obj->pService->config);   // 설정창 (별도 스레드)
     } else if (wID == 2) {
+        Jamotong_FlushForExternalSwitch(obj->pService);   // 조합 중 음절 확정 (실기 B-3: 클릭 전환은 확정을 안 했다)
         Config_RotateLayout(&obj->pService->config);   // 다음 자판
         LangBar_Update(obj);
-        Jamotong_PublishStatus(&obj->pService->config);
+        Compart_Publish(obj->pService);   // RFC-0012 Phase 1
     } else if (wID == 3) {
         MessageBoxW(NULL,
             L"Jamotong IME  " JAMOTONG_VERSION L"\n\n"

@@ -36,6 +36,7 @@
 11. [최소 IME 체크리스트](#11-최소-체크리스트)
 12. [★커밋 전용 '이후'의 실전 교훈](#12-커밋-전용-이후의-실전-교훈)
 13. [★★텍스트 주입은 한 가지가 아니다 — 앱 클래스별 전략](#13-앱-클래스별-텍스트-주입)
+14. [★★★안 쓰고 있던 표준 계약들 — compartment·preserved key·ActivateEx·UI element](#14-안-쓰고-있던-표준-계약들)
 
 부록 A. [jamotong 소스 매핑](#부록-a-jamotong-소스-매핑)
 부록 B. [★참고 자료(공식 문서 링크)](#부록-b-참고-자료)
@@ -2521,6 +2522,102 @@ static void CandidateContext_Clear(CandidateContext *cc)
 ```
 
 ---
+
+---
+
+## 14. 안 쓰고 있던 표준 계약들
+
+*(2026-08-20 조사. 근거 = Microsoft Learn 공식 문서 + 공개 IME 구조 분석. 시험대 =
+`examples/tsf-conformance-lab/`. 아직 **실기 검증 전**이므로 이 절의 문장은 "문서가 이렇게
+말한다"와 "우리는 이렇게 하고 있다"의 대조이지, 실측 결과가 아니다.)*
+
+이 매뉴얼의 §8·§12·§13 은 "호스트가 우리를 방해할 때 어떻게 버티는가"의 기록이다. 그런데
+버티는 수단 중 여럿은 **TSF 가 이미 계약으로 준 것을 우리가 안 써서** 직접 만든 것이었다.
+
+| 우리가 만든 우회로 | 표준 계약 | 문서 |
+|---|---|---|
+| `SendInput` 원키 재전송 + 합성 마커 | `ITfKeystrokeMgr::PreserveKey` → `OnPreservedKey` | [PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey) |
+| 한/영·무간섭 상태를 HKCU 로 공유 | `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `..._INPUTMODE_CONVERSION` | [Compartments](https://learn.microsoft.com/en-us/windows/win32/tsf/compartments) |
+| 후보창용 `WH_KEYBOARD_LL` 전역 훅 | `ITfUIElementMgr::BeginUIElement` + `ITfCandidateListUIElement` | [UILess Mode](https://learn.microsoft.com/en-us/windows/win32/tsf/uiless-mode-overview) |
+| (없음 — 그 호스트에선 그냥 안 켜짐) | `ITfTextInputProcessorEx::ActivateEx` | [ITfTextInputProcessorEx](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itftextinputprocessorex) |
+| 단명 문서에서 조합 포기(§13.0) | `GUID_COMPARTMENT_TRANSITORYEXTENSION_PARENT` 로 **부모 문서**에 도달 | [Predefined Compartments](https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-compartments) |
+
+### 14.1 preserved key — 명령키는 "훔치는" 게 아니라 "예약"한다
+
+`PreserveKey(tid, 명령GUID, {가상키, 모디파이어}, 설명, 길이)` 로 등록하면 그 조합은
+`OnPreservedKey(문맥, 명령GUID, &먹었나)` 로 온다. 이미 등록돼 있으면 `TF_E_ALREADY_EXISTS`.
+
+**경계 규칙**(이걸 틀리면 조합이 깨진다): 문서 내용과 무관한 **명령**만 preserved key 로 둔다
+— 한/영 전환, 한자 시작, 설정 열기. Enter·Esc·BackSpace 처럼 **조합 상태에 따라 뜻이 달라지는
+키는 계속 `OnTestKeyDown`/`OnKeyDown`** 이 판단한다(§5.1).
+
+### 14.2 compartment — 상태를 두는 표준 자리
+
+스코프가 넷이다(global / thread manager / document manager / context). 값은 `VARIANT`,
+읽기·쓰기는 `ITfCompartment::GetValue/SetValue`, 변경 통지는 compartment 를 `ITfSource` 로 QI 해
+`ITfCompartmentEventSink` 를 advise 하면 `OnChange(GUID)` 가 온다 — **폴링이 필요 없다.**
+
+한/영 상태의 정식 자리는 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE`(thread manager 스코프)이고,
+변환 모드는 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`(IMM32 의 `IME_CMODE` 와 같은 뜻,
+`TF_CONVERSIONMODE_NATIVE`=0x1 이 한글). 앱이 "여기선 입력기 꺼라" 하는 자리는 **context 스코프**
+`GUID_COMPARTMENT_KEYBOARD_DISABLED` 다 — 읽지 않으면 꺼야 할 곳에서 조합을 시작하게 된다.
+
+**제품 반영(2026-08-21, RFC-0012 Phase 1, 실기 대기)**: `src/compartment.c` 가 위 둘을 발행하고
+OPENCLOSE 변경을 구독한다(밖이 바꾸면 같은 종류의 켜진 자판으로 전환 — 정책은 `comp_state.c`,
+네이티브 테스트). 포커스 문맥의 `KEYBOARD_DISABLED` 도 읽어 전 키를 통과시킨다. 킬스위치
+`UseCompartments=0`. HKCU 채널은 한 판 병행. **실기 PASS(2026-08-23, 0.16.90)**: 표시기 한↔A 동기·표시기
+클릭으로 자판 전환·5앱 무회귀. ★함정 하나를 밟았다: 밖에서 온 전환(OnChange)에서 조합을 **리셋만** 하면
+칩이 남고 뒤 키가 이어 붙는다 — 확정해야 한다. 그런데 **키 이벤트 밖에서는 `TF_ES_SYNC` 편집 세션이 거부된다**
+(`TF_E_SYNCHRONOUS`; 0.16.91 의 동기 확정은 실기에서 무효였다). 다른 IME 가 하는 대로(MS SampleIME
+`_TerminateComposition`) **`TF_ES_ASYNCDONTCARE`** 로 요청하고, 세션 객체는 힙+참조계수로 둔다(0.16.92).
+또 한/A 표시기는 OPENCLOSE 가 아니라 CONVERSION 의 NATIVE 비트를 바꿀 수 있다 — 둘 다 구독할 것.
+★그리고 이 사건의 진짜 자리는 다른 데였다: 사용자가 누른 트레이 한/A 칩은 **우리 언어바 버튼**(`ITfLangBarItemButton`
+`OnClick`)이었고 그 경로가 확정 없이 자판만 돌렸다(0.16.93 에서 확정 추가). "표시기 클릭"이라는 말만 듣고 compartment
+경로를 이틀 고쳤다 — **어느 경로가 불렸는지를 로그로 먼저 확정**할 것.
+
+### 14.3 ActivateEx 와 UI-less — 구현 안 하면 그 스레드에선 존재하지 않는다
+
+앱이 `ITfThreadMgrEx::ActivateEx(TF_TMAE_UIELEMENTENABLEDONLY)` 로 스레드를 켜면 **자기 UI 를
+제어할 수 있는 TIP 만** 그 스레드에서 활성화된다. 그 자격이 `ITfTextInputProcessorEx` 구현 +
+`GUID_TFCAT_TIPCAP_UIELEMENTENABLED` 카테고리 + **모든 UI 를 `ITfUIElementMgr` 경유로 띄우기**다.
+`ITfTextInputProcessorEx` 를 구현하면 `Activate` 는 안 불리고 `ActivateEx` 만 불린다 —
+초기화 코드는 한 함수로 모아 두 경로가 갈라지지 않게 한다.
+
+UI element 규약: `BeginUIElement(요소, &보여줄까)` → 앱이 `TRUE` 로 답하면 우리가 우리 창을
+띄우고(그래도 `EndUIElement` 는 반드시 부른다), `FALSE` 로 답하면 **앱이 그리므로 우리는
+`UpdateUIElement` 로 내용을 계속 넘긴다**. 후보 이동은 스크롤이 아니라 **페이지 단위**여야 한다
+(앱이 페이지 계산을 다시 하게 되고 결과가 우리 의도와 달라진다 — 공식 문서 명시).
+
+### 14.4 transitory extension — §13.0 의 다음 걸음
+
+CUAS 가 만드는 단명 문서(`TS_SS_TRANSITORY`)에는 **부모 문서로 가는 문서화된 통로**가 있다:
+문서 관리자 스코프의 `GUID_COMPARTMENT_TRANSITORYEXTENSION_PARENT`(부모 `ITfDocumentMgr`),
+반대 방향 `..._DOCUMENTMANAGER`, 그리고 동작을 정하는 `GUID_COMPARTMENT_TRANSITORYEXTENSION`
+(`NONE`/`FLOATING`/`ATSELECTION`).
+
+**아직 시험 안 했다.** 부모가 실제로 채워져 있으면 §13.0 의 분기 위에 "부모 문맥 사용"이라는
+선택지가 생기고, 비어 있으면 현행 분기가 최선임이 문서화된 근거로 확정된다. 어느 쪽이든
+지식이 는다 — 그래서 이건 하기로 한 시험이다.
+
+### 14.5 ★함정: MinGW 헤더에 없는 것과 Windows 에 없는 것은 다르다
+
+MinGW-w64 의 `msctf.h`/`libuuid` 에는 **`ITfTextInputProcessorEx` 타입도, 위 compartment/
+카테고리 GUID 값들도 없다**(`ctffunc.h` 자체가 없다). 그래서 직접 선언해 써야 하는데,
+**GUID 값을 틀리면 그 기능은 "없는 것처럼" 조용히 실패한다** — 그리고 우리는 "Windows 가
+지원 안 하더라"라는 틀린 문장을 이 매뉴얼에 남기게 된다.
+
+규칙: 직접 정의한 GUID 는 **값의 출처와 신뢰도를 주석에 적고**, 확인 전에는 제품에 넣지 않는다.
+확인 방법은 SDK `uuid.lib` 심볼 대조, 또는 그 계약을 이미 쓰는 TIP 의 레지스트리 카테고리
+항목(`HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\Category\Category\`) 대조다.
+(확인된 값: `ITfTextInputProcessorEx` IID = `6e4e2102-f9cd-433d-b496-303ce03a6507`,
+`..._INPUTMODE_CONVERSION` = `ccf05dd8-4a87-11d7-a6e2-00065b84435c`,
+`..._TRANSITORYEXTENSION_PARENT` = `8be347f8-c7a0-11d7-b408-00065b84435c`.)
+
+### 14.6 ★함정: 능력 카테고리는 약속이다
+
+`GUID_TFCAT_TIPCAP_UIELEMENTENABLED` 를 등록해 놓고 UI 를 `ITfUIElementMgr` 없이 띄우면,
+그 카테고리를 믿고 UI-less 로 켠 호스트에서 **더 크게** 깨진다. 순서는 언제나
+**구현 → 시험 → 등록**이다.
 
 ## 부록 A: jamotong 소스 매핑
 

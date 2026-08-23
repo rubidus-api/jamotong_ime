@@ -8,6 +8,9 @@ typedef struct {
 
 HRESULT RequestEditSession(JamotongTextService *pService, ITfContext *pContext, FsmResult fsmRes);
 HRESULT RequestEditSessionData(JamotongTextService *pService, ITfContext *pContext, const EditSessionData *data);
+// 플래그 지정판. 키 이벤트 밖(compartment 통지 등)에서는 TF_ES_SYNC 가 거부될 수 있으므로
+// TF_ES_ASYNCDONTCARE | TF_ES_READWRITE 로 부른다(MS SampleIME 의 _TerminateComposition 패턴).
+HRESULT RequestEditSessionDataEx(JamotongTextService *pService, ITfContext *pContext, const EditSessionData *data, DWORD esFlags);
 // 커서 앞 최대 maxLen 글자를 읽는다. ※ outBuf 용량은 최소 maxLen+1 (널 종단 기록).
 HRESULT RequestReadSessionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen);
 HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *pContext, int replaceLen, const wchar_t *replacement);

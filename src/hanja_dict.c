@@ -50,12 +50,8 @@ static Arena g_Arena = {NULL};
 static HanjaEntry *g_HanjaDict = NULL;
 static int g_HanjaCount = 0;
 
-// O(1) + O(log M) 초고속 인덱싱 테이블 (첫 글자 기준)
-typedef struct {
-    int startIdx;
-    int count;
-} CharIndex;
-static CharIndex g_CharIndex[65536];
+// 조회 = 정렬된 g_HanjaDict 전체에 대한 이진 탐색(항목 ~3천 → wcscmp ≤12회).
+// (예전의 65536 항목 첫글자 인덱스는 BSS 512KB 를 모든 호스트 프로세스에 얹었다 — 제거.)
 
 // 한자 → 대표 독음 역인덱스 (음절 항목에서 구축, 코드포인트 정렬 + 이진 탐색)
 typedef struct { wchar_t hanja; wchar_t reading; } ReadingEntry;
@@ -216,23 +212,6 @@ bool HanjaDict_Load(const wchar_t *filepath) {
     if (g_HanjaCount > 0) {
         qsort(g_HanjaDict, g_HanjaCount, sizeof(HanjaEntry), CompareHanjaEntry);
         
-        // 첫 글자 기반 인덱싱 테이블 구축
-        for (int i = 0; i < 65536; i++) {
-            g_CharIndex[i].startIdx = -1;
-            g_CharIndex[i].count = 0;
-        }
-        
-        for (int i = 0; i < g_HanjaCount; i++) {
-            wchar_t firstChar = g_HanjaDict[i].hangul[0];
-            if (firstChar) {
-                unsigned short idx = (unsigned short)firstChar;
-                if (g_CharIndex[idx].startIdx == -1) {
-                    g_CharIndex[idx].startIdx = i;
-                }
-                g_CharIndex[idx].count++;
-            }
-        }
-
         // 한자 → 대표 독음 역인덱스: 음절 항목(hangul 1글자)에서 각 후보 한자에 그 음을 매핑.
         //   상한 = 전체 후보 수. 첫 매핑만 유지(다음자는 대표 음 하나). 후보창 음 폴백용.
         int cap = 0;
@@ -282,16 +261,8 @@ void HanjaDict_Free(void) {
 bool HanjaDict_Find(const wchar_t *hangul, wchar_t ***pppCandidates, int *pCount) {
     if (!g_HanjaDict || g_HanjaCount == 0 || !hangul || !hangul[0]) return false;
     
-    unsigned short firstChar = (unsigned short)hangul[0];
-    int start = g_CharIndex[firstChar].startIdx;
-    int count = g_CharIndex[firstChar].count;
-    
-    // 해당 글자로 시작하는 단어가 아예 없으면 즉시 종료 (O(1))
-    if (start == -1 || count == 0) return false;
-    
-    // 범위를 대폭 좁혀서 이진 탐색
-    int left = start;
-    int right = start + count - 1;
+    int left = 0;
+    int right = g_HanjaCount - 1;
     
     while (left <= right) {
         int mid = left + (right - left) / 2;

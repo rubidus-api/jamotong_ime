@@ -131,6 +131,10 @@ static ITfEditSessionVtbl EditSessionVtbl = {
 };
 
 HRESULT RequestEditSessionData(JamotongTextService *pService, ITfContext *pContext, const EditSessionData *data) {
+    return RequestEditSessionDataEx(pService, pContext, data, TF_ES_SYNC | TF_ES_READWRITE);
+}
+
+HRESULT RequestEditSessionDataEx(JamotongTextService *pService, ITfContext *pContext, const EditSessionData *data, DWORD esFlags) {
     JamotongEditSession *es = (JamotongEditSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(JamotongEditSession));
     if (!es) return E_OUTOFMEMORY;
     
@@ -146,11 +150,12 @@ HRESULT RequestEditSessionData(JamotongTextService *pService, ITfContext *pConte
     pService->lastCaretValid = FALSE;   // 세션 실패/미도달 시 낡은 캐럿 rect 사용 방지
     // 동기(TF_ES_SYNC) — NavilIME도 동기를 쓰며 AkelPad에서 정상 동작한다. (async는 무효였음)
     HRESULT hrSession = S_OK;
-    HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+    HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, esFlags, &hrSession);
 
-    es->lpVtbl->Release((ITfEditSession*)es);
+    es->lpVtbl->Release((ITfEditSession*)es);   // 비동기면 TSF 가 자기 참조로 수명을 쥔다(힙 객체+참조계수)
     // 바깥 hr(요청 접수)만 반환하면 DoEditSession 내부 실패가 숨는다 → 세션 hr까지 전파 (RFC-0004 P2-2)
-    return FAILED(hr) ? hr : hrSession;
+    // 비동기 요청은 hrSession 이 의미 없다(아직 안 돌았다) → 요청 hr 만.
+    return (esFlags & TF_ES_SYNC) ? (FAILED(hr) ? hr : hrSession) : hr;
 }
 
 HRESULT RequestEditSession(JamotongTextService *pService, ITfContext *pContext, FsmResult fsmRes) {

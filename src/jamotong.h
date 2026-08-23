@@ -76,6 +76,17 @@ typedef struct JamotongTextService {
     // 이 필드는 캐시다(포커스 변경·토글 시 재읽기 — text_service.c).
     BOOL passthrough;
 
+    // ── RFC-0012 Phase 1 compartment (compartment.c) — 한/영 상태의 표준 자리 ──
+    ITfCompartmentEventSinkVtbl *lpVtblCES;   // OPENCLOSE 변경 통지 sink
+    ITfCompartment *cpOpenClose;   // GUID_COMPARTMENT_KEYBOARD_OPENCLOSE (thread mgr 스코프)
+    ITfCompartment *cpConvMode;    // GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION
+    DWORD cpCookie;                // OPENCLOSE advise 쿠키
+    DWORD cpCookieConv;            // INPUTMODE_CONVERSION advise 쿠키 (한/A 표시기는 이쪽을 바꿀 수 있다)
+    wchar_t cpPendingCommit;       // 밖에서 온 전환 때 확정 못 한 음절 — 다음 키 이벤트(pic 있음)에서 먼저 확정
+    long  cpLastOpen, cpLastConv;  // 마지막으로 발행/수용한 값 (-1 = 아직 없음). 같으면 안 쓴다.
+    BOOL  cpSelfWrite;             // 우리가 쓰는 중 — OnChange 메아리 무시
+    BOOL  ctxKeyboardDisabled;     // 포커스 문맥의 KEYBOARD_DISABLED (앱이 입력기를 껐다) 캐시
+
     // Config & Engine State
     JamotongConfig config;
     FsmContext fsm;
@@ -92,13 +103,16 @@ typedef struct JamotongTextService {
 
 HRESULT JamotongTextService_Create(IUnknown *pUnkOuter, REFIID riid, void **ppvObject);
 
-// 현재 자판 상태를 HKCU\Software\Jamotong 에 발행(CurrentAbbrev/CurrentName) — 트레이 모니터링
-// 툴(jamotong.exe)이 읽는다. Activate·자판 전환 시 호출. 무간섭 모드면 "--"를 발행. (text_service.c)
-void Jamotong_PublishStatus(JamotongConfig *config);
 
 // 무간섭(직접 입력) 모드 — text_service.c. 상태 원본=HKCU\Software\Jamotong\Passthrough.
 BOOL Jamotong_GetPassthroughReg(void);                             // 레지스트리 읽기
 void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on);   // 조합 정리+레지스트리+발행
+
+// 밖(compartment 통지 등)에서 자판이 바뀌었을 때의 공통 뒤처리: 조합 경계 정리 + 언어바. (text_service.c)
+// 키 이벤트 밖에서 자판을 바꾸기 **전에** 조합 중 음절을 확정·정리한다 (언어바 버튼 클릭·compartment 통지).
+// 실기 2026-08-23: 트레이의 한/A 칩 = 우리 언어바 버튼이고, 그 클릭은 0.16.2 부터 확정 없이 Rotate 만 했다.
+void Jamotong_FlushForExternalSwitch(JamotongTextService *obj);
+void Jamotong_OnLayoutSwitched(JamotongTextService *obj);
 
 // 함수 공급자/설정(ITfFnConfigure) — func_configure.c
 void    FuncConfig_Init(JamotongTextService *obj);       // vtbl 포인터 설정 (Create에서)

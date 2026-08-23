@@ -7,6 +7,43 @@
 
 (비어 있음)
 
+## [0.17.0] - 2026-08-23
+
+### Added
+- TSF compartments (RFC-0012 Phase 1): hangul/english state is now published to
+  `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` and the conversion mode to
+  `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`, so the system input indicator and
+  applications see the same state; changes made from outside (indicator click, app) switch the
+  layout; per-context `GUID_COMPARTMENT_KEYBOARD_DISABLED` is honoured. Kill switch:
+  `UseCompartments=0` in config.ini. The HKCU passthrough channel is kept for one release.
+
+### Fixed
+- Clicking the tray 한/A chip (Jamotong's own language-bar button) or choosing 다음 자판 from its
+  menu while a syllable was composing left the preedit chip on screen and appended
+  following keys to it; the composing syllable is now committed first. Outside a key event TSF
+  refuses synchronous edit sessions, so the commit uses an asynchronous session
+  (`TF_ES_ASYNCDONTCARE`, the pattern Microsoft's SampleIME uses to end a composition), with
+  EDIT-control direct replace and a next-keystroke fallback. Both the open/close and the
+  conversion-mode compartments are now observed (the 한/A indicator may toggle either).
+
+### Changed
+- Hanja lookup no longer keeps a 65,536-entry first-character index (512 KB of BSS in every
+  host process); the sorted dictionary is binary-searched directly. Same results, ~15 fewer
+  wcscmp per lookup than a table miss would have cost a human to notice.
+- Key sinks compute the shortcut virtual key / modifier state once per call instead of once
+  per shortcut function (dozens of redundant GetKeyState calls per keystroke).
+
+### Removed
+- `HKCU\Software\Jamotong\CurrentAbbrev` / `CurrentName` are no longer written — nothing
+  read them. (Layout state will move to a TSF compartment; see RFC-0012.)
+
+### Added
+- `examples/tsf-conformance-lab/`: a thin test TIP (`conf_tip`), a host-side contract probe
+  (`probe_host`) and `tsfdoctor` (per-user input-profile diagnosis / enable / activate).
+  Build-only on Linux; run on Windows. Documents in the manual §14.
+- Manual §14 (Korean and English): the standard TSF contracts this IME was not using —
+  compartments, preserved keys, `ActivateEx`, UI elements, transitory-extension parent.
+
 ## [0.16.2] - 2026-07-24
 
 ### Fixed
