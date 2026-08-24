@@ -5,6 +5,15 @@
 **A Korean (Hangul) IME for Windows in pure C23 + WinAPI** — a TSF (Text Services
 Framework) text service with no frameworks and no external libraries.
 
+## Download
+
+| | Latest release (direct download) |
+|---|---|
+| **Jamotong installer** | **[jamotong.zip](https://github.com/rubidus-api/jamotong_ime/releases/latest/download/jamotong.zip)** — extract to a permanent folder, run `install.bat` as administrator |
+| Input-list repair tool | [jamotong-ime-list-repair.zip](https://github.com/rubidus-api/jamotong_ime/releases/latest/download/jamotong-ime-list-repair.zip) — when Win+Space shows IMEs you never installed (README inside) |
+
+All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
+
 ## Why this IME
 
 - No dependencies. C and the Win32 API only — no framework, no runtime, no external

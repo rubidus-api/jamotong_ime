@@ -5,6 +5,15 @@
 **Windows용 순수 C23 + WinAPI 한글 IME** — 프레임워크·외부 라이브러리 없이
 TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
+## 다운로드
+
+| | 최신 릴리스 (클릭 = 바로 다운로드) |
+|---|---|
+| **자모통 설치판** | **[jamotong.zip](https://github.com/rubidus-api/jamotong_ime/releases/latest/download/jamotong.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| 입력기 목록 복구 도구 | [jamotong-ime-list-repair.zip](https://github.com/rubidus-api/jamotong_ime/releases/latest/download/jamotong-ime-list-repair.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
+
+전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
+
 ## 장점
 
 - 의존성이 없다. 프레임워크·런타임·외부 라이브러리 없이 C와 Win32 API만 사용하며,
