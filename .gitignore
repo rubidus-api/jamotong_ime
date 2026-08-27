@@ -52,3 +52,6 @@ resources/cache/
 /examples/**/*.dll
 /examples/standard-tsf-lab/dist/
 /examples/standard-tsf-lab/dist32/
+
+# agy-only customization layer (local; see rootsator RFC-0001)
+/.agents/
