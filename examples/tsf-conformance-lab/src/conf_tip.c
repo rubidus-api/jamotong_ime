@@ -581,6 +581,66 @@ static void guid_to_str(const GUID *g, WCHAR *out, size_t cch)
     StringFromGUID2(g, out, (int)cch);
 }
 
+// ── RFC-0014 E1: 사용자별(HKCU 전용) 등록 실험 ─────────────────────────────────────
+// regsvr32 /n /i:user conf_tip.dll  → DllInstall(TRUE, L"user")  (비승격으로 실행하는 것이 실험의 요점)
+// COM 을 HKCU\Software\Classes 에, CTF\TIP 트리를 HKCU 에 그대로 복제한다. HKLM 은 일절 건드리지
+// 않는다 — 그래야 "입력 전환기가 HKCU 등록을 읽는가"가 순수하게 측정된다.
+static LSTATUS RegSetStrW(HKEY root, const WCHAR *sub, const WCHAR *name, const WCHAR *val) {
+    HKEY hk; LSTATUS r = RegCreateKeyExW(root, sub, 0, NULL, 0, KEY_WRITE, NULL, &hk, NULL);
+    if (r) return r;
+    r = RegSetValueExW(hk, name, 0, REG_SZ, (const BYTE*)val, (DWORD)((wcslen(val)+1)*sizeof(WCHAR)));
+    RegCloseKey(hk);
+    return r;
+}
+static LSTATUS RegSetDwW(HKEY root, const WCHAR *sub, const WCHAR *name, DWORD val) {
+    HKEY hk; LSTATUS r = RegCreateKeyExW(root, sub, 0, NULL, 0, KEY_WRITE, NULL, &hk, NULL);
+    if (r) return r;
+    r = RegSetValueExW(hk, name, 0, REG_DWORD, (const BYTE*)&val, sizeof val);
+    RegCloseKey(hk);
+    return r;
+}
+
+HRESULT WINAPI DllInstall(BOOL bInstall, LPCWSTR pszCmdLine)
+{
+    if (!pszCmdLine || _wcsicmp(pszCmdLine, L"user") != 0)
+        return E_INVALIDARG;   // 이 DLL 의 DllInstall 은 사용자별 실험 전용
+
+    WCHAR cls[64], prof[64], path[MAX_PATH], sub[512];
+    StringFromGUID2(&CLSID_ConfLabTip, cls, 64);
+    StringFromGUID2(&GUID_ConfLabProfile, prof, 64);
+    if (!GetModuleFileNameW(g_hInst, path, MAX_PATH)) return E_FAIL;
+    // GUID_TFCAT_TIP_KEYBOARD 문자열 (msctf 공개 값)
+    static const WCHAR kCatKeyboard[] = L"{34745C63-B2F0-4784-8B67-5E12C8701A31}";
+
+    logf_("E1 DllInstall install=%d (per-user)", (int)bInstall);
+
+    if (bInstall) {
+        // COM (HKCU Classes — COM 이 HKLM 위에 병합)
+        swprintf(sub, 512, L"Software\\Classes\\CLSID\\%s", cls);
+        RegSetStrW(HKEY_CURRENT_USER, sub, NULL, L"jamotong conf-lab TIP (per-user)");
+        swprintf(sub, 512, L"Software\\Classes\\CLSID\\%s\\InProcServer32", cls);
+        RegSetStrW(HKEY_CURRENT_USER, sub, NULL, path);
+        RegSetStrW(HKEY_CURRENT_USER, sub, L"ThreadingModel", L"Apartment");
+        // CTF\TIP 트리 (HKLM 구조를 HKCU 에 복제 — 전환기가 읽는지가 실험)
+        swprintf(sub, 512, L"Software\\Microsoft\\CTF\\TIP\\%s\\LanguageProfile\\0x00000412\\%s", cls, prof);
+        RegSetStrW(HKEY_CURRENT_USER, sub, L"Description", L"jamotong conf-lab (per-user)");
+        RegSetDwW (HKEY_CURRENT_USER, sub, L"Enable", 1);
+        swprintf(sub, 512, L"Software\\Microsoft\\CTF\\TIP\\%s\\Category\\Category\\%s\\%s", cls, kCatKeyboard, cls);
+        RegSetStrW(HKEY_CURRENT_USER, sub, NULL, L"");
+        swprintf(sub, 512, L"Software\\Microsoft\\CTF\\TIP\\%s\\Category\\Item\\%s\\%s", cls, cls, kCatKeyboard);
+        RegSetStrW(HKEY_CURRENT_USER, sub, NULL, L"");
+        logf_("E1 per-user registration written (HKCU only)");
+        return S_OK;
+    } else {
+        swprintf(sub, 512, L"Software\\Microsoft\\CTF\\TIP\\%s", cls);
+        RegDeleteTreeW(HKEY_CURRENT_USER, sub);
+        swprintf(sub, 512, L"Software\\Classes\\CLSID\\%s", cls);
+        RegDeleteTreeW(HKEY_CURRENT_USER, sub);
+        logf_("E1 per-user registration removed");
+        return S_OK;
+    }
+}
+
 HRESULT WINAPI DllRegisterServer(void)
 {
     WCHAR clsidStr[64], key[256], path[MAX_PATH];

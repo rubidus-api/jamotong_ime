@@ -14,6 +14,20 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
+### 설치 방식 선택
+
+| | 기계 전체 (기본) | 사용자별 |
+|---|---|---|
+| 실행 | `install.bat` (관리자) | `install-user.bat` (더블클릭 — 등록 순간에만 UAC 1회) |
+| 파일 위치 | 압축 푼 폴더 (예: `C:\Jamotong`) | `%LocalAppData%\Programs\Jamotong` |
+| 업그레이드 | `install.bat` 다시 (관리자) | `upgrade-user.bat` — **관리자 불필요** |
+| 제거 | `uninstall.bat` (관리자) | `uninstall-user.bat` (UAC 1회) |
+| 권장 | 공용 PC, 여러 계정 | 이 PC 를 혼자 쓰는 경우 |
+
+Windows 가 TSF 입력기 등록을 기계 전체로 유지하기 때문에 사용자별 설치도 **첫 설치와 제거 때는**
+UAC 확인이 한 번 필요합니다(업그레이드는 불필요). 어느 방식이든 **등록된 상태에서 폴더를 옮기거나
+지우지 마세요** — 먼저 uninstall 을 실행해야 합니다.
+
 ## 장점
 
 - 의존성이 없다. 프레임워크·런타임·외부 라이브러리 없이 C와 Win32 API만 사용하며,

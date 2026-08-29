@@ -14,6 +14,20 @@ Framework) text service with no frameworks and no external libraries.
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
+### Choosing an install mode
+
+| | Machine-wide (default) | Per-user |
+|---|---|---|
+| Run | `install.bat` (as administrator) | `install-user.bat` (double-click; one UAC prompt at registration only) |
+| Files | the extracted folder (e.g. `C:\Jamotong`) | `%LocalAppData%\Programs\Jamotong` |
+| Upgrade | `install.bat` again (admin) | `upgrade-user.bat` — **no admin needed** |
+| Removal | `uninstall.bat` (admin) | `uninstall-user.bat` (one UAC prompt) |
+| Best for | shared PCs, multiple accounts | a PC you use alone |
+
+Windows keeps TSF text-service registration machine-wide, so even the per-user mode needs one UAC
+confirmation on first install and on removal (upgrades need none). Either way, **never move or
+delete the folder while registered** — run the uninstaller first.
+
 ## Why this IME
 
 - No dependencies. C and the Win32 API only — no framework, no runtime, no external
