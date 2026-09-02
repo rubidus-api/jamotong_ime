@@ -63,7 +63,8 @@ typedef struct JamotongTextService {
     LONG refCount;
     ITfThreadMgr *threadMgr;
     TfClientId clientId;
-    DWORD activateFlags;   // ActivateEx 로 받은 플래그 (Activate 경유면 0). UI-less 판단은 Phase 3 에서.
+    DWORD activateFlags;   // ActivateEx 로 받은 플래그 (Activate 경유면 0)
+    ITfUIElementMgr *uiElemMgr;   // UI element 게이트 (RFC-0012 Phase 3, ui_element.c). 없으면 기존 동작
     TfGuidAtom daAtom;   // registered atom for GUID_JamotongComposingDA
     DWORD tmesCookie;    // ThreadMgrEventSink advise 쿠키
     DWORD tesCookie;     // TextEditSink advise 쿠키

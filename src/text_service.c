@@ -12,6 +12,7 @@
 #include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
 #include "compartment.h"   // RFC-0012 Phase 1 compartment (한/영 상태의 표준 자리)
 #include "preserved.h"     // RFC-0013 C preserved key (문맥 무관 명령키)
+#include "ui_element.h"    // RFC-0012 Phase 3 UI element 게이트
 // ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
 static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
@@ -1298,6 +1299,7 @@ static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *pt
 
     obj->daAtom = DA_RegisterAtom(ptim);   // composition display-attribute atom (per thread)
     obj->passthrough = Jamotong_GetPassthroughReg();   // 무간섭 모드 초기 상태 (프로세스 간 공유)
+    UiElem_Attach(obj);    // RFC-0012 Phase 3: UIElementMgr 게이트 (없으면 기존 동작)
     Compart_Attach(obj);   // RFC-0012 Phase 1: OPENCLOSE/CONVERSION 발행 + OPENCLOSE 통지 구독 (킬스위치 UseCompartments)
 
     // 최초 1회 전역 초기화: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸).
@@ -1361,6 +1363,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
         obj->pLangBarItem = NULL;
     }
     
+    UiElem_Detach(obj);
     Compart_Detach(obj);     // compartment sink 해제 (threadMgr 해제 전)
     Preserved_Unregister(obj);
     FuncConfig_Unadvise(obj);

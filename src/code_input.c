@@ -1,4 +1,5 @@
 #include "code_input.h"
+#include "ui_element.h"
 #include "hanja_dict.h"   // 한자 코드포인트 → 훈음/음 이름 표시
 #include <stdio.h>
 
@@ -128,6 +129,7 @@ static bool EnsureClass(void) {
 }
 
 void CodeInput_Show(int x, int y) {
+    if (!UiElem_BeginCode()) return;   // RFC-0012 Phase 3 게이트 (재호출 안전)
     if (!EnsureClass()) return;
     g_hexLen = 0; g_hex[0] = L'\0';
     if (!g_hwnd) {
@@ -175,6 +177,7 @@ bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint) {
 }
 
 void CodeInput_Hide(void) {
+    UiElem_EndCode();
     if (g_hwnd) ShowWindow(g_hwnd, SW_HIDE);
     g_hexLen = 0; g_hex[0] = L'\0';
 }

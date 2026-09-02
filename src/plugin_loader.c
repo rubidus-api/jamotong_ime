@@ -43,11 +43,14 @@ void PluginLoader_LoadAll(JamotongConfig *config) {
     }
 
     // 통합 자판 설정파일 로드: *.jmt (Type = static | hangul | chord). 자판 데이터는 사용자 파일.
-    // ① DLL 옆 폴더 → ② 사용자 저장소 %APPDATA%\Jamotong\layouts (설정창 Add가 복사해 두는 곳 —
-    //    외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).
-    LoadJmtDir(config, path);
-    wchar_t userDir[MAX_PATH];
+    // 탐색 순서(RFC-0011 P0 명문화): ① 사용자 %APPDATA%\Jamotong\layouts → ② 기계 전체
+    // %PROGRAMDATA%\Jamotong\layouts → ③ DLL 옆 폴더(v1 호환). 같은 이름은 **먼저 읽은 쪽이
+    // 이긴다** = 사용자 자판이 기계 전체/내장 배포본을 덮어쓸 수 있다(예전엔 DLL 옆이 먼저라
+    // 사용자가 못 덮었다 — 코드 검토 2026-08-21 발견).
+    wchar_t userDir[MAX_PATH], machDir[MAX_PATH];
     if (Config_UserLayoutDir(userDir, MAX_PATH)) LoadJmtDir(config, userDir);
+    if (Config_MachineLayoutDir(machDir, MAX_PATH)) LoadJmtDir(config, machDir);
+    LoadJmtDir(config, path);
 
     // plugin_*.dll 자동 로드는 비활성화했다 (안정성/보안).
     // 이유: 이 함수는 TIP 생성 시(JamotongTextService_Create) 실행되고, TIP는 언어바/시스템

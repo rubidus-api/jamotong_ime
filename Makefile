@@ -12,7 +12,7 @@ CFLAGS = -Wall -Wextra -std=c2x -D_UNICODE -DUNICODE -O2
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup -lole32 -loleaut32 -luuid -lcomctl32 -lcomdlg32 -lgdi32 -limm32
 
 TARGET = dist/jamotong.dll
-SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/func_configure.c src/preedit_overlay.c src/code_input.c src/comp_path.c src/comp_inline.c src/comp_state.c src/compartment.c src/preserved_map.c src/preserved.c
+SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/func_configure.c src/preedit_overlay.c src/code_input.c src/comp_path.c src/comp_inline.c src/comp_state.c src/compartment.c src/preserved_map.c src/preserved.c src/ui_element.c
 HEADERS = $(wildcard src/*.h)
 
 # src/jamotong.def: DllRegisterServer 등 진입점을 장식 없는 이름으로 export (32비트 regsvr32 필수)

@@ -1,4 +1,5 @@
 #include "chord_layout.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -239,6 +240,14 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     }
     fclose(fp);
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
+    // 정확 크기로 축소 재할당 (RFC-0011 P0): 고정 배열 chords[2048] 전체(≈182KB)를 모든 호스트
+    // 프로세스가 지는 대신, 실제 조합 수만큼만. 구조체 선언은 그대로 두되 할당만 줄인다 —
+    // 소비자는 chords[0..chordCount) 만 읽는다(전체 memcpy/sizeof(ChordLayout) 사용처 없음 확인).
+    {
+        size_t need = offsetof(ChordLayout, chords) + (size_t)cl->chordCount * sizeof(ChordEntry);
+        ChordLayout *shrunk = (ChordLayout*)HeapAlloc(GetProcessHeap(), 0, need);
+        if (shrunk) { memcpy(shrunk, cl, need); HeapFree(GetProcessHeap(), 0, cl); cl = shrunk; }
+    }
     return cl;
 }
 #undef FAIL

@@ -13,6 +13,9 @@ static const GUID GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J   = { 0x25504fb4, 0x7bab, 0
 // 값 = MS windows-sys(win32metadata) ccf05dd7-4a87-11d7-a6e2-00065b84435c; 위 두 _J 값과 같은 소스에서
 // 교차 검증됨(그 둘은 실기 검증된 값과 일치).
 static const GUID GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J = { 0xccf05dd7, 0x4a87, 0x11d7, { 0xa6, 0xe2, 0x00, 0x06, 0x5b, 0x84, 0x43, 0x5c } };
+// UI element 지원 선언 (RFC-0012 Phase 3 — 세 UI(후보·칩·코드입력) 전부 UIElementMgr 게이트를
+// 지나므로 이제 선언이 참). 값 = windows-sys 49d2f9cf-1f5e-11d7-a6d3-00065b84435c (같은 소스 교차검증).
+static const GUID GUID_TFCAT_TIPCAP_UIELEMENTENABLED_J = { 0x49d2f9cf, 0x1f5e, 0x11d7, { 0xa6, 0xd3, 0x00, 0x06, 0x5b, 0x84, 0x43, 0x5c } };
 
 extern HINSTANCE g_hInst;   // dllmain.c — 프로파일 아이콘을 이 DLL에서 추출하기 위한 모듈 핸들
 
@@ -73,6 +76,7 @@ HRESULT RegisterCategories(void) {
     if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT_J, &CLSID_JamotongIME);
     if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J, &CLSID_JamotongIME);
     if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J, &CLSID_JamotongIME);
+    if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_UIELEMENTENABLED_J, &CLSID_JamotongIME);
 
     pCategoryMgr->lpVtbl->Release(pCategoryMgr);
     return hr;
@@ -88,6 +92,7 @@ HRESULT UnregisterCategories(void) {
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT_J, &CLSID_JamotongIME);
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J, &CLSID_JamotongIME);
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J, &CLSID_JamotongIME);
+    hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_UIELEMENTENABLED_J, &CLSID_JamotongIME);
 
     pCategoryMgr->lpVtbl->Release(pCategoryMgr);
     return S_OK;

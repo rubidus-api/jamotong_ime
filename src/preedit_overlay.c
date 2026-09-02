@@ -1,4 +1,5 @@
 #include "preedit_overlay.h"
+#include "ui_element.h"
 #include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
 #include <string.h>
 
@@ -177,6 +178,9 @@ static bool EnsureClass(void) {
 }
 
 void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t *fontFace, int fixedSize) {
+    // RFC-0012 Phase 3: 창을 띄우기 전 UIElementMgr 게이트 — 호스트(UI-less)가 거부하면 안 그린다.
+    // (commit 전용 호스트에서 칩이 유일한 조합 표시지만, UI-less 앱은 애초에 창이 떠선 안 되는 곳이다.)
+    if (!UiElem_BeginChip()) return;   // 호스트가 그리기 거부 → 표시 생략 (재호출 안전 — began 이면 이전 답)
     if (!rcCaret || !text || !text[0]) { PreeditOverlay_Hide(); return; }
     if (!EnsureClass()) return;
 
@@ -204,6 +208,7 @@ void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t
 }
 
 void PreeditOverlay_Hide(void) {
+    UiElem_EndChip();   // 게이트 종료 (began 아니면 no-op)
     if (g_hwnd) {
         KillTimer(g_hwnd, ADJUST_TIMER_ID);
         ShowWindow(g_hwnd, SW_HIDE);   // 파괴 대신 숨김(재사용 — 창 생성 비용 절약)

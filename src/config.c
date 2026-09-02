@@ -78,6 +78,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.inlineComposition = true;  // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010)
     config->options.useCompartments = true;     // TSF compartment 한/영 상태 (RFC-0012 Phase 1)
     config->options.usePreservedKeys = true;    // preserved key 명령키 (RFC-0013 C)
+    config->options.useUIElements = true;       // UI element 게이트 (RFC-0012 Phase 3)
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
     wcscpy(config->options.candFont, L"Malgun Gothic");
@@ -276,6 +277,16 @@ static bool IsReservedDeviceBase(const wchar_t *name, size_t baseLen) {
     return false;
 }
 
+bool Config_MachineLayoutDir(wchar_t *out, int cch) {
+    if (!out || cch < 8) return false;
+    wchar_t base[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"PROGRAMDATA", base, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return false;
+    _snwprintf(out, cch, L"%ls\\Jamotong\\layouts", base);
+    out[cch - 1] = L'\0';
+    return true;
+}
+
 bool Config_IsSafeLayoutFileName(const wchar_t *name) {
     if (!name || !name[0]) return false;
     if (wcspbrk(name, L"\\/:")) return false;   // 경로 구분자/드라이브/ADS 금지 → 상위 이동 차단
@@ -408,6 +419,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"InlineComposition=%d\n", config->options.inlineComposition ? 1 : 0);
     fwprintf(fp, L"UseCompartments=%d\n", config->options.useCompartments ? 1 : 0);
     fwprintf(fp, L"UsePreservedKeys=%d\n", config->options.usePreservedKeys ? 1 : 0);
+    fwprintf(fp, L"UseUIElements=%d\n", config->options.useUIElements ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
@@ -436,6 +448,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     temp.options.inlineComposition = true;   // 구버전 .ini 대비 기본 켜짐 (RFC-0010)
     temp.options.useCompartments = true;     // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 1)
     temp.options.usePreservedKeys = true;    // 구버전 .ini 대비 기본 켜짐 (RFC-0013 C)
+    temp.options.useUIElements = true;       // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 3)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
     temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
@@ -557,6 +570,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             else if (swscanf(line, L"InlineComposition=%d", &val) == 1) temp.options.inlineComposition = (val != 0);
             else if (swscanf(line, L"UseCompartments=%d", &val) == 1) temp.options.useCompartments = (val != 0);
             else if (swscanf(line, L"UsePreservedKeys=%d", &val) == 1) temp.options.usePreservedKeys = (val != 0);
+            else if (swscanf(line, L"UseUIElements=%d", &val) == 1) temp.options.useUIElements = (val != 0);
             else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
                 temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);
             else if (swscanf(line, L"CandFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {

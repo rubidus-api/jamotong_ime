@@ -2,7 +2,12 @@
 #include "hanja_dict.h"   // HunumDict_Find — 후보 옆 훈음(뜻·음) 표시
 #include <stdio.h>
 
+#include "ui_element.h"   // RFC-0012 Phase 3: 창을 띄우기 전 UIElementMgr 게이트
+
 static HWND g_hwndCandi = NULL;
+static bool g_active = false;    // 후보 세션 활성 (자체 창 유무와 무관 — 호스트가 그릴 수도)
+static bool g_ownDraw = true;    // 우리 창을 그려도 되는가 (BeginUIElement 의 답)
+static bool g_hostShown = true;  // 호스트가 ITfUIElement::Show 로 지정한 표시 상태
 static wchar_t **g_candidates = NULL;
 static int g_count = 0;
 static int g_replaceLen = 0;
@@ -256,19 +261,26 @@ void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     g_anchorX = x; g_anchorY = y;
     g_anchorTop = (caretTop < y) ? caretTop : y;   // 뒤집기 기준(캐럿 줄 위) — 방어적 정규화
 
-    int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
-    if (!g_hwndCandi) {
-        g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
-            x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
+    g_active = true;
+    g_hostShown = true;
+    g_ownDraw = UiElem_BeginCandidate() ? true : false;   // 호스트가 그린다면 우리 창·훅 생략
+    if (g_ownDraw) {
+        int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
+        if (!g_hwndCandi) {
+            g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
+                x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
+        }
+        PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
+        InvalidateRect(g_hwndCandi, NULL, TRUE);
+        InstallKbHook();     // PuTTY류 키 라우팅 폴백 — 자체 창 표시 중에만
     }
-    PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
-    InvalidateRect(g_hwndCandi, NULL, TRUE);
-    InstallKbHook();     // PuTTY류 키 라우팅 폴백 — 표시 중에만
+    UiElem_UpdateCandidate(0x3F);   // 첫 갱신 = 전체 비트 (uiless 문서: 첫 Update 는 all-bits)
 }
 
 // 페이지 이동/선택 변경 후 크기·내용 갱신
 static void RefreshCandWindow(void) {
+    UiElem_UpdateCandidate(0x04|0x10|0x20);   // SELECTION|PAGEINDEX|CURRENTPAGE
     if (!g_hwndCandi) return;
     g_winW = MeasurePageWidth();
     PlaceCandWindow();   // 폭 변화·화면 클램프 반영 (앵커 기준 재배치)
@@ -276,6 +288,7 @@ static void RefreshCandWindow(void) {
 }
 
 void CandidateUI_Hide(void) {
+    UiElem_EndCandidate();   // 게이트 종료 (began 아니면 no-op) — EndUIElement 는 의무
     RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
     if (g_hwndCandi) {
         DestroyWindow(g_hwndCandi);
@@ -283,16 +296,18 @@ void CandidateUI_Hide(void) {
     }
     g_candidates = NULL;
     g_count = 0;
+    g_active = false;
+    g_ownDraw = true;
 }
 
 void CandidateUI_Cancel(void) {
-    if (!g_hwndCandi) return;
+    if (!g_active) return;
     if (g_onCancel) g_onCancel(g_ctx);   // 컨텍스트 정리(pic Release)를 콜백이 수행
     CandidateUI_Hide();
 }
 
 bool CandidateUI_IsVisible(void) {
-    return g_hwndCandi != NULL;
+    return g_active;   // 자체 창이 없어도(호스트가 그림) 키 라우팅은 우리가 계속 한다
 }
 
 int CandidateUI_GetReplaceLen(void) {
@@ -332,7 +347,7 @@ bool CandidateUI_HandleKey(UINT vKey) {
     }
 
     if (vKey == VK_DOWN) {                          // ↑↓ = 페이지 안 선택 이동(끝에서 페이지 넘김)
-        if (g_sel + 1 < PageItemCount()) { g_sel++; InvalidateRect(g_hwndCandi, NULL, TRUE); }
+        if (g_sel + 1 < PageItemCount()) { g_sel++; UiElem_UpdateCandidate(0x04); InvalidateRect(g_hwndCandi, NULL, TRUE); }
         else {
             int totalPages = (g_count + g_perPage - 1) / g_perPage;
             if (g_page < totalPages - 1) { g_page++; g_sel = 0; RefreshCandWindow(); }
@@ -340,7 +355,7 @@ bool CandidateUI_HandleKey(UINT vKey) {
         return true;
     }
     if (vKey == VK_UP) {
-        if (g_sel > 0) { g_sel--; InvalidateRect(g_hwndCandi, NULL, TRUE); }
+        if (g_sel > 0) { g_sel--; UiElem_UpdateCandidate(0x04); InvalidateRect(g_hwndCandi, NULL, TRUE); }
         else if (g_page > 0) { g_page--; g_sel = PageItemCount() - 1; RefreshCandWindow(); }
         return true;
     }
@@ -358,3 +373,17 @@ bool CandidateUI_HandleKey(UINT vKey) {
     // Ignore other keys while candidate UI is open
     return true;
 }
+
+// ── UI element 요소 접근자 (ui_element.c 의 ITfCandidateListUIElement 가 읽는다) ──────
+int  CandidateUI_ElemCount(void)      { return g_count; }
+int  CandidateUI_ElemSelection(void)  { return g_active ? g_page * g_perPage + g_sel : -1; }
+const wchar_t *CandidateUI_ElemString(int idx) {
+    return (g_candidates && idx >= 0 && idx < g_count) ? g_candidates[idx] : NULL;
+}
+int  CandidateUI_ElemPerPage(void)    { return g_perPage; }
+int  CandidateUI_ElemPage(void)       { return g_page; }
+void CandidateUI_ElemHostShow(BOOL show) {
+    g_hostShown = show ? true : false;
+    if (g_hwndCandi) ShowWindow(g_hwndCandi, show ? SW_SHOWNOACTIVATE : SW_HIDE);
+}
+BOOL CandidateUI_ElemIsShown(void)    { return (g_hwndCandi != NULL) && g_hostShown; }

@@ -50,8 +50,9 @@ typedef struct ChordLayout {
     int keyBit[128];                 // ASCII 산출문자 → 비트(0..31), -1 = 코드 글쇠 아님
     wchar_t layerNames[CL_MAX_LAYERS][32];
     int layerCount;
+    int chordCount;                  // ★chords[] 앞에 둘 것 — 로더가 정확 크기(offsetof(chords)+n)로
+                                     //   축소 할당하므로, 배열 뒤에 두면 잘려나간다(RFC-0011 P0)
     ChordEntry chords[CL_MAX_CHORDS];
-    int chordCount;
 } ChordLayout;
 
 // 런타임 상태

@@ -86,6 +86,7 @@ typedef struct {
     bool inlineComposition; // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010). 기본 켜짐. 0=항상 commit 전용.
     bool useCompartments;   // TSF compartment 로 한/영·변환모드 발행/구독 (RFC-0012 Phase 1). 기본 켜짐. 킬스위치.
     bool usePreservedKeys;  // 문맥 무관 명령키를 TSF preserved key 로 예약 (RFC-0013 C). 기본 켜짐. 킬스위치.
+    bool useUIElements;     // 자체 UI 를 UIElementMgr 게이트로 (RFC-0012 Phase 3). 기본 켜짐. 킬스위치.
     wchar_t previewFont[32];// 미리보기 글꼴 face 이름 (32 = LF_FACESIZE). 기본 "Malgun Gothic".
     int previewFontSize;    // 미리보기 글꼴 크기(px). 0=Auto(캐럿 높이 근사), 8~96=고정.
     wchar_t candFont[32];   // 한자 후보창 글꼴 face. 후보·훈음·페이지 표시 전부 이 글꼴 하나.
@@ -131,6 +132,9 @@ bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini 
 // 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시
 // 자동 로드된다(외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).
 bool Config_UserLayoutDir(wchar_t *out, int cch);
+// 기계 전체 자판 저장소 %PROGRAMDATA%\Jamotong\layouts (관리자 배포용, RFC-0011 P0).
+// 읽기 전용 취급 — 생성 시도는 하되 실패(비관리자)해도 조용히 넘어간다.
+bool Config_MachineLayoutDir(wchar_t *out, int cch);
 // Import 번들 복원 시 [LayoutFile:name] 이름이 안전한지 검사한다(경로 조작 방어).
 //   경로 구분자 없음 + .jmt 확장자 + 예약 장치명 아님 + basename이 점/공백만은 아님일 때 true.
 bool Config_IsSafeLayoutFileName(const wchar_t *name);

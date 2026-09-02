@@ -6,16 +6,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void PeekType(const wchar_t *path, wchar_t *type, size_t n) {
-    (void)n;
-    type[0] = L'\0';
+// 머리부 한 번 훑기: Type 과 Abbrev 를 한 번의 열기로 읽는다 (RFC-0011 P0 — 파일당 열기 3→2회).
+static void PrescanHeader(const wchar_t *path, wchar_t *type, wchar_t *abbrev) {
+    type[0] = L'\0'; abbrev[0] = L'\0';
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
     if (!fp) return;
     wchar_t line[256];
     while (fgetws(line, 256, fp)) {
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
-        if (swscanf(p, L"Type = %31ls", type) == 1) break;
+        if (!type[0]) swscanf(p, L"Type = %31ls", type);
+        if (!abbrev[0]) {
+            wchar_t buf[16] = {0};
+            if (swscanf(p, L"Abbrev = %7l[^\r\n]", buf) == 1) {
+                size_t k = wcslen(buf);
+                while (k > 0 && (buf[k-1]==L' '||buf[k-1]==L'\t')) buf[--k] = L'\0';
+                if (buf[0]) lstrcpynW(abbrev, buf, 8);
+            }
+        }
+        if (type[0] && abbrev[0]) break;
     }
     fclose(fp);
 }
@@ -59,30 +68,11 @@ static bool LoadStatic(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
     return out->name != NULL;
 }
 
-// .jmt의 "Abbrev = XX" (트레이 표시용 2~3글자)를 읽는다. 없으면 name 앞 3글자로 파생.
-static void ReadAbbrev(const wchar_t *path, wchar_t *abbrev, const wchar_t *name) {
-    abbrev[0] = L'\0';
-    FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (fp) {
-        wchar_t line[128];
-        while (fgetws(line, 128, fp)) {
-            wchar_t buf[16] = {0};
-            if (swscanf(line, L"Abbrev = %7l[^\r\n]", buf) == 1) {
-                size_t k = wcslen(buf);
-                while (k > 0 && (buf[k-1]==L' '||buf[k-1]==L'\t')) buf[--k] = L'\0';
-                if (buf[0]) lstrcpynW(abbrev, buf, 8);
-                break;
-            }
-        }
-        fclose(fp);
-    }
-    if (!abbrev[0]) lstrcpynW(abbrev, (name && name[0]) ? name : L"??", 4);   // 앞 3글자 파생
-}
 
 bool Klay_Load(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
     if (diag) { diag->line = 0; diag->message[0] = L'\0'; }
-    wchar_t type[32] = L"";
-    PeekType(path, type, 32);
+    wchar_t type[32] = L"", abbrev[8] = L"";
+    PrescanHeader(path, type, abbrev);
     memset(out, 0, sizeof(*out));
     bool ok = false;
 
@@ -103,6 +93,9 @@ bool Klay_Load(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
             if (out->name) ok = true; else HangulLayout_Free(hl);
         }
     }
-    if (ok) ReadAbbrev(path, out->abbrev, out->name);
+    if (ok) {
+        if (abbrev[0]) lstrcpynW(out->abbrev, abbrev, 8);
+        else lstrcpynW(out->abbrev, (out->name && out->name[0]) ? out->name : L"??", 4);   // 앞 3글자 파생
+    }
     return ok;
 }
