@@ -9,6 +9,10 @@ static const LANGID c_langIdKorean = MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN);
 // 플레인 const로 정의(DEFINE_GUID는 INITGUID 없이는 선언만 → 링크 에러).
 static const GUID GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT_J = { 0x13a016df, 0x560b, 0x46cd, { 0x94, 0x7a, 0x4c, 0x3a, 0xf1, 0xe0, 0xe3, 0x5d } };
 static const GUID GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J   = { 0x25504fb4, 0x7bab, 0x4bc1, { 0x9c, 0x69, 0xcf, 0x81, 0x89, 0x0f, 0x0e, 0xf5 } };
+// 입력모드 compartment 지원 선언 (RFC-0012 Phase 1 구현·실기 PASS 후 등록 — RFC-0013 B).
+// 값 = MS windows-sys(win32metadata) ccf05dd7-4a87-11d7-a6e2-00065b84435c; 위 두 _J 값과 같은 소스에서
+// 교차 검증됨(그 둘은 실기 검증된 값과 일치).
+static const GUID GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J = { 0xccf05dd7, 0x4a87, 0x11d7, { 0xa6, 0xe2, 0x00, 0x06, 0x5b, 0x84, 0x43, 0x5c } };
 
 extern HINSTANCE g_hInst;   // dllmain.c — 프로파일 아이콘을 이 DLL에서 추출하기 위한 모듈 핸들
 
@@ -68,6 +72,7 @@ HRESULT RegisterCategories(void) {
     // 모던 앱/시스템 트레이 지원 (Win8+)
     if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT_J, &CLSID_JamotongIME);
     if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J, &CLSID_JamotongIME);
+    if (SUCCEEDED(hr)) hr = pCategoryMgr->lpVtbl->RegisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J, &CLSID_JamotongIME);
 
     pCategoryMgr->lpVtbl->Release(pCategoryMgr);
     return hr;
@@ -82,6 +87,7 @@ HRESULT UnregisterCategories(void) {
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, &CLSID_JamotongIME);
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT_J, &CLSID_JamotongIME);
     hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT_J, &CLSID_JamotongIME);
+    hr = pCategoryMgr->lpVtbl->UnregisterCategory(pCategoryMgr, &CLSID_JamotongIME, &GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT_J, &CLSID_JamotongIME);
 
     pCategoryMgr->lpVtbl->Release(pCategoryMgr);
     return S_OK;

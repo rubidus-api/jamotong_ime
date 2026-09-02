@@ -77,6 +77,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.showPreview = true;        // 조합 미리보기 오버레이 (RFC-0002)
     config->options.inlineComposition = true;  // 비단명 컨텍스트 문서 인라인 조합 (RFC-0010)
     config->options.useCompartments = true;     // TSF compartment 한/영 상태 (RFC-0012 Phase 1)
+    config->options.usePreservedKeys = true;    // preserved key 명령키 (RFC-0013 C)
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
     wcscpy(config->options.candFont, L"Malgun Gothic");
@@ -406,6 +407,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"ShowPreview=%d\n", config->options.showPreview ? 1 : 0);
     fwprintf(fp, L"InlineComposition=%d\n", config->options.inlineComposition ? 1 : 0);
     fwprintf(fp, L"UseCompartments=%d\n", config->options.useCompartments ? 1 : 0);
+    fwprintf(fp, L"UsePreservedKeys=%d\n", config->options.usePreservedKeys ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
@@ -433,6 +435,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     temp.options.showPreview = true; // 구버전 .ini 대비 기본 켜짐 (RFC-0002)
     temp.options.inlineComposition = true;   // 구버전 .ini 대비 기본 켜짐 (RFC-0010)
     temp.options.useCompartments = true;     // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 1)
+    temp.options.usePreservedKeys = true;    // 구버전 .ini 대비 기본 켜짐 (RFC-0013 C)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
     temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
@@ -553,6 +556,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             else if (swscanf(line, L"ShowPreview=%d", &val) == 1) temp.options.showPreview = (val != 0);
             else if (swscanf(line, L"InlineComposition=%d", &val) == 1) temp.options.inlineComposition = (val != 0);
             else if (swscanf(line, L"UseCompartments=%d", &val) == 1) temp.options.useCompartments = (val != 0);
+            else if (swscanf(line, L"UsePreservedKeys=%d", &val) == 1) temp.options.usePreservedKeys = (val != 0);
             else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
                 temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);
             else if (swscanf(line, L"CandFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {

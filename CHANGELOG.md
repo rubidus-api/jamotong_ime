@@ -7,6 +7,28 @@
 
 (비어 있음)
 
+## [0.18.0] - 2026-08-30
+
+### Added
+- `ITfTextInputProcessorEx` (ActivateEx): activation flags are received and stored; behaviour is
+  otherwise unchanged (UI-less activation itself still requires the Phase 3 UI-element work).
+- The `TIPCAP_INPUTMODECOMPARTMENT` category is registered — the input-mode compartments this
+  declares have been implemented and field-verified since 0.17.0.
+- Context-free command keys (layout switch, pass-through toggle, settings, codepoint input) are
+  now reserved as TSF preserved keys where expressible; combinations TSF cannot express
+  (Win-modifier combos, bare-modifier triggers such as "right Alt alone") and the hanja key
+  (composition-dependent) stay on the key-sink path. Kill switch: `UsePreservedKeys=0`.
+- A per-user install mode (issue #1): `install-user.bat` puts the files in
+  `%LocalAppData%\Programs\Jamotong` (one UAC prompt at registration only),
+  `upgrade-user.bat` upgrades with **no admin rights**, `uninstall-user.bat` removes cleanly.
+  The machine-wide `install.bat` is unchanged; see the README's install-mode table.
+
+### Fixed
+- Opening the settings window (Ctrl+Alt+K) inside a DPI-unaware host (e.g. AkelPad) permanently
+  switched that application to 100% scale: the settings thread called a process-wide DPI-awareness
+  API from inside the host. The settings window now sets no DPI context at all — it scales itself
+  from `GetDpiForWindow` where available and lets Windows bitmap-scale elsewhere.
+
 ## [0.17.0] - 2026-08-23
 
 ### Added

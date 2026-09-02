@@ -877,12 +877,15 @@ static DWORD WINAPI SettingsThreadProc(LPVOID lpParam) {
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_TAB_CLASSES | ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icc);   // 탭 컨트롤 클래스 등록
 
-    // Per-Monitor V2 DPI 인식 강제 활성화 (에러 무시)
-    BOOL (WINAPI *pSetProcessDpiAwarenessContext)(DPI_AWARENESS_CONTEXT) = 
-        (void*)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetProcessDpiAwarenessContext");
-    if (pSetProcessDpiAwarenessContext) {
-        pSetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    }
+    // DPI 인지 컨텍스트는 **아무것도 설정하지 않는다** (사용자 결정 2026-08-24).
+    //  - 호스트가 DPI 비인지(AkelPad 류): 스레드도 비인지 상속 → GetDpiForWindow=96, 우리는 100% 로
+    //    그리고 Windows 가 비트맵 확대한다. 크기 정상(약간 흐림), 호스트 무접촉.
+    //  - 호스트가 DPI 인지: 실제 DPI 를 받아 Auto 스케일(ScaleX/Y)이 선명하게 그린다.
+    //  - 흐림이 싫으면 설정창의 수동 배율(g_ManualDpiScale)로 조절.
+    // ★과거 사고: 여기서 SetProcessDpiAwarenessContext(프로세스 전역)를 불러 DPI 비인지 호스트
+    //   (AkelPad)의 시스템 확대를 꺼 버렸다 — 프로세스 재시작 전 불가역(실기 0.17.90 C-4).
+    //   TIP 이 로드된 프로세스에서 프로세스 전역 DPI API 호출 금지(매뉴얼 §10). 스레드 한정
+    //   호출도 필요 없어 제거 — 설정 안 함이 가장 단순·안전.
 
     WNDCLASSW wc = {0};
     wc.lpfnWndProc   = SettingsWndProc;

@@ -9,8 +9,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.17.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.17.0/jamotong-0.17.0.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
-| 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.17.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.17.0/jamotong-ime-list-repair-0.17.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
+| **자모통 설치판** | **[jamotong-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-0.18.0.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 

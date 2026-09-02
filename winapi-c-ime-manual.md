@@ -1165,6 +1165,17 @@ There is no single boundary-key resend that is guaranteed for every host.
 
 ---
 
+### ★Never call process-wide DPI APIs from a process that loaded your TIP (2026-08-24)
+
+The settings-window thread called `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`. A TIP's
+windows live **inside the host process**, so that call changes the host's DPI awareness: a
+DPI-unaware host (AkelPad) loses system bitmap scaling and renders at 100% — and process DPI
+awareness is **irreversible until the process restarts** (field, 0.17.90 C-4). Final choice
+(owner decision): **set no DPI context at all** — in an unaware host Windows bitmap-scales our
+window (right size, slightly blurry); in an aware host `GetDpiForWindow` feeds our own scaling.
+Even the thread-scoped call only adds crispness, so it was dropped for simplicity. Process-wide
+calls are legitimate only in **your own process** (the jamotong.exe tray app).
+
 ## 11. Minimal checklist
 
 Minimum parts for a commit-only Korean TSF IME:

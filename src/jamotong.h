@@ -35,9 +35,25 @@ struct ITfFnConfigure { const ITfFnConfigureVtbl *lpVtbl; };
 extern const GUID IID_ITfFnConfigure_J;   // {88f567c6-1757-49f8-a1b2-89234c1eeff9}
 extern const GUID IID_ITfFunction_J;      // {101d6610-0990-11d3-8df0-00105a2799b5}
 
+// ITfTextInputProcessorEx vtbl — 부모(ITfTextInputProcessor) 5 + ActivateEx (★상속 순서 고정, T009/T010 선례).
+// mingw msctf.h 에 타입이 없어 직접 선언. self 인자는 기존 캐스트((ITfTextInputProcessor*)obj)와의
+// 호환을 위해 ITfTextInputProcessor* 로 둔다 (COM 이진 배치는 동일).
+typedef struct {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(ITfTextInputProcessor*, REFIID, void**);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(ITfTextInputProcessor*);
+    ULONG   (STDMETHODCALLTYPE *Release)(ITfTextInputProcessor*);
+    HRESULT (STDMETHODCALLTYPE *Activate)(ITfTextInputProcessor*, ITfThreadMgr*, TfClientId);
+    HRESULT (STDMETHODCALLTYPE *Deactivate)(ITfTextInputProcessor*);
+    HRESULT (STDMETHODCALLTYPE *ActivateEx)(ITfTextInputProcessor*, ITfThreadMgr*, TfClientId, DWORD);
+} JamoTIPExVtbl;
+
+// preserved key 등록 항목 (RFC-0013 C — preserved.c)
+#define JAMO_PRESERVED_MAX 32   // 기능 4종 × 단축키 최대 8
+typedef struct { GUID guid; int fn; TF_PRESERVEDKEY key; } JamoPreservedEntry;
+
 // Text Service Instance Struct
 typedef struct JamotongTextService {
-    ITfTextInputProcessorVtbl *lpVtblTIP;
+    JamoTIPExVtbl *lpVtblTIP;   // ITfTextInputProcessor(Ex) — 부모 5개가 앞이라 기존 캐스트 그대로 유효
     ITfKeyEventSinkVtbl *lpVtblKES;                     // 키 입력(ITfKeyEventSink)
     const ITfDisplayAttributeProviderVtbl *lpVtblDAP;   // 디스플레이 속성 공급자(RFC-0010 인라인 조합 밑줄)
     ITfFunctionProviderVtbl *lpVtblFuncProv;            // 함수 공급자(설정 옵션 노출)
@@ -47,6 +63,7 @@ typedef struct JamotongTextService {
     LONG refCount;
     ITfThreadMgr *threadMgr;
     TfClientId clientId;
+    DWORD activateFlags;   // ActivateEx 로 받은 플래그 (Activate 경유면 0). UI-less 판단은 Phase 3 에서.
     TfGuidAtom daAtom;   // registered atom for GUID_JamotongComposingDA
     DWORD tmesCookie;    // ThreadMgrEventSink advise 쿠키
     DWORD tesCookie;     // TextEditSink advise 쿠키
@@ -86,6 +103,10 @@ typedef struct JamotongTextService {
     long  cpLastOpen, cpLastConv;  // 마지막으로 발행/수용한 값 (-1 = 아직 없음). 같으면 안 쓴다.
     BOOL  cpSelfWrite;             // 우리가 쓰는 중 — OnChange 메아리 무시
     BOOL  ctxKeyboardDisabled;     // 포커스 문맥의 KEYBOARD_DISABLED (앱이 입력기를 껐다) 캐시
+
+    // ── RFC-0013 C preserved key (preserved.c) ──
+    JamoPreservedEntry preserved[JAMO_PRESERVED_MAX];
+    int preservedCount;
 
     // Config & Engine State
     JamotongConfig config;

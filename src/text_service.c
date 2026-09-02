@@ -11,6 +11,9 @@
 #include "code_input.h"
 #include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
 #include "compartment.h"   // RFC-0012 Phase 1 compartment (한/영 상태의 표준 자리)
+#include "preserved.h"     // RFC-0013 C preserved key (문맥 무관 명령키)
+// ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
+static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
 
 // 무간섭(직접 입력) 모드 상태의 원본 — TIP 인스턴스는 프로세스별이라 레지스트리로 공유한다.
@@ -1032,8 +1035,60 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
 }
 
 static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfContext *pic, REFGUID rguid, BOOL *pfEaten) {
-    (void)pThis; (void)pic; (void)rguid;
+    JamotongTextService *obj = IMPL_TO_OBJ(KES, pThis);
     if (pfEaten) *pfEaten = FALSE;
+    int fn = Preserved_Lookup(obj, rguid);
+    if (fn < 0) return S_OK;                      // 우리 명령이 아님
+    JamoDiag("PRESERVED-KEY fn=%d", fn);
+    // OnKeyDown 의 해당 분기와 같은 동작·같은 락 규율 (preserved key 는 sink 이전에 매니저가 보낸다)
+    EnterCriticalSection(&g_configLock);
+    switch (fn) {
+        case SC_FN_SETTINGS:
+            SettingsUI_Show(&obj->config);
+            break;
+        case SC_FN_CODE: {
+            if (obj->fsm.state != STATE_EMPTY) {
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+                OutputResultSeq(obj, pic, res, TRUE);
+            }
+            RECT rc; int x = 100, y = 100;
+            if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
+            CodeInput_Show(x, y);
+            break;
+        }
+        case SC_FN_PASSTHROUGH: {
+            if (obj->fsm.state != STATE_EMPTY) {
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+                OutputResultSeq(obj, pic, res, TRUE);
+            }
+            Jamotong_SetPassthrough(obj, obj->passthrough ? FALSE : TRUE);   // 토글 (sink 경로는 켜기 전용 + 해제 전용이 나뉘어 있음)
+            LangBar_Update(obj->pLangBarItem);
+            Compart_Publish(obj);
+            break;
+        }
+        case SC_FN_ROTATE: {
+            LayoutConfig *curLayout = Config_GetCurrentLayout(&obj->config);
+            if (curLayout && curLayout->type == LAYOUT_TYPE_DLL_PLUGIN) {
+                JAMOTONG_PLUGIN_RESULT pRes = curLayout->pfnFlush(curLayout->pvPluginContext);
+                if (pRes.wszCommitted[0]) {
+                    EditSessionData esd = {0};
+                    wcscpy(esd.committed, pRes.wszCommitted);
+                    RequestEditSessionData(obj, pic, &esd);
+                }
+            } else if (obj->fsm.state != STATE_EMPTY) {
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+                OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
+            }
+            Chord_Init(&obj->chord);
+            Config_RotateLayout(&obj->config);
+            LangBar_Update(obj->pLangBarItem);
+            Compart_Publish(obj);
+            break;
+        }
+        default: break;
+    }
+    LeaveCriticalSection(&g_configLock);
+    if (pfEaten) *pfEaten = TRUE;
     return S_OK;
 }
 
@@ -1058,7 +1113,8 @@ static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis
     JamotongTextService *obj = (JamotongTextService*)pThis;
     if (!ppvObject) return E_INVALIDARG;
 
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_ITfTextInputProcessor)) {
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_ITfTextInputProcessor) ||
+        IsEqualIID(riid, &kIID_ITfTextInputProcessorEx)) {   // Ex 지원 (RFC-0013 A)
         *ppvObject = &obj->lpVtblTIP;
     } else if (IsEqualIID(riid, &IID_ITfKeyEventSink)) {
         *ppvObject = &obj->lpVtblKES;
@@ -1226,13 +1282,17 @@ static void UnadviseKeyEventSink(JamotongTextService *obj) {
     }
 }
 
-static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid) {
+// Ex 를 구현하면 TSF 는 Activate 대신 ActivateEx 만 부른다(문서 명시) — 초기화는 이 한 함수로 모은다 (RFC-0013 A).
+static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid, DWORD dwFlags) {
     JamotongTextService *obj = IMPL_TO_OBJ(TIP, pThis);
+    obj->activateFlags = dwFlags;
+    JamoDiag("ACTIVATE flags=0x%08lX", (unsigned long)dwFlags);
     obj->threadMgr = ptim;
     obj->threadMgr->lpVtbl->AddRef(obj->threadMgr);
     obj->clientId = tid;
 
     AdviseKeyEventSink(obj);
+    Preserved_Register(obj);   // 문맥 무관 명령키 예약 (RFC-0013 C; 불가/실패 항목은 sink 폴백)
     AdviseThreadMgrEventSink(obj);   // 문서 포커스/편집 싱크 부착 (CUAS 조합유지 목적)
     FuncConfig_Advise(obj);   // 설정 "옵션"(ITfFunctionProvider) in-session 노출
 
@@ -1262,6 +1322,14 @@ static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfT
     }
 
     return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE TIP_Activate(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid) {
+    return TIP_ActivateCommon(pThis, ptim, tid, 0);
+}
+
+static HRESULT STDMETHODCALLTYPE TIP_ActivateEx(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid, DWORD dwFlags) {
+    return TIP_ActivateCommon(pThis, ptim, tid, dwFlags);
 }
 
 static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
@@ -1294,6 +1362,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     }
     
     Compart_Detach(obj);     // compartment sink 해제 (threadMgr 해제 전)
+    Preserved_Unregister(obj);
     FuncConfig_Unadvise(obj);
     UnadviseThreadMgrEventSink(obj);
     UnadviseKeyEventSink(obj);
@@ -1306,12 +1375,13 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     return S_OK;
 }
 
-static ITfTextInputProcessorVtbl TextInputProcessorVtbl = {
+static JamoTIPExVtbl TextInputProcessorVtbl = {
     TIP_QueryInterface,
     TIP_AddRef,
     TIP_Release,
     TIP_Activate,
-    TIP_Deactivate
+    TIP_Deactivate,
+    TIP_ActivateEx   // 부모 5 뒤 (상속 vtbl 순서 — T009/T010 선례)
 };
 
 // ------------------------------------------------------------------
