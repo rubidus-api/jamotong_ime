@@ -7,7 +7,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-priv="$(dirname "$root")/$(basename "$root")_private"
+priv="$root/../jamotong-private"
 cd "$root"
 
 locate() {

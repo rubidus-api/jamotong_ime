@@ -21,7 +21,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-priv="$(dirname "$root")/$(basename "$root")_private"
+priv="$root/../jamotong-private"
 conf="$root/scripts/gate.conf"
 conf_budget=""
 test -f "$conf" && conf_budget=$(sed -n 's/^CONTEXT_BUDGET=//p' "$conf" | tail -1 | tr -d '"'"'"' ')
