@@ -1,4 +1,8 @@
 #include "config.h"
+#ifdef _WIN32
+#include <sddl.h>     // ConvertStringSidToSidW
+#include <aclapi.h>   // GetNamedSecurityInfoW / SetEntriesInAclW
+#endif
 #include <windows.h>   // GetEnvironmentVariableW / CreateDirectoryW (Config_UserPath)
 #include "plugin_loader.h"
 #include "layout.h"   // KBD_DUBEOL / KBD_SEBEOL
@@ -79,6 +83,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.useCompartments = true;     // TSF compartment 한/영 상태 (RFC-0012 Phase 1)
     config->options.usePreservedKeys = true;    // preserved key 명령키 (RFC-0013 C)
     config->options.useUIElements = true;       // UI element 게이트 (RFC-0012 Phase 3)
+    config->options.uwpHanjaCycle = true;       // UWP 후보창 미표시 대응 — 한자키 순환 변환
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
     wcscpy(config->options.candFont, L"Malgun Gothic");
@@ -226,6 +231,42 @@ void Config_RemoveEditedLayout(JamotongConfig *edited, int idx, const JamotongCo
     edited->layoutCount--;
 }
 
+// ── UWP(AppContainer) 호스트에서 설정을 읽을 수 있게 한다 ─────────────────────────────
+// 자모통 TIP 은 호스트 프로세스 안에서 돈다. 그 호스트가 UWP 앱(작업표시줄 검색·설정 앱 등)이면
+// AppContainer 라서 %APPDATA% 아래를 **읽지 못한다** → config.ini·사용자 자판을 못 읽고 전부
+// 내장 기본값으로 동작한다(사용자가 고른 자판·단축키·옵션이 그 앱에서만 무시된다. 실기 2026-09-19).
+// 그래서 설정 폴더를 만들 때 ALL APPLICATION PACKAGES(S-1-15-2-1) 에 읽기 권한을 준다.
+// 폴더는 사용자 자신의 것이고 주는 권한은 읽기(RX)뿐이다. AppContainer 안에서 돌 때는 권한을
+// 바꿀 수 없으므로(그럴 필요도 없다) 조용히 지나간다.
+#ifdef _WIN32
+static void GrantAppContainerRead(const wchar_t *path) {
+    PSID sid = NULL;
+    if (!ConvertStringSidToSidW(L"S-1-15-2-1", &sid)) return;
+    PACL oldDacl = NULL, newDacl = NULL;
+    PSECURITY_DESCRIPTOR sd = NULL;
+    if (GetNamedSecurityInfoW(path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                              NULL, NULL, &oldDacl, NULL, &sd) == ERROR_SUCCESS) {
+        EXPLICIT_ACCESSW ea;
+        memset(&ea, 0, sizeof(ea));
+        ea.grfAccessPermissions = GENERIC_READ | GENERIC_EXECUTE;
+        ea.grfAccessMode = GRANT_ACCESS;
+        ea.grfInheritance = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+        ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        ea.Trustee.ptstrName = (LPWSTR)sid;
+        if (SetEntriesInAclW(1, &ea, oldDacl, &newDacl) == ERROR_SUCCESS) {
+            SetNamedSecurityInfoW((LPWSTR)path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                                  NULL, NULL, newDacl, NULL);
+            LocalFree(newDacl);
+        }
+        LocalFree(sd);
+    }
+    LocalFree(sid);
+}
+#else   // 네이티브(비-Windows) 테스트 빌드: 보안 API 가 없다 — 할 일 없음
+static void GrantAppContainerRead(const wchar_t *path) { (void)path; }
+#endif
+
 // 사용자 설정 파일 경로: %APPDATA%\Jamotong\config.ini (디렉터리 없으면 생성).
 //   모든 TIP 인스턴스가 Create에서 이걸 로드하고, 설정창 Apply가 여기에 저장 → 세션·프로세스
 //   간 설정 공유(설정 "옵션" 버튼이 실제로 동작하려면 필수).
@@ -238,6 +279,7 @@ bool Config_UserPath(wchar_t *out, int cch) {
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
     dir[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
     CreateDirectoryW(dir, NULL);   // 이미 있으면 조용히 실패(무시)
+    GrantAppContainerRead(dir);    // UWP 호스트도 설정을 읽을 수 있게 (위 주석)
     _snwprintf(out, cch, L"%ls\\config.ini", dir);
     out[cch - 1] = L'\0';
     return true;
@@ -254,6 +296,7 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
     dir[MAX_PATH - 1] = L'\0';
     CreateDirectoryW(dir, NULL);
+    GrantAppContainerRead(dir);
     _snwprintf(out, cch, L"%ls\\layouts", dir);
     out[cch - 1] = L'\0';
     CreateDirectoryW(out, NULL);
@@ -420,6 +463,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"UseCompartments=%d\n", config->options.useCompartments ? 1 : 0);
     fwprintf(fp, L"UsePreservedKeys=%d\n", config->options.usePreservedKeys ? 1 : 0);
     fwprintf(fp, L"UseUIElements=%d\n", config->options.useUIElements ? 1 : 0);
+    fwprintf(fp, L"UwpHanjaCycle=%d\n", config->options.uwpHanjaCycle ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
@@ -449,6 +493,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     temp.options.useCompartments = true;     // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 1)
     temp.options.usePreservedKeys = true;    // 구버전 .ini 대비 기본 켜짐 (RFC-0013 C)
     temp.options.useUIElements = true;       // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 3)
+    temp.options.uwpHanjaCycle = true;       // 구버전 .ini 대비 기본 켜짐
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
     temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
@@ -571,6 +616,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             else if (swscanf(line, L"UseCompartments=%d", &val) == 1) temp.options.useCompartments = (val != 0);
             else if (swscanf(line, L"UsePreservedKeys=%d", &val) == 1) temp.options.usePreservedKeys = (val != 0);
             else if (swscanf(line, L"UseUIElements=%d", &val) == 1) temp.options.useUIElements = (val != 0);
+            else if (swscanf(line, L"UwpHanjaCycle=%d", &val) == 1) temp.options.uwpHanjaCycle = (val != 0);
             else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
                 temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);
             else if (swscanf(line, L"CandFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {

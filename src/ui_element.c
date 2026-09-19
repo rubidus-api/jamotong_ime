@@ -1,4 +1,5 @@
 #include "ui_element.h"
+#include "edit_session.h"   // JamoDiag
 
 // ── mingw msctf.h 에 없는 것들 (출처: Windows SDK msctf.h — 시그니처 원문 대조 2026-09-02) ──
 // ITfCandidateListUIElement IID = MIDL_INTERFACE("ea1ea138-19df-11d7-a6d2-00065b84435c")
@@ -179,6 +180,7 @@ static BOOL BeginOne(ITfUIElement *elem, DWORD *idOut, BOOL *beganOut) {
     if (!Enabled()) { *beganOut = FALSE; return TRUE; }   // 킬스위치/mgr 없음 → 기존 동작
     BOOL show = TRUE;
     HRESULT hr = g_uio->uiElemMgr->lpVtbl->BeginUIElement(g_uio->uiElemMgr, elem, &show, idOut);
+    JamoDiag("UIELEM begin hr=0x%08lX show=%d", (unsigned long)hr, (int)show);
     if (FAILED(hr)) { *beganOut = FALSE; return TRUE; }   // 실패 = 관여 안 함 → 우리 창
     *beganOut = TRUE;
     return show;   // FALSE = 호스트가 그린다/숨긴다

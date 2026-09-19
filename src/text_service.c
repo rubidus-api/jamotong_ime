@@ -243,10 +243,42 @@ typedef struct {
 } CandidateContext;
 static CandidateContext g_CandCtx;
 
-static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
-    (void)index;   // 콜백 시그니처상 받지만 실제 치환은 str로만 함
-    CandidateContext *cc = (CandidateContext*)ctx;
-    int replaceLen = CandidateUI_GetReplaceLen();
+// ── UWP(AppContainer) 호스트 대응 ─────────────────────────────────────────────────
+// AppContainer 프로세스(작업표시줄 검색·설정 앱 등 UWP) 안에서 만든 TIP 소유 HWND 는 데스크톱에
+// 나타나지 않는다 — 창은 만들어지고 IsWindowVisible 도 TRUE 지만 화면에 합성되지 않는다(실기
+// 2026-09-19: 창을 셸 팝업 밖 좌표로 강제해도 보이지 않고, 다른 프로세스의 EnumWindows 에도
+// 잡히지 않는다). 대체 경로여야 할 UI element 도 이 호스트에서는 BeginUIElement 가 show=TRUE
+// (="네가 그려라")를 돌려주므로 호스트 렌더도 일어나지 않는다. 결과적으로 후보창이 아무 데도
+// 뜨지 않는다 → 후보창 없이 한자키로 후보를 순환 교체하는 경로로 강등한다.
+static bool HostIsAppContainer(void) {
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    cached = 0;
+    HANDLE tok = NULL;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) {
+        DWORD isAC = 0, len = 0;
+        if (GetTokenInformation(tok, TokenIsAppContainer, &isAC, sizeof(isAC), &len) && isAC)
+            cached = 1;
+        CloseHandle(tok);
+    }
+    JamoDiag("HOST appcontainer=%d", cached);
+    return cached != 0;
+}
+
+// 후보창 없는 순환 변환 상태 (한자키를 거듭 누르면 다음 후보로 교체)
+static struct {
+    bool active;
+    wchar_t **cands;
+    int count;
+    int idx;
+    HWND targetHwnd;
+    wchar_t applied[8];   // 마지막으로 문서에 넣은 문자열(다음 교체 대상)
+} g_hanjaCycle;
+
+static void HanjaCycleReset(void) { memset(&g_hanjaCycle, 0, sizeof(g_hanjaCycle)); }
+
+// 후보 문자열을 문서에 반영한다 (후보창 경로와 순환 경로가 함께 쓴다).
+static void ApplyHanjaChoice(CandidateContext *cc, const wchar_t *str, int replaceLen) {
     HWND h = cc->targetHwnd;   // 한자키 시점에 저장한 대상 EDIT (콜백 땐 포커스 이동으로 재조회 불가)
 
     if (cc->fromSelection) {
@@ -266,6 +298,12 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
         CommitText(cc->obj, cc->pic, str);   // 커밋전용 삽입(방어적 — 현재 경로는 replaceLen=1)
     }
     ResetComposition(cc->obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
+}
+
+static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
+    (void)index;   // 콜백 시그니처상 받지만 실제 치환은 str로만 함
+    CandidateContext *cc = (CandidateContext*)ctx;
+    ApplyHanjaChoice(cc, str, CandidateUI_GetReplaceLen());
     if (cc->pic) { cc->pic->lpVtbl->Release(cc->pic); cc->pic = NULL; }   // 저장 시 AddRef한 것 해제
 }
 
@@ -667,9 +705,30 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         goto kd_done;
     }
 
+    // 순환 변환(UWP)은 한자키를 연달아 누르는 동안만 살아 있다 — 다른 키가 오면 그 자리에서 끝난다.
+    if (g_hanjaCycle.active
+        && !(Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods) || wParam == VK_KANJI))
+        HanjaCycleReset();
+
     // Hanja trigger (설정된 한자 키 목록 — 기본 VK_HANJA, 복수 지정 가능). VK_KANJI는 항상 허용.
     if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods)
          || wParam == VK_KANJI) && !CandidateUI_IsVisible()) {
+        // 순환 변환 중(UWP 호스트)의 한자키 = 다음 후보로 교체. 사전 재조회 없이 목록을 돈다.
+        if (g_hanjaCycle.active && g_hanjaCycle.count > 0) {
+            g_hanjaCycle.idx = (g_hanjaCycle.idx + 1) % g_hanjaCycle.count;
+            const wchar_t *next = g_hanjaCycle.cands[g_hanjaCycle.idx];
+            int prevLen = (int)wcslen(g_hanjaCycle.applied);
+            g_CandCtx.obj = obj;
+            g_CandCtx.fromSelection = false;
+            g_CandCtx.targetHwnd = g_hanjaCycle.targetHwnd;
+            g_CandCtx.pic = pic;   // AddRef 하지 않는다 — 이 호출 안에서만 쓰고 Release 도 안 한다
+            ApplyHanjaChoice(&g_CandCtx, next, prevLen);
+            g_CandCtx.pic = NULL;
+            wcsncpy(g_hanjaCycle.applied, next, 7); g_hanjaCycle.applied[7] = L'\0';
+            JamoDiag("HANJA cycle idx=%d/%d", g_hanjaCycle.idx, g_hanjaCycle.count);
+            if (pfEaten) *pfEaten = TRUE;
+            goto kd_done;
+        }
         EnsureHanjaDicts();   // lazy-load (첫 한자 요청 시 1회)
         wchar_t searchStr[64] = {0};
         int replaceLen = 0;
@@ -796,6 +855,21 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 if (GetCaretScreenRect(obj, &rcSel)) { x = rcSel.left; y = rcSel.bottom + 4; caretTop = rcSel.top; }
 
                 // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
+                // UWP(AppContainer) 호스트: 후보창을 띄워도 화면에 나타나지 않는다(위 HostIsAppContainer
+                // 주석). 첫 후보를 바로 적용하고, 한자키를 다시 누르면 다음 후보로 교체한다.
+                if (obj->config.options.uwpHanjaCycle && HostIsAppContainer()) {
+                    ApplyHanjaChoice(&g_CandCtx, cands[0], replaceLen);
+                    if (g_CandCtx.pic) { g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic); g_CandCtx.pic = NULL; }
+                    g_hanjaCycle.active = true;
+                    g_hanjaCycle.cands = cands;   // 사전 소유 배열(수명은 사전이 보장)
+                    g_hanjaCycle.count = count;
+                    g_hanjaCycle.idx = 0;
+                    g_hanjaCycle.targetHwnd = g_CandCtx.targetHwnd;
+                    wcsncpy(g_hanjaCycle.applied, cands[0], 7); g_hanjaCycle.applied[7] = L'\0';
+                    JamoDiag("HANJA cycle start count=%d", count);
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
                 CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
                 CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, &g_CandCtx);
                 if (pfEaten) *pfEaten = TRUE;

@@ -9,7 +9,7 @@ CC32 = i686-w64-mingw32-gcc
 CFLAGS = -Wall -Wextra -std=c2x -D_UNICODE -DUNICODE -O2
 # -static/-static-libgcc: MinGW 런타임을 정적 포함 → IME DLL이 임의 호스트 프로세스에 자기완결 로드.
 # -s: 배포용 심볼 스트립. --enable-stdcall-fixup: 32비트 .def 장식이름 별칭 경고 억제.
-LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup -lole32 -loleaut32 -luuid -lcomctl32 -lcomdlg32 -lgdi32 -limm32
+LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup -lole32 -loleaut32 -luuid -lcomctl32 -lcomdlg32 -lgdi32 -limm32 -ladvapi32
 
 TARGET = dist/jamotong.dll
 SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/func_configure.c src/preedit_overlay.c src/code_input.c src/comp_path.c src/comp_inline.c src/comp_state.c src/compartment.c src/preserved_map.c src/preserved.c src/ui_element.c

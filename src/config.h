@@ -87,6 +87,7 @@ typedef struct {
     bool useCompartments;   // TSF compartment 로 한/영·변환모드 발행/구독 (RFC-0012 Phase 1). 기본 켜짐. 킬스위치.
     bool usePreservedKeys;  // 문맥 무관 명령키를 TSF preserved key 로 예약 (RFC-0013 C). 기본 켜짐. 킬스위치.
     bool useUIElements;     // 자체 UI 를 UIElementMgr 게이트로 (RFC-0012 Phase 3). 기본 켜짐. 킬스위치.
+    bool uwpHanjaCycle;     // AppContainer(UWP) 호스트에서 후보창 대신 한자키 순환 변환. 기본 켜짐. 킬스위치.
     wchar_t previewFont[32];// 미리보기 글꼴 face 이름 (32 = LF_FACESIZE). 기본 "Malgun Gothic".
     int previewFontSize;    // 미리보기 글꼴 크기(px). 0=Auto(캐럿 높이 근사), 8~96=고정.
     wchar_t candFont[32];   // 한자 후보창 글꼴 face. 후보·훈음·페이지 표시 전부 이 글꼴 하나.

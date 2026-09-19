@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "ui_element.h"   // RFC-0012 Phase 3: 창을 띄우기 전 UIElementMgr 게이트
+#include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
 
 static HWND g_hwndCandi = NULL;
 static bool g_active = false;    // 후보 세션 활성 (자체 창 유무와 무관 — 호스트가 그릴 수도)
@@ -264,17 +265,21 @@ void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     g_active = true;
     g_hostShown = true;
     g_ownDraw = UiElem_BeginCandidate() ? true : false;   // 호스트가 그린다면 우리 창·훅 생략
+    JamoDiag("CAND show ownDraw=%d x=%d y=%d", (int)g_ownDraw, x, y);
     if (g_ownDraw) {
         int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
         if (!g_hwndCandi) {
             g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
                 x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
+            JamoDiag("CAND create hwnd=%p err=%lu", (void*)g_hwndCandi, (unsigned long)GetLastError());
         }
         PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
         InvalidateRect(g_hwndCandi, NULL, TRUE);
         InstallKbHook();     // PuTTY류 키 라우팅 폴백 — 자체 창 표시 중에만
     }
+    JamoDiag("CAND after-place hwnd=%p vis=%d", (void*)g_hwndCandi,
+             g_hwndCandi ? (int)IsWindowVisible(g_hwndCandi) : -1);
     UiElem_UpdateCandidate(0x3F);   // 첫 갱신 = 전체 비트 (uiless 문서: 첫 Update 는 all-bits)
 }
 
