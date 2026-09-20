@@ -489,9 +489,14 @@ static bool HasCtrlAltWin(void) {
 }
 
 // 한자/훈음 사전 lazy-load: 첫 한자 요청 시 1회만 시도(실패도 캐시 — 반복 IO 방지).
+// RFC-0008 W0-03 S3: 사전은 로드 뒤 불변이라 공유해도 되지만, **로드 자체**는 한 번만 돌아야
+// 한다. 플래그만 보면 두 입력 스레드가 동시에 들어와 둘 다 로드하고, 한쪽이 채우는 중인 표를
+// 다른 쪽이 읽을 수 있다. 이미 있는 설정 락으로 직렬화한다(재진입 가능하다).
 static void EnsureHanjaDicts(void) {
     static bool s_tried = false;
     if (s_tried) return;
+    EnterCriticalSection(&g_configLock);
+    if (s_tried) { LeaveCriticalSection(&g_configLock); return; }   // 기다리는 동안 남이 끝냈다
     s_tried = true;
     wchar_t dictPath[MAX_PATH];
     if (GetModuleFileNameW(g_hInst, dictPath, MAX_PATH)) {
@@ -503,6 +508,7 @@ static void EnsureHanjaDicts(void) {
             HunumDict_Load(dictPath);
         }
     }
+    LeaveCriticalSection(&g_configLock);
 }
 
 // 조합 확정 후, 확정을 유발한 '비자모' 키를 실제 키 이벤트로 다시 보낸다(JAMO_SYNTH_MARK 표식).

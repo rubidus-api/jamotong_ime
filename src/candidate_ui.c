@@ -5,6 +5,28 @@
 #include "ui_element.h"   // RFC-0012 Phase 3: 창을 띄우기 전 UIElementMgr 게이트
 #include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
 
+
+// ── RFC-0008 W0-03 S2: 이 UI 창의 소유 스레드 ──────────────────────────────────────
+// 창은 프로세스당 하나가 맞다(한 번에 하나만 보인다 — 스레드마다 만들면 그게 회귀다).
+// 다만 **만든 스레드만** 만져야 한다: 다른 입력 스레드가 같은 HWND 를 조작하면 cross-thread
+// 창 조작이 되고, 그 스레드가 죽은 뒤엔 해제된 창을 만지게 된다.
+// 지금은 **진단만** 남긴다. 실기(2026-09-21, 메모장·UWP 검색·헬퍼 경로)에서 교차 호출은 0 이었는데,
+// 그건 '차단해도 안전하다'가 아니라 '아직 못 봤다'는 뜻이다 — 차단으로 올리면 우리가 못 본
+// 정상 경로에서 후보창이 안 뜨는 새 회귀를 만든다. 로그에 실제로 찍히면 그때 올린다.
+static DWORD g_ownerTid = 0;
+
+static void OwnerThreadClaim(void) { g_ownerTid = GetCurrentThreadId(); }
+
+static bool OwnerThreadGuard(const char *what) {
+    DWORD me = GetCurrentThreadId();
+    if (g_ownerTid && g_ownerTid != me) {
+        JamoDiag("CAND cross-thread %s owner=%lu me=%lu", what,
+                 (unsigned long)g_ownerTid, (unsigned long)me);
+        return false;   // 호출자는 이 값을 아직 쓰지 않는다(진단 단계)
+    }
+    return true;
+}
+
 static HWND g_hwndCandi = NULL;
 static bool g_active = false;    // 후보 세션 활성 (자체 창 유무와 무관 — 호스트가 그릴 수도)
 static bool g_ownDraw = true;    // 우리 창을 그려도 되는가 (BeginUIElement 의 답)
@@ -272,6 +294,7 @@ void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
             g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
                 x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
+            OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
             JamoDiag("CAND create hwnd=%p err=%lu", (void*)g_hwndCandi, (unsigned long)GetLastError());
         }
         PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
@@ -293,6 +316,7 @@ static void RefreshCandWindow(void) {
 }
 
 void CandidateUI_Hide(void) {
+    OwnerThreadGuard("Hide");
     UiElem_EndCandidate();   // 게이트 종료 (began 아니면 no-op) — EndUIElement 는 의무
     RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
     if (g_hwndCandi) {
@@ -334,6 +358,7 @@ static void SelectIndex(int realIdx) {
 }
 
 bool CandidateUI_HandleKey(UINT vKey) {
+    OwnerThreadGuard("HandleKey");
     if (!g_hwndCandi) return false;
 
     if (vKey == VK_ESCAPE) {

@@ -1,4 +1,5 @@
 #include "code_input.h"
+#include "edit_session.h"   // JamoDiag
 #include "ui_element.h"
 #include "hanja_dict.h"   // 한자 코드포인트 → 훈음/음 이름 표시
 #include <stdio.h>
@@ -6,6 +7,28 @@
 extern HINSTANCE g_hInst;
 
 // 상태 (입력 스레드 전용 — candidate_ui와 동일 단일스레드 계약)
+
+// ── RFC-0008 W0-03 S2: 이 UI 창의 소유 스레드 ──────────────────────────────────────
+// 창은 프로세스당 하나가 맞다(한 번에 하나만 보인다 — 스레드마다 만들면 그게 회귀다).
+// 다만 **만든 스레드만** 만져야 한다: 다른 입력 스레드가 같은 HWND 를 조작하면 cross-thread
+// 창 조작이 되고, 그 스레드가 죽은 뒤엔 해제된 창을 만지게 된다.
+// 지금은 **진단만** 남긴다. 실기(2026-09-21, 메모장·UWP 검색·헬퍼 경로)에서 교차 호출은 0 이었는데,
+// 그건 '차단해도 안전하다'가 아니라 '아직 못 봤다'는 뜻이다 — 차단으로 올리면 우리가 못 본
+// 정상 경로에서 후보창이 안 뜨는 새 회귀를 만든다. 로그에 실제로 찍히면 그때 올린다.
+static DWORD g_ownerTid = 0;
+
+static void OwnerThreadClaim(void) { g_ownerTid = GetCurrentThreadId(); }
+
+static bool OwnerThreadGuard(const char *what) {
+    DWORD me = GetCurrentThreadId();
+    if (g_ownerTid && g_ownerTid != me) {
+        JamoDiag("CODE cross-thread %s owner=%lu me=%lu", what,
+                 (unsigned long)g_ownerTid, (unsigned long)me);
+        return false;   // 호출자는 이 값을 아직 쓰지 않는다(진단 단계)
+    }
+    return true;
+}
+
 static HWND    g_hwnd = NULL;
 static wchar_t g_hex[8];      // 입력 중 16진수 (최대 6자리)
 static int     g_hexLen = 0;
@@ -156,6 +179,7 @@ void CodeInput_Show(int x, int y) {
             L"JamotongCodeInput", L"", WS_POPUP | WS_BORDER,
             x, y, CI_W, CI_H, NULL, NULL, g_hInst, NULL);
         if (!g_hwnd) return;
+        OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
     }
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, CI_W, CI_H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(g_hwnd, NULL, TRUE);
@@ -172,6 +196,7 @@ static wchar_t HexCharFromVK(UINT vKey, bool shift) {
 }
 
 bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint) {
+    OwnerThreadGuard("HandleKey");
     if (outCodepoint) *outCodepoint = 0;
     if (!CodeInput_IsVisible()) return false;
 
