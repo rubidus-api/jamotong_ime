@@ -2690,6 +2690,26 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 권한을 주는 편이 확실하다 — 설치 방식·설치 위치·수동 `regsvr32` 무엇이든 한 곳에서 보장된다.
 
 
+
+### 14.9 ★함정: TSF TIP 등록은 HKCU 만으로 서지 않는다 (실측)
+
+"관리자 권한 없이 설치"를 만들려다 보면 `HKCU\Software\Classes` 와
+`HKCU\Software\Microsoft\CTF\TIP` 에 같은 구조를 복제하는 길이 떠오른다. **레지스트리에 모양은
+만들어지지만 CTF 가 그것을 입력 프로파일로 읽지 않는다.**
+
+실측(2026-09-20, Windows 11 26200):
+
+1. 비승격으로 `regsvr32 /s /n /i:user <tip>.dll` → 성공. `HKCU` 쪽 `CLSID\…\InProcServer32` 와
+   `CTF\TIP\{CLSID}\Category` 트리가 그대로 생긴다.
+2. `HKLM` 쪽에는 아무 흔적도 없다(실험이 유효한 조건).
+3. 재로그인 후 그 계정의 입력 프로파일을 열거하면 **그 TIP 이 없다.** 같은 목록에서 HKLM 로 등록된
+   IME 들은 정상으로 보인다.
+
+그래서 `ITfInputProcessorProfileMgr::RegisterProfile` 은 HKLM 에 쓴다. 사용자별 설치를 만들더라도
+**파일 복사·업그레이드·제거는 승격 없이** 할 수 있지만 **등록 한 번은 승격이 필요하다** —
+그 한 번만 자기승격하는 설치기가 현실적인 최선이다.
+
+
 ## 부록 A: jamotong 소스 매핑
 
 | 개념 | 파일 |

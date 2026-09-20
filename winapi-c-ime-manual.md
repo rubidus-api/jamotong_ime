@@ -2929,6 +2929,26 @@ ones, not even its icon. Do not leave this to the installer: grant it from **`Dl
 the module's own folder**, and every install path — including a hand-run `regsvr32` — is covered.
 
 
+
+### 14.9 ★Gotcha: TSF TIP registration does not stand on HKCU alone (measured)
+
+Chasing an install that needs no administrator, the obvious idea is to mirror the whole shape into
+`HKCU\Software\Classes` and `HKCU\Software\Microsoft\CTF\TIP`. **The registry shape appears, but
+CTF never reads it as an input profile.**
+
+Measured (2026-09-20, Windows 11 26200):
+
+1. Non-elevated `regsvr32 /s /n /i:user <tip>.dll` succeeds — `HKCU` gets
+   `CLSID\…\InProcServer32` and the `CTF\TIP\{CLSID}\Category` tree.
+2. `HKLM` holds nothing (which is what makes the experiment meaningful).
+3. After signing out and back in, enumerating that account's input profiles does **not** list the
+   TIP. HKLM-registered IMEs in the same list are fine.
+
+That is why `ITfInputProcessorProfileMgr::RegisterProfile` writes to HKLM. A per-user installer can
+still copy, upgrade and remove files **without elevation** — but **registration needs it once**, so
+the practical shape is an installer that self-elevates for that single step.
+
+
 ## Appendix A: jamotong source map
 
 | Concept | File |
