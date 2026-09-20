@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.19.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.19.1/jamotong-0.19.1.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.20.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.20.0/jamotong-0.20.0.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -118,8 +118,10 @@ UAC 확인이 한 번 필요합니다(업그레이드는 불필요). 어느 방�
 > **UWP 앱(작업표시줄 검색, 설정 앱, Store 앱)에서는 조금 다르게 동작합니다.**
 > Windows 가 그런 앱 안에서는 입력기가 자기 창을 띄우지 못하게 막습니다(후보창·팝업이
 > 화면에 나타날 수 없습니다). 그래서 그 앱에서는:
-> - **한자**: 후보창 대신 **한자키를 거듭 눌러** 후보를 차례로 바꿉니다(다른 글자를 치면 확정).
->   끄려면 설정 파일에 `UwpHanjaCycle=0`.
+> - **한자**: 자모통이 함께 띄우는 **UI 도우미**가 후보창을 대신 그려 줍니다 — 평소처럼 숫자키·↑↓·
+>   Enter 로 고르면 됩니다. 도우미는 데스크톱 앱에서 자모통을 쓸 때 자동으로 뜹니다.
+>   도우미를 끄면(`UseUiHelper=0`) 후보창 대신 **한자키를 거듭 눌러** 후보를 차례로 바꿉니다
+>   (그 방식도 끄려면 `UwpHanjaCycle=0`).
 > - **유니코드 입력**: **16진수를 먼저 치고 `Ctrl+Alt+U`** 를 누르면 그 문자로 바뀝니다
 >   (예: `AC00` 입력 → `Ctrl+Alt+U` → `가`).
 > - 조합 중인 글자는 문서에 밑줄로 직접 보이므로 미리보기 칩은 뜨지 않습니다.

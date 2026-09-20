@@ -2659,6 +2659,13 @@ if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) {
 jamotong 은 한자 후보창을 "한자키를 거듭 눌러 후보를 순환 교체"로, 코드입력 팝업을
 "16진수를 먼저 치고 `Ctrl+Alt+U`"로 바꾼다.
 
+**제대로 된 해법은 데스크톱 쪽 헬퍼 프로세스다**(RFC-0015). AppContainer 안의 TIP 은 데스크톱
+프로세스가 만든 named pipe 에 **연결할 수 있다** — 파이프 보안 서술자에 `ALL APPLICATION PACKAGES`
+(SDDL 로 `(A;;0x12019b;;;AC)`)를 넣으면 된다. TIP 은 "무엇을 어디에 그려라"만 보내고, 키 처리와
+문서 편집은 그대로 TIP 이 한다(헬퍼는 표시 전용 — 역방향 채널을 두지 않는 편이 안전하다).
+단, 셸 팝업(작업표시줄 검색)은 일반 `HWND_TOPMOST` 보다 위 밴드에 그려지므로, 헬퍼 창이 그것과
+겹치면 **바깥으로 비켜 놓아야** 보인다.
+
 ### 14.8 ★함정: AppContainer 는 `%APPDATA%` 를 읽지 못한다
 
 같은 이유로 더 조용한 사고가 하나 더 있다. 설정 파일을 `%APPDATA%` 에 두면 **UWP 앱 안에서만**
