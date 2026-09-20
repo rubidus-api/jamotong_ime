@@ -12,7 +12,9 @@
 #include "comp_inline.h"   // RFC-0010 비단명 컨텍스트 문서 인라인 조합
 #include "compartment.h"   // RFC-0012 Phase 1 compartment (한/영 상태의 표준 자리)
 #include "preserved.h"     // RFC-0013 C preserved key (문맥 무관 명령키)
-#include "ui_element.h"    // RFC-0012 Phase 3 UI element 게이트
+#include "ui_element.h"
+#include "ui_client.h"   // RFC-0015 데스크톱 UI 헬퍼
+#include "ui_ipc.h"    // RFC-0012 Phase 3 UI element 게이트
 // ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
 static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
@@ -277,6 +279,135 @@ static struct {
 
 static void HanjaCycleReset(void) { memset(&g_hanjaCycle, 0, sizeof(g_hanjaCycle)); }
 
+// RFC-0015: 데스크톱 호스트에서 TIP 이 살아날 때 UI 헬퍼가 없으면 띄운다.
+// AppContainer 안에서는 프로세스를 못 띄우므로 **데스크톱 쪽에서** 해 둬야 UWP 호스트가 쓸 수 있다.
+// 세션당 하나는 헬퍼 자신이 뮤텍스로 보장하므로 여기서는 중복을 걱정하지 않는다(조용히 종료된다).
+static void EnsureUiHelperRunning(void) {
+    if (HostIsAppContainer()) return;              // 여기선 띄울 수 없다
+    DWORD sid = 0;
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &sid)) sid = 0;
+    wchar_t mname[128];
+    _snwprintf(mname, 128, JAMO_UIIPC_MUTEX_FMT, (unsigned long)sid);
+    mname[127] = L'\0';
+    HANDLE m = OpenMutexW(SYNCHRONIZE, FALSE, mname);
+    if (m) { CloseHandle(m); return; }             // 이미 돈다
+
+    wchar_t exe[MAX_PATH];
+    if (!GetModuleFileNameW(g_hInst, exe, MAX_PATH)) return;
+    wchar_t *slash = wcsrchr(exe, L'\\');
+    if (!slash) return;
+    *slash = L'\0';
+    wchar_t cmd[MAX_PATH + 32];
+    _snwprintf(cmd, MAX_PATH + 32, L"\"%ls\\jamotong.exe\" --ui-server", exe);
+    cmd[MAX_PATH + 31] = L'\0';
+
+    STARTUPINFOW si; PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+    if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        JamoDiag("UIHELPER spawned");
+    } else {
+        JamoDiag("UIHELPER spawn fail err=%lu", GetLastError());
+    }
+}
+
+static void ApplyHanjaChoice(CandidateContext *cc, const wchar_t *str, int replaceLen);
+
+// ── RFC-0015: UWP 호스트에서 후보창을 데스크톱 헬퍼에 그리게 한다 ───────────────────────
+// 창은 헬퍼가 그리지만 **키는 여기서 먹는다**(헬퍼는 표시 전용). 헬퍼가 없으면 이 경로는
+// 아예 켜지지 않고 순환 변환으로 폴백한다.
+static struct {
+    bool active;
+    wchar_t **cands;
+    int count, sel, perPage, replaceLen;
+} g_uiCand;
+
+static void UiCandHide(void) {
+    if (!g_uiCand.active) return;
+    UiClient_Hide();
+    memset(&g_uiCand, 0, sizeof(g_uiCand));
+}
+
+// 후보 한 줄의 표시 문자열을 만든다(번호·글자·훈음·U+). 헬퍼는 사전을 모르므로 완성해 보낸다.
+static void UiCandFormat(wchar_t *out, int cch, int idx, const wchar_t *cand, bool special) {
+    const wchar_t *hun = NULL;
+    if (!special && cand && cand[0] && !cand[1]) hun = HunumDict_Find(cand[0]);
+    if (hun && hun[0])
+        _snwprintf(out, cch, L"%d. %ls  %ls  U+%04X", idx, cand, hun, (unsigned)cand[0]);
+    else if (cand && cand[0] && !cand[1])
+        _snwprintf(out, cch, L"%d. %ls  U+%04X", idx, cand, (unsigned)cand[0]);
+    else
+        _snwprintf(out, cch, L"%d. %ls", idx, cand ? cand : L"");
+    out[cch - 1] = L'\0';
+}
+
+static bool UiCandShow(wchar_t **cands, int count, int replaceLen, bool special,
+                       int x, int y, int caretTop, const wchar_t *face, int fontSize) {
+    if (!UiClient_Available()) return false;
+    if (count > JAMO_UIIPC_MAX_CAND) count = JAMO_UIIPC_MAX_CAND;
+    wchar_t lines[JAMO_UIIPC_MAX_CAND][JAMO_UIIPC_MAX_CANDLEN];
+    const wchar_t *ptrs[JAMO_UIIPC_MAX_CAND];
+    for (int i = 0; i < count; i++) {
+        UiCandFormat(lines[i], JAMO_UIIPC_MAX_CANDLEN, (i % 9) + 1, cands[i], special);
+        ptrs[i] = lines[i];
+    }
+    if (!UiClient_Show(ptrs, count, 9, 0, x, y, caretTop, face, fontSize)) return false;
+    g_uiCand.active = true;
+    g_uiCand.cands = cands;
+    g_uiCand.count = count;
+    g_uiCand.sel = 0;
+    g_uiCand.perPage = 9;
+    g_uiCand.replaceLen = replaceLen;
+    JamoDiag("UICAND show count=%d", count);
+    return true;
+}
+
+// 헬퍼 후보창이 떠 있는 동안의 키. 처리했으면 true(= 이 키는 앱에 안 간다).
+static bool UiCandHandleKey(JamotongTextService *obj, ITfContext *pic, UINT vk) {
+    if (!g_uiCand.active) return false;
+    int page = g_uiCand.sel / g_uiCand.perPage;
+    switch (vk) {
+        case VK_ESCAPE:
+            UiCandHide();
+            return true;
+        case VK_UP:
+            if (g_uiCand.sel > 0) g_uiCand.sel--;
+            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            return true;
+        case VK_DOWN:
+            if (g_uiCand.sel + 1 < g_uiCand.count) g_uiCand.sel++;
+            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            return true;
+        case VK_PRIOR:
+            g_uiCand.sel = (page > 0) ? (page - 1) * g_uiCand.perPage : 0;
+            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            return true;
+        case VK_NEXT: {
+            int next = (page + 1) * g_uiCand.perPage;
+            if (next < g_uiCand.count) g_uiCand.sel = next;
+            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            return true;
+        }
+        default: break;
+    }
+    int pick = -1;
+    if (vk >= '1' && vk <= '9') pick = page * g_uiCand.perPage + (int)(vk - '1');
+    else if (vk == VK_RETURN || vk == VK_SPACE) pick = g_uiCand.sel;
+    if (pick >= 0 && pick < g_uiCand.count) {
+        wchar_t *chosen = g_uiCand.cands[pick];
+        int rl = g_uiCand.replaceLen;
+        UiCandHide();
+        g_CandCtx.obj = obj;
+        g_CandCtx.pic = pic;   // 이 호출 안에서만 쓴다 — AddRef/Release 하지 않는다
+        ApplyHanjaChoice(&g_CandCtx, chosen, rl);
+        g_CandCtx.pic = NULL;
+        JamoDiag("UICAND pick=%d", pick);
+        return true;
+    }
+    return false;
+}
+
 // 커서 앞 2~6자리 16진수를 그 코드포인트 문자로 바꾼다 (성공 시 true).
 // 한자키 경로와, 창을 띄울 수 없는 UWP 호스트의 코드입력 경로가 함께 쓴다.
 static bool TryReplaceHexCodepoint(JamotongTextService *obj, ITfContext *pic) {
@@ -533,6 +664,10 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         if (pfEaten) *pfEaten = TRUE;
         return S_OK;
     }
+    if (g_uiCand.active) {   // RFC-0015: 헬퍼가 그리는 후보창 — 키는 여기서 먹는다
+        if (pfEaten) *pfEaten = TRUE;
+        return S_OK;
+    }
 
     // 이하 config/레이아웃 접근 전체를 설정 스레드의 Config_ApplyEdited(레이아웃 free)와 직렬화.
     // (기존엔 무락이라, 설정 적용 중 pHangulLayout/pChordLayout이 해제되는 순간 키가 오면 UAF.)
@@ -692,6 +827,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             if (pfEaten) *pfEaten = TRUE;
             return S_OK;
         }
+    }
+    if (g_uiCand.active) {   // RFC-0015: 헬퍼 후보창의 탐색·선택 키
+        if (UiCandHandleKey(obj, pic, (UINT)wParam)) {
+            if (pfEaten) *pfEaten = TRUE;
+            return S_OK;
+        }
+        UiCandHide();   // 후보와 무관한 키 → 후보창을 닫고 그 키는 평소대로 처리
     }
 
     // 여기부터 live config(한자키 설정·현재 레이아웃)를 읽고 플러그인/레이아웃을 쓰므로, 설정
@@ -876,6 +1018,16 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
                 // UWP(AppContainer) 호스트: 후보창을 띄워도 화면에 나타나지 않는다(위 HostIsAppContainer
                 // 주석). 첫 후보를 바로 적용하고, 한자키를 다시 누르면 다음 후보로 교체한다.
+                if (HostIsAppContainer()) {
+                    // RFC-0015: 데스크톱 헬퍼가 떠 있으면 진짜 후보창을 그리게 한다.
+                    if (obj->config.options.useUiHelper
+                        && UiCandShow(cands, count, replaceLen, special, x, y, caretTop,
+                                      obj->config.options.candFont, obj->config.options.candFontSize)) {
+                        if (g_CandCtx.pic) { g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic); g_CandCtx.pic = NULL; }
+                        if (pfEaten) *pfEaten = TRUE;
+                        goto kd_done;
+                    }
+                }
                 if (obj->config.options.uwpHanjaCycle && HostIsAppContainer()) {
                     ApplyHanjaChoice(&g_CandCtx, cands[0], replaceLen);
                     if (g_CandCtx.pic) { g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic); g_CandCtx.pic = NULL; }
@@ -1399,6 +1551,7 @@ static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *pt
     obj->daAtom = DA_RegisterAtom(ptim);   // composition display-attribute atom (per thread)
     obj->passthrough = Jamotong_GetPassthroughReg();   // 무간섭 모드 초기 상태 (프로세스 간 공유)
     UiElem_Attach(obj);    // RFC-0012 Phase 3: UIElementMgr 게이트 (없으면 기존 동작)
+    if (obj->config.options.useUiHelper) EnsureUiHelperRunning();   // RFC-0015 (데스크톱 호스트에서만)
     Compart_Attach(obj);   // RFC-0012 Phase 1: OPENCLOSE/CONVERSION 발행 + OPENCLOSE 통지 구독 (킬스위치 UseCompartments)
 
     // 최초 1회 전역 초기화: 후보창 윈도 클래스 등록(없으면 CreateWindowEx 실패 → 후보창 안 뜸).

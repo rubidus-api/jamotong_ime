@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "config.h"
+#include "ui_server.h"   // RFC-0015 UI 헬퍼 모드
 #include "layout.h"
 #include "fsm.h"
 #include "hangul_layout.h"
@@ -430,6 +431,9 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     (void)hP;
     g_hInst = hI;
     if (cmd && wcsstr(cmd, L"/uninstallime")) return UninstallIme();   // 구버전 IMM32 잔재 정리 전용
+    // RFC-0015: UWP 호스트 안의 TIP 은 창을 못 띄운다 → 이 프로세스가 대신 그려 주는 모드.
+    // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
+    if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
 
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     BOOL (WINAPI *pSetCtx)(HANDLE) = (void*)GetProcAddress(u32, "SetProcessDpiAwarenessContext");

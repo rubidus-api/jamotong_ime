@@ -83,6 +83,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.useCompartments = true;     // TSF compartment 한/영 상태 (RFC-0012 Phase 1)
     config->options.usePreservedKeys = true;    // preserved key 명령키 (RFC-0013 C)
     config->options.useUIElements = true;       // UI element 게이트 (RFC-0012 Phase 3)
+    config->options.useUiHelper = true;         // RFC-0015 UI 헬퍼
     config->options.uwpHanjaCycle = true;       // UWP 후보창 미표시 대응 — 한자키 순환 변환
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
@@ -463,6 +464,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"UseCompartments=%d\n", config->options.useCompartments ? 1 : 0);
     fwprintf(fp, L"UsePreservedKeys=%d\n", config->options.usePreservedKeys ? 1 : 0);
     fwprintf(fp, L"UseUIElements=%d\n", config->options.useUIElements ? 1 : 0);
+    fwprintf(fp, L"UseUiHelper=%d\n", config->options.useUiHelper ? 1 : 0);
     fwprintf(fp, L"UwpHanjaCycle=%d\n", config->options.uwpHanjaCycle ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
@@ -493,6 +495,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     temp.options.useCompartments = true;     // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 1)
     temp.options.usePreservedKeys = true;    // 구버전 .ini 대비 기본 켜짐 (RFC-0013 C)
     temp.options.useUIElements = true;       // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 3)
+    temp.options.useUiHelper = true;
     temp.options.uwpHanjaCycle = true;       // 구버전 .ini 대비 기본 켜짐
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
@@ -616,6 +619,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             else if (swscanf(line, L"UseCompartments=%d", &val) == 1) temp.options.useCompartments = (val != 0);
             else if (swscanf(line, L"UsePreservedKeys=%d", &val) == 1) temp.options.usePreservedKeys = (val != 0);
             else if (swscanf(line, L"UseUIElements=%d", &val) == 1) temp.options.useUIElements = (val != 0);
+            else if (swscanf(line, L"UseUiHelper=%d", &val) == 1) temp.options.useUiHelper = (val != 0);
             else if (swscanf(line, L"UwpHanjaCycle=%d", &val) == 1) temp.options.uwpHanjaCycle = (val != 0);
             else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
                 temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);

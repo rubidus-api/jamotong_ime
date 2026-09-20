@@ -2897,6 +2897,13 @@ So any window-based feature needs a windowless fallback for those hosts. jamoton
 candidate list into "press the hanja key again to cycle candidates", and the codepoint popup into
 "type the hex first, then press `Ctrl+Alt+U`".
 
+**The real fix is a desktop-side helper process** (RFC-0015). A TIP inside an AppContainer *can*
+connect to a named pipe created by a desktop process — put `ALL APPLICATION PACKAGES` in the pipe's
+security descriptor (SDDL `(A;;0x12019b;;;AC)`). The TIP sends only "draw this, here"; key handling
+and document edits stay in the TIP (keep the helper display-only — no reverse channel is the safer
+shape). One catch: shell popups (the taskbar search) are drawn in a band above ordinary
+`HWND_TOPMOST` windows, so the helper window must **step aside** when it would overlap one.
+
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 
 The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will

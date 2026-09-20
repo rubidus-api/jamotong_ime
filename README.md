@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.19.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.19.1/jamotong-0.19.1.zip)** — extract to a permanent folder, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.20.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.20.0/jamotong-0.20.0.zip)** — extract to a permanent folder, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -139,8 +139,10 @@ Default keys — every function is configurable and accepts multiple bindings
 > **Inside UWP apps (taskbar search, the Settings app, Store apps) some of this works
 > differently.** Windows does not let an input method show its own windows in those apps, so a
 > candidate list or popup can never appear there. In such apps:
-> - **Hanja**: instead of a candidate list, **press the hanja key again** to step through the
->   candidates (typing anything else keeps the current one). Turn it off with `UwpHanjaCycle=0`.
+> - **Hanja**: a small **UI helper** that ships with Jamotong draws the candidate list for you —
+>   pick with the number keys, arrows or Enter, as usual. The helper starts by itself once you use
+>   Jamotong in a desktop app. Turn it off (`UseUiHelper=0`) and you get the fallback instead:
+>   **press the hanja key again** to step through candidates (`UwpHanjaCycle=0` disables that too).
 > - **Unicode input**: **type the hex first, then press `Ctrl+Alt+U`** to convert it
 >   (for example type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
 > - The composing syllable is shown inline by the app itself, so no preview chip appears.
