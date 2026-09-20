@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+(비어 있음)
+
+## [0.19.0] - 2026-09-20
+
 ### Fixed
 - **UWP 앱에서 사용자 설정이 통째로 무시되던 문제.** 자모통 TIP 은 호스트 프로세스 안에서 도는데,
   그 호스트가 UWP 앱(작업표시줄 검색, 설정 앱 등)이면 AppContainer 라서 `%APPDATA%` 아래를 읽지
@@ -22,6 +26,17 @@
 - **UWP 앱에서의 유니코드 코드입력.** 같은 이유로 `Ctrl+Alt+U` 팝업도 뜨지 않았다. 그런 호스트에서는
   **16진수를 먼저 치고 `Ctrl+Alt+U`** 를 누르면 커서 앞 2~6자리를 그 문자로 바꾼다
   (`AC00` → `Ctrl+Alt+U` → `가`). 데스크톱 앱의 팝업 방식은 그대로다.
+- **자판 탐색 순서를 명문화**(RFC-0011 P0): 사용자(`%APPDATA%\Jamotong\layouts`) →
+  기계 전체(`%PROGRAMDATA%\Jamotong\layouts`, 신설) → DLL 옆. 같은 이름이면 **사용자 것이 이긴다**
+  (예전에는 DLL 옆이 먼저라 사용자가 내장 배포본을 덮을 수 없었다).
+- UI element 지원(RFC-0012 Phase 3): 후보 목록을 `ITfCandidateListUIElement` 로도 제공하고,
+  자체 UI 를 `ITfUIElementMgr` 게이트 뒤에 둔다. `TIPCAP_UIELEMENTENABLED` 카테고리를 등록한다.
+  킬스위치: `UseUIElements=0`. (호스트가 실제로 그려 주는 경우에만 의미가 있다 —
+  현재 Windows 11 의 UWP 앱들은 그리지 않는다. 위 UWP 항목 참조.)
+
+### Changed
+- 자판 로딩이 가벼워졌다(RFC-0011 P0): 조합 자판 메모리를 실제 조합 수에 맞춰 잡고(고정 182KB →
+  필요한 만큼), `.jmt` 머리부를 한 번에 훑어 파일당 열기 횟수를 3회에서 2회로 줄였다.
 
 ## [0.18.0] - 2026-08-30
 
