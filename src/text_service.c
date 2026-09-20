@@ -243,15 +243,8 @@ static inline unsigned HexValW(wchar_t c) {
     return (unsigned)(c - L'a' + 10);
 }
 
-// Hanja UI Context
-typedef struct {
-    JamotongTextService *obj;
-    ITfContext *pic;
-    wchar_t word[32];    // 단어 변환 대상 원문 (EDIT 선택 검증용 — 실기 2026-07-08)
-    bool fromSelection;  // 블록 선택(이미 선택돼 있음)에서 온 변환 — EM_REPLACESEL로 교체
-    HWND targetHwnd;     // 대상 EDIT 창(한자키 시점 저장) — 콜백 땐 포커스가 옮겨가 재조회 불가
-} CandidateContext;
-static CandidateContext g_CandCtx;
+// 한자 후보 콜백 문맥 — 상태는 서비스 인스턴스(obj->candCtx)가 갖는다(RFC-0008 W0-03).
+// 콜백에는 서비스 포인터만 넘긴다: 그래야 '어느 인스턴스의 후보인가'가 흐려지지 않는다.
 
 // ── UWP(AppContainer) 호스트 대응 ─────────────────────────────────────────────────
 // AppContainer 프로세스(작업표시줄 검색·설정 앱 등 UWP) 안에서 만든 TIP 소유 HWND 는 데스크톱에
@@ -276,16 +269,8 @@ static bool HostIsAppContainer(void) {
 }
 
 // 후보창 없는 순환 변환 상태 (한자키를 거듭 누르면 다음 후보로 교체)
-static struct {
-    bool active;
-    wchar_t **cands;
-    int count;
-    int idx;
-    HWND targetHwnd;
-    wchar_t applied[8];   // 마지막으로 문서에 넣은 문자열(다음 교체 대상)
-} g_hanjaCycle;
 
-static void HanjaCycleReset(void) { memset(&g_hanjaCycle, 0, sizeof(g_hanjaCycle)); }
+static void HanjaCycleReset(JamotongTextService *obj) { memset(&obj->hanjaCycle, 0, sizeof(obj->hanjaCycle)); }
 
 // RFC-0015: 데스크톱 호스트에서 TIP 이 살아날 때 UI 헬퍼가 없으면 띄운다.
 // AppContainer 안에서는 프로세스를 못 띄우므로 **데스크톱 쪽에서** 해 둬야 UWP 호스트가 쓸 수 있다.
@@ -320,21 +305,16 @@ static void EnsureUiHelperRunning(void) {
     }
 }
 
-static void ApplyHanjaChoice(CandidateContext *cc, const wchar_t *str, int replaceLen);
+static void ApplyHanjaChoice(JamotongTextService *obj, const wchar_t *str, int replaceLen);
 
 // ── RFC-0015: UWP 호스트에서 후보창을 데스크톱 헬퍼에 그리게 한다 ───────────────────────
 // 창은 헬퍼가 그리지만 **키는 여기서 먹는다**(헬퍼는 표시 전용). 헬퍼가 없으면 이 경로는
 // 아예 켜지지 않고 순환 변환으로 폴백한다.
-static struct {
-    bool active;
-    wchar_t **cands;
-    int count, sel, perPage, replaceLen;
-} g_uiCand;
 
-static void UiCandHide(void) {
-    if (!g_uiCand.active) return;
+static void UiCandHide(JamotongTextService *obj) {
+    if (!obj->uiCand.active) return;
     UiClient_Hide();
-    memset(&g_uiCand, 0, sizeof(g_uiCand));
+    memset(&obj->uiCand, 0, sizeof(obj->uiCand));
 }
 
 // 후보 한 줄의 표시 문자열을 만든다(번호·글자·훈음·U+). 헬퍼는 사전을 모르므로 완성해 보낸다.
@@ -350,8 +330,8 @@ static void UiCandFormat(wchar_t *out, int cch, int idx, const wchar_t *cand, bo
     out[cch - 1] = L'\0';
 }
 
-static bool UiCandShow(wchar_t **cands, int count, int replaceLen, bool special,
-                       int x, int y, int caretTop, const wchar_t *face, int fontSize) {
+static bool UiCandShow(JamotongTextService *obj, wchar_t **cands, int count, int replaceLen,
+                       bool special, int x, int y, int caretTop, const wchar_t *face, int fontSize) {
     if (!UiClient_Available()) return false;
     if (count > JAMO_UIIPC_MAX_CAND) count = JAMO_UIIPC_MAX_CAND;
     wchar_t lines[JAMO_UIIPC_MAX_CAND][JAMO_UIIPC_MAX_CANDLEN];
@@ -361,76 +341,73 @@ static bool UiCandShow(wchar_t **cands, int count, int replaceLen, bool special,
         ptrs[i] = lines[i];
     }
     if (!UiClient_Show(ptrs, count, 9, 0, x, y, caretTop, face, fontSize)) return false;
-    g_uiCand.active = true;
-    g_uiCand.cands = cands;
-    g_uiCand.count = count;
-    g_uiCand.sel = 0;
-    g_uiCand.perPage = 9;
-    g_uiCand.replaceLen = replaceLen;
+    obj->uiCand.active = true;
+    obj->uiCand.cands = cands;
+    obj->uiCand.count = count;
+    obj->uiCand.sel = 0;
+    obj->uiCand.perPage = 9;
+    obj->uiCand.replaceLen = replaceLen;
     JamoDiag("UICAND show count=%d", count);
     return true;
 }
 
 // RFC-0015 Phase 2: 코드입력 상태를 헬퍼에 한 줄로 그린다(후보 1개짜리 목록으로 보낸다).
 // UWP 호스트에서는 팝업 창이 화면에 안 나타나므로, 창 없이 상태만 유지하고 표시는 헬퍼가 맡는다.
-static bool g_uiCodeActive = false;
-static int  g_uiCodeX = 100, g_uiCodeY = 100, g_uiCodeTop = 96;
 
 static void UiCodeDraw(JamotongTextService *obj) {
     const wchar_t *line = CodeInput_DisplayText();
     const wchar_t *ptrs[1] = { line };
-    if (UiClient_Show(ptrs, 1, 1, 0, g_uiCodeX, g_uiCodeY, g_uiCodeTop,
+    if (UiClient_Show(ptrs, 1, 1, 0, obj->uiCode.x, obj->uiCode.y, obj->uiCode.caretTop,
                       obj->config.options.candFont, obj->config.options.candFontSize))
-        g_uiCodeActive = true;
+        obj->uiCode.active = true;
     else
-        g_uiCodeActive = false;
+        obj->uiCode.active = false;
 }
 
-static void UiCodeHide(void) {
-    if (!g_uiCodeActive) return;
+static void UiCodeHide(JamotongTextService *obj) {
+    if (!obj->uiCode.active) return;
     UiClient_Hide();
-    g_uiCodeActive = false;
+    obj->uiCode.active = false;
 }
 
 // 헬퍼 후보창이 떠 있는 동안의 키. 처리했으면 true(= 이 키는 앱에 안 간다).
 static bool UiCandHandleKey(JamotongTextService *obj, ITfContext *pic, UINT vk) {
-    if (!g_uiCand.active) return false;
-    int page = g_uiCand.sel / g_uiCand.perPage;
+    if (!obj->uiCand.active) return false;
+    int page = obj->uiCand.sel / obj->uiCand.perPage;
     switch (vk) {
         case VK_ESCAPE:
-            UiCandHide();
+            UiCandHide(obj);
             return true;
         case VK_UP:
-            if (g_uiCand.sel > 0) g_uiCand.sel--;
-            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            if (obj->uiCand.sel > 0) obj->uiCand.sel--;
+            UiClient_Update(obj->uiCand.sel, obj->uiCand.perPage);
             return true;
         case VK_DOWN:
-            if (g_uiCand.sel + 1 < g_uiCand.count) g_uiCand.sel++;
-            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            if (obj->uiCand.sel + 1 < obj->uiCand.count) obj->uiCand.sel++;
+            UiClient_Update(obj->uiCand.sel, obj->uiCand.perPage);
             return true;
         case VK_PRIOR:
-            g_uiCand.sel = (page > 0) ? (page - 1) * g_uiCand.perPage : 0;
-            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            obj->uiCand.sel = (page > 0) ? (page - 1) * obj->uiCand.perPage : 0;
+            UiClient_Update(obj->uiCand.sel, obj->uiCand.perPage);
             return true;
         case VK_NEXT: {
-            int next = (page + 1) * g_uiCand.perPage;
-            if (next < g_uiCand.count) g_uiCand.sel = next;
-            UiClient_Update(g_uiCand.sel, g_uiCand.perPage);
+            int next = (page + 1) * obj->uiCand.perPage;
+            if (next < obj->uiCand.count) obj->uiCand.sel = next;
+            UiClient_Update(obj->uiCand.sel, obj->uiCand.perPage);
             return true;
         }
         default: break;
     }
     int pick = -1;
-    if (vk >= '1' && vk <= '9') pick = page * g_uiCand.perPage + (int)(vk - '1');
-    else if (vk == VK_RETURN || vk == VK_SPACE) pick = g_uiCand.sel;
-    if (pick >= 0 && pick < g_uiCand.count) {
-        wchar_t *chosen = g_uiCand.cands[pick];
-        int rl = g_uiCand.replaceLen;
-        UiCandHide();
-        g_CandCtx.obj = obj;
-        g_CandCtx.pic = pic;   // 이 호출 안에서만 쓴다 — AddRef/Release 하지 않는다
-        ApplyHanjaChoice(&g_CandCtx, chosen, rl);
-        g_CandCtx.pic = NULL;
+    if (vk >= '1' && vk <= '9') pick = page * obj->uiCand.perPage + (int)(vk - '1');
+    else if (vk == VK_RETURN || vk == VK_SPACE) pick = obj->uiCand.sel;
+    if (pick >= 0 && pick < obj->uiCand.count) {
+        wchar_t *chosen = obj->uiCand.cands[pick];
+        int rl = obj->uiCand.replaceLen;
+        UiCandHide(obj);
+        obj->candCtx.pic = pic;   // 이 호출 안에서만 쓴다 — AddRef/Release 하지 않는다
+        ApplyHanjaChoice(obj, chosen, rl);
+        obj->candCtx.pic = NULL;
         JamoDiag("UICAND pick=%d", pick);
         return true;
     }
@@ -465,38 +442,38 @@ static bool TryReplaceHexCodepoint(JamotongTextService *obj, ITfContext *pic) {
 }
 
 // 후보 문자열을 문서에 반영한다 (후보창 경로와 순환 경로가 함께 쓴다).
-static void ApplyHanjaChoice(CandidateContext *cc, const wchar_t *str, int replaceLen) {
-    HWND h = cc->targetHwnd;   // 한자키 시점에 저장한 대상 EDIT (콜백 땐 포커스 이동으로 재조회 불가)
+static void ApplyHanjaChoice(JamotongTextService *obj, const wchar_t *str, int replaceLen) {
+    HWND h = obj->candCtx.targetHwnd;   // 한자키 시점에 저장한 대상 EDIT (콜백 땐 포커스 이동으로 재조회 불가)
 
-    if (cc->fromSelection) {
+    if (obj->candCtx.fromSelection) {
         // 블록 선택 변환: 선택이 그대로 유지돼 있으므로(후보창=NOACTIVATE) EDIT 계열은
         // EM_REPLACESEL로 선택 전체를 정확히 교체. 비-EDIT는 TSF 삽입=선택 교체.
         if (!(h && EditCtl_ReplaceSelection(h, str)))
-            CommitText(cc->obj, cc->pic, str);
+            CommitText(obj, obj->candCtx.pic, str);
     } else if (replaceLen > 0) {
         // 커서 앞 단어/음절 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
-        if (h && cc->word[0] && EditCtl_SelectWordBeforeCaret(h, cc->word)
+        if (h && obj->candCtx.word[0] && EditCtl_SelectWordBeforeCaret(h, obj->candCtx.word)
               && EditCtl_ReplaceSelection(h, str)) {
             /* 교체 완료 */
         } else {
-            RequestReplaceSessionString(cc->obj, cc->pic, replaceLen, str);   // 비-EDIT 네이티브
+            RequestReplaceSessionString(obj, obj->candCtx.pic, replaceLen, str);   // 비-EDIT 네이티브
         }
     } else {
-        CommitText(cc->obj, cc->pic, str);   // 커밋전용 삽입(방어적 — 현재 경로는 replaceLen=1)
+        CommitText(obj, obj->candCtx.pic, str);   // 커밋전용 삽입(방어적 — 현재 경로는 replaceLen=1)
     }
-    ResetComposition(cc->obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
+    ResetComposition(obj);   // 조합 음절이 한자로 확정됨 → 조합·칩 상태 전면 리셋
 }
 
 static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
     (void)index;   // 콜백 시그니처상 받지만 실제 치환은 str로만 함
-    CandidateContext *cc = (CandidateContext*)ctx;
-    ApplyHanjaChoice(cc, str, CandidateUI_GetReplaceLen());
-    if (cc->pic) { cc->pic->lpVtbl->Release(cc->pic); cc->pic = NULL; }   // 저장 시 AddRef한 것 해제
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    ApplyHanjaChoice(obj, str, CandidateUI_GetReplaceLen());
+    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }   // 저장 시 AddRef한 것 해제
 }
 
 static void OnHanjaCancelled(void *ctx) {
-    CandidateContext *cc = (CandidateContext*)ctx;
-    if (cc && cc->pic) { cc->pic->lpVtbl->Release(cc->pic); cc->pic = NULL; }
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    if (obj && obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
 }
 
 // 104-key US QWERTY 기준으로 가상 키와 Shift 조합을 통해 영문 Base Char를 가져옵니다.
@@ -570,9 +547,14 @@ static void ResendKeyNow(WPARAM vk, LPARAM lParam) {
     JamoDiag("RESEND vk=%02X via SendInput", (unsigned)vk);
     SendKeyThrough(vk, lParam);
 }
+// 경계키 재전송 보류. 타이머 콜백은 Windows 가 **전역 함수로** 부르므로 인스턴스 필드로 옮길 수
+// 없다(RFC-0008 W0-03 에서 UI 창과 같은 부류). 대신 **소유 인스턴스를 기록**해, 그 인스턴스가
+// 내려갈 때 자기 것만 정리하고 남의 것은 건드리지 않는다.
 static WPARAM  g_pendResendVk = 0;
 static LPARAM  g_pendResendLp = 0;
 static UINT_PTR g_pendResendTimer = 0;
+static JamotongTextService *g_pendResendOwner = NULL;
+
 static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
     (void)hwnd; (void)msg; (void)time;
     KillTimer(NULL, id);
@@ -585,10 +567,12 @@ static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD tim
 // (해제된) DLL 코드로 들어올 수 있고, 보류하던 키는 조용히 사라진다. 순서를 지키려고 **버리지
 // 않고 즉시 방출**한다. `KillTimer` 는 이미 큐에 든 WM_TIMER 를 지우지 않으므로 id 도 0 으로
 // 비워, 뒤늦게 들어온 콜백이 아무 일도 하지 않게 한다.
-static void FlushPendingKeyResend(void) {
+static void FlushPendingKeyResend(JamotongTextService *obj) {
     if (!g_pendResendTimer) return;
+    if (g_pendResendOwner && g_pendResendOwner != obj) return;   // 남의 보류는 건드리지 않는다
     UINT_PTR t = g_pendResendTimer;
     g_pendResendTimer = 0;
+    g_pendResendOwner = NULL;
     KillTimer(NULL, t);
     ResendKeyNow(g_pendResendVk, g_pendResendLp);
 }
@@ -596,13 +580,13 @@ static void FlushPendingKeyResend(void) {
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
 bool Jamotong_HasPendingTimers(void) { return g_pendResendTimer != 0; }
 
-static void ScheduleKeyResend(WPARAM vk, LPARAM lParam) {
+static void ScheduleKeyResend(JamotongTextService *obj, WPARAM vk, LPARAM lParam) {
     if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
         KillTimer(NULL, g_pendResendTimer);
         g_pendResendTimer = 0;
         ResendKeyNow(g_pendResendVk, g_pendResendLp);
     }
-    g_pendResendVk = vk; g_pendResendLp = lParam;
+    g_pendResendVk = vk; g_pendResendLp = lParam; g_pendResendOwner = obj;
     g_pendResendTimer = SetTimer(NULL, 0, RESEND_DELAY_MS, ResendTimerProc);
     if (!g_pendResendTimer) ResendKeyNow(vk, lParam);   // 타이머 실패 시 즉시 재전달
 }
@@ -708,7 +692,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         if (pfEaten) *pfEaten = TRUE;
         return S_OK;
     }
-    if (g_uiCand.active) {   // RFC-0015: 헬퍼가 그리는 후보창 — 키는 여기서 먹는다
+    if (obj->uiCand.active) {   // RFC-0015: 헬퍼가 그리는 후보창 — 키는 여기서 먹는다
         if (pfEaten) *pfEaten = TRUE;
         return S_OK;
     }
@@ -853,8 +837,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         unsigned cp = 0;
         bool wasEsc = ((UINT)wParam == VK_ESCAPE);
         CodeInput_HandleKey((UINT)wParam, isShift, &cp);
-        if (g_uiCodeActive) {   // 창 없는(UWP) 모드: 매 키마다 헬퍼가 그린 줄을 갱신
-            if (cp || wasEsc || !CodeInput_IsVisible()) UiCodeHide();
+        if (obj->uiCode.active) {   // 창 없는(UWP) 모드: 매 키마다 헬퍼가 그린 줄을 갱신
+            if (cp || wasEsc || !CodeInput_IsVisible()) UiCodeHide(obj);
             else UiCodeDraw(obj);
         }
         if (cp) {
@@ -877,12 +861,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             return S_OK;
         }
     }
-    if (g_uiCand.active) {   // RFC-0015: 헬퍼 후보창의 탐색·선택 키
+    if (obj->uiCand.active) {   // RFC-0015: 헬퍼 후보창의 탐색·선택 키
         if (UiCandHandleKey(obj, pic, (UINT)wParam)) {
             if (pfEaten) *pfEaten = TRUE;
             return S_OK;
         }
-        UiCandHide();   // 후보와 무관한 키 → 후보창을 닫고 그 키는 평소대로 처리
+        UiCandHide(obj);   // 후보와 무관한 키 → 후보창을 닫고 그 키는 평소대로 처리
     }
 
     // 여기부터 live config(한자키 설정·현재 레이아웃)를 읽고 플러그인/레이아웃을 쓰므로, 설정
@@ -923,12 +907,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             RECT rcC; int cx = 100, cy = 100, cTop = 96;
             if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
             if (obj->config.options.useUiHelper && UiClient_Available()) {
-                g_uiCodeX = cx; g_uiCodeY = cy; g_uiCodeTop = cTop;
+                obj->uiCode.x = cx; obj->uiCode.y = cy; obj->uiCode.caretTop = cTop;
                 CodeInput_ShowWindowless();
                 UiCodeDraw(obj);
-                if (!g_uiCodeActive) CodeInput_Hide();   // 헬퍼가 못 그렸다 → 열어 두지 않는다
+                if (!obj->uiCode.active) CodeInput_Hide();   // 헬퍼가 못 그렸다 → 열어 두지 않는다
             }
-            if (!g_uiCodeActive) TryReplaceHexCodepoint(obj, pic);
+            if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
             if (pfEaten) *pfEaten = TRUE;
             goto kd_done;
         }
@@ -940,26 +924,25 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     }
 
     // 순환 변환(UWP)은 한자키를 연달아 누르는 동안만 살아 있다 — 다른 키가 오면 그 자리에서 끝난다.
-    if (g_hanjaCycle.active
+    if (obj->hanjaCycle.active
         && !(Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods) || wParam == VK_KANJI))
-        HanjaCycleReset();
+        HanjaCycleReset(obj);
 
     // Hanja trigger (설정된 한자 키 목록 — 기본 VK_HANJA, 복수 지정 가능). VK_KANJI는 항상 허용.
     if ((Config_IsShortcut(&obj->config, SC_FN_HANJA, skVk, skMods)
          || wParam == VK_KANJI) && !CandidateUI_IsVisible()) {
         // 순환 변환 중(UWP 호스트)의 한자키 = 다음 후보로 교체. 사전 재조회 없이 목록을 돈다.
-        if (g_hanjaCycle.active && g_hanjaCycle.count > 0) {
-            g_hanjaCycle.idx = (g_hanjaCycle.idx + 1) % g_hanjaCycle.count;
-            const wchar_t *next = g_hanjaCycle.cands[g_hanjaCycle.idx];
-            int prevLen = (int)wcslen(g_hanjaCycle.applied);
-            g_CandCtx.obj = obj;
-            g_CandCtx.fromSelection = false;
-            g_CandCtx.targetHwnd = g_hanjaCycle.targetHwnd;
-            g_CandCtx.pic = pic;   // AddRef 하지 않는다 — 이 호출 안에서만 쓰고 Release 도 안 한다
-            ApplyHanjaChoice(&g_CandCtx, next, prevLen);
-            g_CandCtx.pic = NULL;
-            wcsncpy(g_hanjaCycle.applied, next, 7); g_hanjaCycle.applied[7] = L'\0';
-            JamoDiag("HANJA cycle idx=%d/%d", g_hanjaCycle.idx, g_hanjaCycle.count);
+        if (obj->hanjaCycle.active && obj->hanjaCycle.count > 0) {
+            obj->hanjaCycle.idx = (obj->hanjaCycle.idx + 1) % obj->hanjaCycle.count;
+            const wchar_t *next = obj->hanjaCycle.cands[obj->hanjaCycle.idx];
+            int prevLen = (int)wcslen(obj->hanjaCycle.applied);
+                obj->candCtx.fromSelection = false;
+            obj->candCtx.targetHwnd = obj->hanjaCycle.targetHwnd;
+            obj->candCtx.pic = pic;   // AddRef 하지 않는다 — 이 호출 안에서만 쓰고 Release 도 안 한다
+            ApplyHanjaChoice(obj, next, prevLen);
+            obj->candCtx.pic = NULL;
+            wcsncpy(obj->hanjaCycle.applied, next, 7); obj->hanjaCycle.applied[7] = L'\0';
+            JamoDiag("HANJA cycle idx=%d/%d", obj->hanjaCycle.idx, obj->hanjaCycle.count);
             if (pfEaten) *pfEaten = TRUE;
             goto kd_done;
         }
@@ -1057,14 +1040,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             JamoDiag("HANJA canReplace=%d keepComposing=%d found=%d", (int)canReplace,
                      (int)keepComposing, (int)found);
             if (found) {
-                g_CandCtx.obj = obj;
-                g_CandCtx.fromSelection = fromSelection;
-                g_CandCtx.targetHwnd = EditCtl_FocusEditWindow();   // 대상 EDIT 저장(콜백 시점 재조회 불가)
-                wcsncpy(g_CandCtx.word, searchStr, 31); g_CandCtx.word[31] = L'\0';   // 교체 검증용 원문
+                        obj->candCtx.fromSelection = fromSelection;
+                obj->candCtx.targetHwnd = EditCtl_FocusEditWindow();   // 대상 EDIT 저장(콜백 시점 재조회 불가)
+                wcsncpy(obj->candCtx.word, searchStr, 31); obj->candCtx.word[31] = L'\0';   // 교체 검증용 원문
                 // 후보창은 비동기(즉시 반환) — 나중 콜백에서 pic를 쓰므로 AddRef로 수명 고정(UAF 방지).
                 // 이전 후보가 남아 있으면(방어적) 먼저 해제.
-                if (g_CandCtx.pic) g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic);
-                g_CandCtx.pic = pic;
+                if (obj->candCtx.pic) obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic);
+                obj->candCtx.pic = pic;
                 if (pic) pic->lpVtbl->AddRef(pic);
 
                 RECT rcSel;   // 위치: 선택/캐럿 rect(방금 세션서 캡처) → GUIThreadInfo 폴백
@@ -1077,28 +1059,28 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 if (HostIsAppContainer()) {
                     // RFC-0015: 데스크톱 헬퍼가 떠 있으면 진짜 후보창을 그리게 한다.
                     if (obj->config.options.useUiHelper
-                        && UiCandShow(cands, count, replaceLen, special, x, y, caretTop,
+                        && UiCandShow(obj, cands, count, replaceLen, special, x, y, caretTop,
                                       obj->config.options.candFont, obj->config.options.candFontSize)) {
-                        if (g_CandCtx.pic) { g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic); g_CandCtx.pic = NULL; }
+                        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
                         if (pfEaten) *pfEaten = TRUE;
                         goto kd_done;
                     }
                 }
                 if (obj->config.options.uwpHanjaCycle && HostIsAppContainer()) {
-                    ApplyHanjaChoice(&g_CandCtx, cands[0], replaceLen);
-                    if (g_CandCtx.pic) { g_CandCtx.pic->lpVtbl->Release(g_CandCtx.pic); g_CandCtx.pic = NULL; }
-                    g_hanjaCycle.active = true;
-                    g_hanjaCycle.cands = cands;   // 사전 소유 배열(수명은 사전이 보장)
-                    g_hanjaCycle.count = count;
-                    g_hanjaCycle.idx = 0;
-                    g_hanjaCycle.targetHwnd = g_CandCtx.targetHwnd;
-                    wcsncpy(g_hanjaCycle.applied, cands[0], 7); g_hanjaCycle.applied[7] = L'\0';
+                    ApplyHanjaChoice(obj, cands[0], replaceLen);
+                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+                    obj->hanjaCycle.active = true;
+                    obj->hanjaCycle.cands = cands;   // 사전 소유 배열(수명은 사전이 보장)
+                    obj->hanjaCycle.count = count;
+                    obj->hanjaCycle.idx = 0;
+                    obj->hanjaCycle.targetHwnd = obj->candCtx.targetHwnd;
+                    wcsncpy(obj->hanjaCycle.applied, cands[0], 7); obj->hanjaCycle.applied[7] = L'\0';
                     JamoDiag("HANJA cycle start count=%d", count);
                     if (pfEaten) *pfEaten = TRUE;
                     goto kd_done;
                 }
                 CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
-                CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, &g_CandCtx);
+                CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj);
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
             }
@@ -1288,7 +1270,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
                 JamoDiag("FLUSH commit=U+%04X then resend vk=%02X (delayed)", (unsigned)res.commitChar, (unsigned)wParam);
                 OutputResultSeq(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
-                ScheduleKeyResend(wParam, lParam);   // 지연 재전달 — CUAS 전달 경합 방지 (AkelPad 엔터 소실)
+                ScheduleKeyResend(obj, wParam, lParam);   // 지연 재전달 — CUAS 전달 경합 방지 (AkelPad 엔터 소실)
                 if (pfEaten) *pfEaten = TRUE;   // 원본 소비(재전달본이 대신 처리)
             }
         }
@@ -1369,12 +1351,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
                 RECT rcC; int cx = 100, cy = 100, cTop = 96;
                 if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
                 if (obj->config.options.useUiHelper && UiClient_Available()) {
-                    g_uiCodeX = cx; g_uiCodeY = cy; g_uiCodeTop = cTop;
+                    obj->uiCode.x = cx; obj->uiCode.y = cy; obj->uiCode.caretTop = cTop;
                     CodeInput_ShowWindowless();
                     UiCodeDraw(obj);
-                    if (!g_uiCodeActive) CodeInput_Hide();
+                    if (!obj->uiCode.active) CodeInput_Hide();
                 }
-                if (!g_uiCodeActive) TryReplaceHexCodepoint(obj, pic);
+                if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
                 break;
             }
             RECT rc; int x = 100, y = 100;
@@ -1667,12 +1649,12 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     SettingsUI_Shutdown();
 
     // RFC-0008 W0-02: 보류 중인 경계키 재전송을 지금 방출하고 타이머를 끈다.
-    FlushPendingKeyResend();
-    UiCandHide();   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
-    UiCodeHide();
+    FlushPendingKeyResend(obj);
+    UiCandHide(obj);   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
+    UiCodeHide(obj);
 
     // 진행 중이던 오토마타 상태 정리 (재활성 후 유령 입력 방지) + 팝업 창들 파괴(입력 스레드).
-    // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 g_CandCtx.obj(raw 서비스 포인터)를 정리 —
+    // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 obj->candCtx.obj(raw 서비스 포인터)를 정리 —
     // 열린 채 Deactivate되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
     CandidateUI_Cancel();
     JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리

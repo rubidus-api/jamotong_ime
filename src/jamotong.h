@@ -117,6 +117,34 @@ typedef struct JamotongTextService {
 
     // UI Elements
     JamotongLangBarItem *pLangBarItem;
+
+    // ── 입력 세션 상태 (RFC-0008 W0-03) ────────────────────────────────────────────
+    // TIP 은 텍스트를 쓰는 모든 프로세스에, 한 프로세스 안에서도 입력 스레드마다 하나씩
+    // 만들어진다. "지금 무엇을 입력 중인가"를 파일 전역에 두면 인스턴스끼리 서로 덮고,
+    // 해제된 인스턴스를 가리키는 포인터가 남는다. 그래서 여기(인스턴스)가 소유자다.
+    // UI **창**은 프로세스당 하나가 자연스러우므로 옮기지 않는다(S2 에서 소유 스레드만 명시).
+    struct {                     // 한자 후보 선택 콜백이 쓰는 문맥
+        ITfContext *pic;
+        wchar_t word[32];        // 변환 대상 원문 (EDIT 선택 검증용)
+        bool fromSelection;      // 블록 선택에서 온 변환
+        HWND targetHwnd;         // 한자키 시점의 대상 EDIT
+    } candCtx;
+    struct {                     // UWP 폴백: 한자키를 거듭 눌러 후보 순환 (RFC-0015 이전 경로)
+        bool active;
+        wchar_t **cands;         // 사전이 소유하는 불변 배열
+        int count, idx;
+        HWND targetHwnd;
+        wchar_t applied[8];
+    } hanjaCycle;
+    struct {                     // 헬퍼가 그리는 후보창의 키 라우팅 상태 (RFC-0015)
+        bool active;
+        wchar_t **cands;
+        int count, sel, perPage, replaceLen;
+    } uiCand;
+    struct {                     // 헬퍼가 그리는 코드입력 줄 (RFC-0015 Phase 2)
+        bool active;
+        int x, y, caretTop;
+    } uiCode;
 } JamotongTextService;
 
 #include <stddef.h>
