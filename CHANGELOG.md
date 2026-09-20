@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+(비어 있음)
+
+## [0.19.1] - 2026-09-20
+
 ### Fixed
 - **`Program Files` 밖에 설치하면 UWP 앱에서 입력기가 아예 보이지 않던 문제.** TIP DLL 이 놓인
   폴더에 `ALL APPLICATION PACKAGES` 읽기 권한이 없으면 UWP 앱(작업표시줄 검색·설정 앱·Store 앱)은
