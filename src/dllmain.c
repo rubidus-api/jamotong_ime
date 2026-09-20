@@ -1,5 +1,6 @@
 #include <initguid.h>
 #include "jamotong.h"
+#include "config.h"   // Config_GrantAppContainerRead
 
 LONG g_DllRefCount = 0;
 HINSTANCE g_hInst = NULL;
@@ -118,6 +119,20 @@ STDAPI DllRegisterServer(void) {
     WCHAR szModule[MAX_PATH];
 
     if (!GetModuleFileNameW(g_hInst, szModule, MAX_PATH)) return E_FAIL;
+
+    // 이 DLL 이 놓인 폴더를 UWP(AppContainer) 프로세스가 읽을 수 있게 한다.
+    // TIP 은 호스트 프로세스 안에서 로드된다 — 호스트가 UWP 앱(작업표시줄 검색·설정 앱·Store 앱)
+    // 이면 AppContainer 라서 이 권한이 없는 폴더의 DLL 을 **열지 못한다**. 그러면 일반 앱에서는
+    // 멀쩡한데 UWP 앱에서만 입력기가 목록에 뜨지 않는다(자모통 아이콘조차 안 보인다).
+    // `C:\Program Files` 는 상속으로 이미 갖고 있지만 임의 폴더와 `%LocalAppData%`(사용자별 설치
+    // 자리)는 아니다 — 그래서 설치 방식과 무관하게 **등록 시점에** 보장한다. 실기 2026-09-19/20.
+    {
+        WCHAR dir[MAX_PATH];
+        wcsncpy(dir, szModule, MAX_PATH - 1);
+        dir[MAX_PATH - 1] = L'\0';
+        WCHAR *slash = wcsrchr(dir, L'\\');
+        if (slash) { *slash = L'\0'; Config_GrantAppContainerRead(dir); }
+    }
 
     // Register CLSID
     if (RegCreateKeyExW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) return E_FAIL;

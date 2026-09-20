@@ -239,7 +239,7 @@ void Config_RemoveEditedLayout(JamotongConfig *edited, int idx, const JamotongCo
 // 폴더는 사용자 자신의 것이고 주는 권한은 읽기(RX)뿐이다. AppContainer 안에서 돌 때는 권한을
 // 바꿀 수 없으므로(그럴 필요도 없다) 조용히 지나간다.
 #ifdef _WIN32
-static void GrantAppContainerRead(const wchar_t *path) {
+void Config_GrantAppContainerRead(const wchar_t *path) {
     PSID sid = NULL;
     if (!ConvertStringSidToSidW(L"S-1-15-2-1", &sid)) return;
     PACL oldDacl = NULL, newDacl = NULL;
@@ -264,7 +264,7 @@ static void GrantAppContainerRead(const wchar_t *path) {
     LocalFree(sid);
 }
 #else   // 네이티브(비-Windows) 테스트 빌드: 보안 API 가 없다 — 할 일 없음
-static void GrantAppContainerRead(const wchar_t *path) { (void)path; }
+void Config_GrantAppContainerRead(const wchar_t *path) { (void)path; }
 #endif
 
 // 사용자 설정 파일 경로: %APPDATA%\Jamotong\config.ini (디렉터리 없으면 생성).
@@ -279,7 +279,7 @@ bool Config_UserPath(wchar_t *out, int cch) {
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
     dir[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
     CreateDirectoryW(dir, NULL);   // 이미 있으면 조용히 실패(무시)
-    GrantAppContainerRead(dir);    // UWP 호스트도 설정을 읽을 수 있게 (위 주석)
+    Config_GrantAppContainerRead(dir);    // UWP 호스트도 설정을 읽을 수 있게 (위 주석)
     _snwprintf(out, cch, L"%ls\\config.ini", dir);
     out[cch - 1] = L'\0';
     return true;
@@ -296,7 +296,7 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
     _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
     dir[MAX_PATH - 1] = L'\0';
     CreateDirectoryW(dir, NULL);
-    GrantAppContainerRead(dir);
+    Config_GrantAppContainerRead(dir);
     _snwprintf(out, cch, L"%ls\\layouts", dir);
     out[cch - 1] = L'\0';
     CreateDirectoryW(out, NULL);

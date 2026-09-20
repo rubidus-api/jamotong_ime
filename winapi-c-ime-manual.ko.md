@@ -2677,8 +2677,10 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 ```
 
 같은 이유로 **TIP DLL 이 놓인 폴더**에도 그 권한이 있어야 UWP 앱이 TIP 을 로드한다.
-`C:\Program Files` 는 상속으로 이미 갖고 있지만 임의 폴더와 `%LocalAppData%` 는 아니다 —
-그런 자리에 설치하면 일반 앱에서는 멀쩡한데 UWP 앱에서만 입력기가 목록에 뜨지 않는다.
+`C:\Program Files` 는 상속으로 이미 갖고 있지만 임의 폴더와 `%LocalAppData%`(사용자별 설치 자리)는
+아니다 — 그런 자리에 설치하면 일반 앱에서는 멀쩡한데 UWP 앱에서만 입력기가 목록에 뜨지 않는다
+(아이콘조차 안 보인다). 설치기에 맡기지 말고 **`DllRegisterServer` 에서 자기 모듈 폴더에** 같은
+권한을 주는 편이 확실하다 — 설치 방식·설치 위치·수동 `regsvr32` 무엇이든 한 곳에서 보장된다.
 
 
 ## 부록 A: jamotong 소스 매핑

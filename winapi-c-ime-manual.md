@@ -2916,8 +2916,10 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 ```
 
 The folder holding the **TIP DLL** needs the same right for UWP apps to load the TIP at all.
-`C:\Program Files` inherits it; an arbitrary folder and `%LocalAppData%` do not — install there and
-the IME works in ordinary apps but never appears inside UWP ones.
+`C:\Program Files` inherits it; an arbitrary folder and `%LocalAppData%` (the per-user install
+location) do not — install there and the IME works in ordinary apps but never appears inside UWP
+ones, not even its icon. Do not leave this to the installer: grant it from **`DllRegisterServer` on
+the module's own folder**, and every install path — including a hand-run `regsvr32` — is covered.
 
 
 ## Appendix A: jamotong source map

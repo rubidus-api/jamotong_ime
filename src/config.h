@@ -133,6 +133,11 @@ bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini 
 // 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시
 // 자동 로드된다(외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).
 bool Config_UserLayoutDir(wchar_t *out, int cch);
+
+// 주어진 폴더(와 그 아래)를 UWP(AppContainer) 프로세스가 **읽을** 수 있게 한다.
+// TIP 은 호스트 프로세스 안에서 돈다 — 호스트가 UWP 앱이면 AppContainer 라서 이 권한이 없는
+// 폴더의 파일을 열지 못한다(설정도, TIP DLL 자신도). 설정 폴더 생성 시와 DLL 등록 시 부른다.
+void Config_GrantAppContainerRead(const wchar_t *path);
 // 기계 전체 자판 저장소 %PROGRAMDATA%\Jamotong\layouts (관리자 배포용, RFC-0011 P0).
 // 읽기 전용 취급 — 생성 시도는 하되 실패(비관리자)해도 조용히 넘어간다.
 bool Config_MachineLayoutDir(wchar_t *out, int cch);

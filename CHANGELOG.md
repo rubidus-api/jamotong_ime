@@ -5,7 +5,13 @@
 
 ## [Unreleased]
 
-(비어 있음)
+### Fixed
+- **`Program Files` 밖에 설치하면 UWP 앱에서 입력기가 아예 보이지 않던 문제.** TIP DLL 이 놓인
+  폴더에 `ALL APPLICATION PACKAGES` 읽기 권한이 없으면 UWP 앱(작업표시줄 검색·설정 앱·Store 앱)은
+  그 DLL 을 열지 못한다 — 일반 앱에서는 멀쩡한데 그 앱들에서만 자모통이 목록에 없고 아이콘도
+  안 보인다. **사용자별 설치(`install-user.bat`, `%LocalAppData%\Programs\Jamotong`)가 정확히
+  이 경우였다.** 이제 등록(`regsvr32`) 시점에 DLL 이 있는 폴더에 그 권한을 준다 — 설치 방식이나
+  설치 위치와 무관하게 보장된다.
 
 ## [0.19.0] - 2026-09-20
 
