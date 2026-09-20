@@ -1,5 +1,6 @@
 #include <initguid.h>
 #include "jamotong.h"
+#include <stdbool.h>
 #include "config.h"   // Config_GrantAppContainerRead
 
 LONG g_DllRefCount = 0;
@@ -33,8 +34,14 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     return TRUE;
 }
 
+// RFC-0008 W0-02: COM 참조만 보면 부족하다 — 우리가 건 타이머의 콜백은 이 DLL 안에 있다.
+// 보류 중인 것이 하나라도 있으면 아직 내리면 안 된다.
+bool Jamotong_HasPendingTimers(void);
+
 STDAPI DllCanUnloadNow(void) {
-    return (g_DllRefCount == 0) ? S_OK : S_FALSE;
+    if (g_DllRefCount != 0) return S_FALSE;
+    if (Jamotong_HasPendingTimers()) return S_FALSE;
+    return S_OK;
 }
 
 // ------------------------------------------------------------------

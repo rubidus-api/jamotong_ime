@@ -573,6 +573,21 @@ static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD tim
         ResendKeyNow(g_pendResendVk, g_pendResendLp);
     }
 }
+// RFC-0008 W0-02: 보류 중인 재전송을 지금 끝낸다. Deactivate 가 이걸 안 부르면 타이머 콜백이
+// (해제된) DLL 코드로 들어올 수 있고, 보류하던 키는 조용히 사라진다. 순서를 지키려고 **버리지
+// 않고 즉시 방출**한다. `KillTimer` 는 이미 큐에 든 WM_TIMER 를 지우지 않으므로 id 도 0 으로
+// 비워, 뒤늦게 들어온 콜백이 아무 일도 하지 않게 한다.
+static void FlushPendingKeyResend(void) {
+    if (!g_pendResendTimer) return;
+    UINT_PTR t = g_pendResendTimer;
+    g_pendResendTimer = 0;
+    KillTimer(NULL, t);
+    ResendKeyNow(g_pendResendVk, g_pendResendLp);
+}
+
+// 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
+bool Jamotong_HasPendingTimers(void) { return g_pendResendTimer != 0; }
+
 static void ScheduleKeyResend(WPARAM vk, LPARAM lParam) {
     if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
         KillTimer(NULL, g_pendResendTimer);
@@ -1632,6 +1647,11 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
 
     // 설정창 스레드 종료 후 조인 — 이걸 안 하면 설정창이 (곧 해제될) obj->config를 계속 참조해 UAF.
     SettingsUI_Shutdown();
+
+    // RFC-0008 W0-02: 보류 중인 경계키 재전송을 지금 방출하고 타이머를 끈다.
+    FlushPendingKeyResend();
+    UiCandHide();   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
+    UiCodeHide();
 
     // 진행 중이던 오토마타 상태 정리 (재활성 후 유령 입력 방지) + 팝업 창들 파괴(입력 스레드).
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 g_CandCtx.obj(raw 서비스 포인터)를 정리 —

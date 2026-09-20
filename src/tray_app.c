@@ -90,15 +90,20 @@ static bool IsModifierOrLock(UINT vk) {
 static void UpdateStatus(void) {
     LayoutConfig *L = Config_GetCurrentLayout(&g_config);
     const wchar_t *fname = g_curFile[0] ? (wcsrchr(g_curFile, L'\\') ? wcsrchr(g_curFile, L'\\') + 1 : g_curFile) : L"(none)";
+    // RFC-0008 W0-05: 자판 이름과 파일 이름은 사용자 데이터다 — 길이를 우리가 정하지 않는다.
+    // `wsprintfW` 는 대상 크기를 모르고 1024자에서 자른다 → 256/160 버퍼에 그대로 쓰면 넘친다.
+    // `_snwprintf` 로 경계를 넘기고, 잘릴 때를 대비해 널 종료를 손으로 보장한다.
     wchar_t s[256];
     if (g_testMode)
-        wsprintfW(s, L"Mode: INPUT TEST  |  Layout: %ls  (switch: Right Alt / Hangul / Shift+Space)",
-                  (L && L->name) ? L->name : L"?");
+        _snwprintf(s, 256, L"Mode: INPUT TEST  |  Layout: %ls  (switch: Right Alt / Hangul / Shift+Space)",
+                   (L && L->name) ? L->name : L"?");
     else
-        wsprintfW(s, L"Mode: EDIT .jmt  |  File: %ls  (Tools ▸ Validate to check, Tools ▸ Test input to type)", fname);
+        _snwprintf(s, 256, L"Mode: EDIT .jmt  |  File: %ls  (Tools ▸ Validate to check, Tools ▸ Test input to type)", fname);
+    s[255] = L'\0';
     if (g_hStatus) SetWindowTextW(g_hStatus, s);
     wchar_t t[160];
-    wsprintfW(t, L"Jamotong Manager%ls%ls", g_curFile[0] ? L" — " : L"", g_curFile[0] ? fname : L"");
+    _snwprintf(t, 160, L"Jamotong Manager%ls%ls", g_curFile[0] ? L" — " : L"", g_curFile[0] ? fname : L"");
+    t[159] = L'\0';
     if (g_hMain) SetWindowTextW(g_hMain, t);
 }
 
@@ -301,6 +306,7 @@ static void ValidateCurrent(void) {
         wchar_t msg[256];
         _snwprintf(msg, 256, L"OK — loads as a valid %ls layout.\nName: %ls",
                    type, lc.name ? lc.name : L"?");
+        msg[255] = L'\0';   // _snwprintf 는 잘릴 때 널을 안 붙인다
         Config_FreeLayoutResources(&lc);
         MessageBoxW(g_hMain, msg, L"Validate — OK", MB_ICONINFORMATION);
     } else {
