@@ -60,26 +60,33 @@ static BOOL GetCaretScreenRect(JamotongTextService *obj, RECT *out) {
 //   AkelEdit는 TSF InsertTextAtSelection을 hr=0으로 받고도 반영하지 않아(실기 2026-07-08),
 //   EDIT 계열은 EM_REPLACESEL만 신뢰할 수 있다. 반환 후 lastCaretValid를 세팅해 오버레이가
 //   올바른 캐럿 소스를 쓰게 한다(EDIT=GUIThreadInfo 시스템 캐럿, TSF=세션 GetTextExt).
-static void CommitText(JamotongTextService *obj, ITfContext *pic, const wchar_t *str) {
+// RFC-0008 W0-04: 문서에 **실제로 들어갔는지**를 돌려준다. 편집 세션은 동기라 삽입 실패가
+// hrSession 으로 올라온다(RFC-0004 P2-2) — 그 값을 버리지 않는 것이 이 계약의 전부다.
+static bool CommitText(JamotongTextService *obj, ITfContext *pic, const wchar_t *str) {
     HWND edit = EditCtl_FocusEditWindow();
     if (edit && EditCtl_ReplaceSelection(edit, str)) {
         obj->lastCaretValid = FALSE;   // TSF rect 없음 → 오버레이는 GUIThreadInfo 캐럿 폴백
-    } else {
-        EditSessionData esd = {0};
-        wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
-        RequestEditSessionData(obj, pic, &esd);   // 비-EDIT(터미널·네이티브): TSF + 캐럿 캡처
+        return true;
     }
+    EditSessionData esd = {0};
+    wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
+    HRESULT hr = RequestEditSessionData(obj, pic, &esd);   // 비-EDIT(터미널·네이티브): TSF + 캐럿 캡처
+    if (FAILED(hr)) JamoDiag("COMMIT fail hr=0x%08lX", (unsigned long)hr);
+    return SUCCEEDED(hr);
 }
 
 // FSM 결과 출력 → 커밋(확정 음절) + 조합 미리보기 오버레이 갱신(RFC-0002).
 //   g_configLock 재진입: OnKeyDown(락 보유)에서도, KeyUp(무락)에서도 안전.
-static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
+static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
     (void)isFlush;
+    bool ok = true;
     if (res.commitChar) {                 // 확정 음절 → EDIT=EM_REPLACESEL / 비-EDIT=TSF
         wchar_t cs[2] = { res.commitChar, L'\0' };
-        CommitText(obj, pic, cs);
+        ok = CommitText(obj, pic, cs);
     } else {
-        RequestEditSession(obj, pic, res);   // 조합만(삽입 없음): 캐럿 rect 캡처만 (오버레이용)
+        // 조합만(삽입 없음): 캐럿 rect 캡처만 (오버레이용) — 실패해도 문서는 그대로이므로
+        // 트랜잭션 성공/실패와 무관하다.
+        RequestEditSession(obj, pic, res);
     }
 
     EnterCriticalSection(&g_configLock);
@@ -110,17 +117,18 @@ static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
                      res.commitChar ? 1 : 0, obj->lastCaretValid ? "TextExt" : "GUITI");
             wchar_t s[2] = { res.preeditChar, L'\0' };
             PreeditOverlay_Show(&rc, s, face, pvSize);
-            return;
+            return ok;
         }
         JamoDiag("CHIP no-rect (TextExt fail + GUIThreadInfo fail) -> hide");
     }
     obj->prevChipValid = FALSE;   // 표시 안 함 → 비교 기준 리셋
     obj->chipPendingAdv = 0;
     PreeditOverlay_Hide();   // preedit 없음/옵션 꺼짐/좌표 불명 → 숨김
+    return ok;
 }
 
 static void ResetComposition(JamotongTextService *obj);
-static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
+static bool OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
 
 // 무간섭(직접 입력) 모드 토글 — 조합·팝업을 정리하고 레지스트리에 기록·발행한다.
 // 켜져 있는 동안 키 싱크는 해제 단축키 외 모든 키를 통과시킨다(원격 데스크톱 등).
@@ -198,8 +206,8 @@ static void ResetComposition(JamotongTextService *obj) {
 //   isFlush=TRUE: res.commitChar는 '현재 조합의 확정'이다. 인라인 조합이 활성이면 그 텍스트가
 //   이미 문서 안에 있으므로 재삽입하지 않고 composition만 확정한다(재삽입=글자 중복).
 // 모아치기/코드/정적/플러그인 경로는 기존 OutputResult를 그대로 쓴다.
-static void OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
-static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
+static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
+static bool OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
     // 경로 선택은 transitory 판정이 단독으로 한다. EDIT 계열 검출(EditCtl_*)은 경로 선택자가
     // 아니라 COMMIT 경로 '안'의 주입 방식이다 — Win11 메모장 편집 컨트롤이 RichEditD2DPT
     // (클래스명에 'edit', EM_* 응답)라서 EDIT 검출을 선행시키면 표준 조합의 1차 대상인
@@ -210,19 +218,19 @@ static void OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult
             JamoComp_Finalize(obj);   // 조합 텍스트는 이미 문서에 있다 — 확정만
             obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
             PreeditOverlay_Hide();
-            return;
+            return true;
         }
         if (!isFlush) {
             if (SUCCEEDED(JamoComp_Apply(obj, pic, res))) {
                 obj->prevChipValid = FALSE; obj->chipPendingAdv = 0;
                 PreeditOverlay_Hide();   // 문서가 밑줄 preedit를 직접 표시한다
-                return;
+                return true;
             }
             // 실패: Apply가 rollback+강등까지 마쳤다 — 이 키 결과는 아래 기존 경로로 커밋.
         }
         // isFlush인데 인라인 조합이 없으면(첫 키 실패·외부 종료 직후 등) 기존 경로로 확정.
     }
-    OutputResult(obj, pic, res, isFlush);
+    return OutputResult(obj, pic, res, isFlush);
 }
 
 // 유니코드 직접 입력용 16진수 헬퍼
@@ -1237,10 +1245,20 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             wchar_t keyChar = GetQwertyChar(wParam, isShift);   // a~z + 숫자/기호 (세벌식/사용자 자판용)
             if (keyChar > 0 && keyChar < 128) lr = hl ? hl->keymap[(int)keyChar] : Layout_MapKeyToJamo(keyChar, layout->kbdVariant);
             if (lr.type != JAMO_NONE) {
+                // RFC-0008 W0-04: 문서에 실제로 들어간 뒤에만 FSM 을 확정한다.
+                // FsmContext 는 POD 라 이 스냅샷 하나로 이전 상태가 온전히 보존된다.
+                FsmContext fsmBefore = obj->fsm;
                 FsmResult res = Fsm_ProcessKey(&obj->fsm, keyChar, layout->kbdVariant, hl);
                 if (pfEaten) *pfEaten = res.eaten;
                 JamoDiag("FSM key=%c commit=U+%04X preedit=U+%04X", (char)keyChar, (unsigned)res.commitChar, (unsigned)res.preeditChar);
-                if (res.commitChar || res.preeditChar) OutputResultSeq(obj, pic, res, FALSE);
+                if (res.commitChar || res.preeditChar) {
+                    if (!OutputResultSeq(obj, pic, res, FALSE)) {
+                        // 출력이 문서에 닿지 못했다 → 그 키는 없던 일로 되돌린다.
+                        // 키는 그대로 소비한다: 여기서 앱에 흘리면 조합 중에 원문자가 박혀 더 나쁘다.
+                        obj->fsm = fsmBefore;
+                        JamoDiag("TXN rollback key=%c", (char)keyChar);
+                    }
+                }
                 goto kd_done;
             } else if (!IsModifierOrLock(wParam) && obj->fsm.state != STATE_EMPTY) {
                 // [실험] 스페이스 경계: 확정 음절+공백을 '한 번의 삽입'으로 처리(재전달 없음).
