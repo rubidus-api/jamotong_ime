@@ -143,8 +143,9 @@ Default keys — every function is configurable and accepts multiple bindings
 >   pick with the number keys, arrows or Enter, as usual. The helper starts by itself once you use
 >   Jamotong in a desktop app. Turn it off (`UseUiHelper=0`) and you get the fallback instead:
 >   **press the hanja key again** to step through candidates (`UwpHanjaCycle=0` disables that too).
-> - **Unicode input**: **type the hex first, then press `Ctrl+Alt+U`** to convert it
->   (for example type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
+> - **Unicode input**: with the helper running it works as usual — `Ctrl+Alt+U`, type the hex,
+>   press `Enter`. With the helper off, **type the hex first, then press `Ctrl+Alt+U`**
+>   (type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
 > - The composing syllable is shown inline by the app itself, so no preview chip appears.
 >
 > Ordinary desktop apps behave exactly as before.

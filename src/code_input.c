@@ -128,7 +128,26 @@ static bool EnsureClass(void) {
     return s_ok;
 }
 
+// 창 없는 모드(UWP 호스트): 상태만 유지하고 그리기는 데스크톱 헬퍼가 한다(RFC-0015 Phase 2).
+static bool g_windowless = false;
+static bool g_wlActive = false;   // 창 없는 모드에서 '떠 있음' 상태
+
+const wchar_t *CodeInput_DisplayText(void) {
+    static wchar_t line[32];
+    _snwprintf(line, 32, L"U+%ls_", g_hexLen ? g_hex : L"");
+    line[31] = L'\0';
+    return line;
+}
+
+void CodeInput_ShowWindowless(void) {   // 창을 만들지 않고 입력만 받는다
+    g_windowless = true;
+    g_wlActive = true;
+    g_hexLen = 0; g_hex[0] = L'\0';
+}
+
 void CodeInput_Show(int x, int y) {
+    g_windowless = false;
+    g_wlActive = false;
     if (!UiElem_BeginCode()) return;   // RFC-0012 Phase 3 게이트 (재호출 안전)
     if (!EnsureClass()) return;
     g_hexLen = 0; g_hex[0] = L'\0';
@@ -142,7 +161,7 @@ void CodeInput_Show(int x, int y) {
     InvalidateRect(g_hwnd, NULL, TRUE);
 }
 
-bool CodeInput_IsVisible(void) { return g_hwnd && IsWindowVisible(g_hwnd); }
+bool CodeInput_IsVisible(void) { return g_wlActive || (g_hwnd && IsWindowVisible(g_hwnd)); }
 
 // VK → 16진수 문자 (0-9, A-F; 숫자패드 포함). 아니면 0.
 static wchar_t HexCharFromVK(UINT vKey, bool shift) {
@@ -164,19 +183,20 @@ bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint) {
         return true;
     }
     if (vKey == VK_BACK) {
-        if (g_hexLen > 0) { g_hex[--g_hexLen] = L'\0'; InvalidateRect(g_hwnd, NULL, TRUE); }
+        if (g_hexLen > 0) { g_hex[--g_hexLen] = L'\0'; if (g_hwnd) InvalidateRect(g_hwnd, NULL, TRUE); }
         return true;
     }
     wchar_t hc = HexCharFromVK(vKey, shift);
     if (hc && g_hexLen < 6) {
         g_hex[g_hexLen++] = hc; g_hex[g_hexLen] = L'\0';
-        InvalidateRect(g_hwnd, NULL, TRUE);
+        if (g_hwnd) InvalidateRect(g_hwnd, NULL, TRUE);
         return true;
     }
     return true;   // 열려 있는 동안 다른 키는 전부 소비 (앱 오입력 방지)
 }
 
 void CodeInput_Hide(void) {
+    g_wlActive = false;   // 창 없는 모드도 함께 내린다
     UiElem_EndCode();
     if (g_hwnd) ShowWindow(g_hwnd, SW_HIDE);
     g_hexLen = 0; g_hex[0] = L'\0';

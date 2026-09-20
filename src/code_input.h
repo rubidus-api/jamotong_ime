@@ -10,4 +10,10 @@ bool CodeInput_IsVisible(void);
 // 키 처리. 소비했으면 true. Enter 확정 시 *outCodepoint에 코드포인트(≥0x20)를 담는다(그 외 0).
 bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint);
 void CodeInput_Hide(void);
+
+// 지금 화면에 보여야 할 한 줄("U+AC0_" 꼴). 창을 못 띄우는 호스트(UWP)에서 헬퍼에 넘길 때 쓴다.
+const wchar_t *CodeInput_DisplayText(void);
+
+// 창을 만들지 않고 입력 상태만 연다(UWP 호스트 — 표시는 헬퍼가 한다).
+void CodeInput_ShowWindowless(void);
 void CodeInput_Uninitialize(void);

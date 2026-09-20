@@ -363,6 +363,27 @@ static bool UiCandShow(wchar_t **cands, int count, int replaceLen, bool special,
     return true;
 }
 
+// RFC-0015 Phase 2: 코드입력 상태를 헬퍼에 한 줄로 그린다(후보 1개짜리 목록으로 보낸다).
+// UWP 호스트에서는 팝업 창이 화면에 안 나타나므로, 창 없이 상태만 유지하고 표시는 헬퍼가 맡는다.
+static bool g_uiCodeActive = false;
+static int  g_uiCodeX = 100, g_uiCodeY = 100, g_uiCodeTop = 96;
+
+static void UiCodeDraw(JamotongTextService *obj) {
+    const wchar_t *line = CodeInput_DisplayText();
+    const wchar_t *ptrs[1] = { line };
+    if (UiClient_Show(ptrs, 1, 1, 0, g_uiCodeX, g_uiCodeY, g_uiCodeTop,
+                      obj->config.options.candFont, obj->config.options.candFontSize))
+        g_uiCodeActive = true;
+    else
+        g_uiCodeActive = false;
+}
+
+static void UiCodeHide(void) {
+    if (!g_uiCodeActive) return;
+    UiClient_Hide();
+    g_uiCodeActive = false;
+}
+
 // 헬퍼 후보창이 떠 있는 동안의 키. 처리했으면 true(= 이 키는 앱에 안 간다).
 static bool UiCandHandleKey(JamotongTextService *obj, ITfContext *pic, UINT vk) {
     if (!g_uiCand.active) return false;
@@ -807,7 +828,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 유니코드 코드 입력 팝업 키 라우팅 (열려 있으면 모든 키 소비; Enter 확정 시 문자 삽입)
     if (CodeInput_IsVisible()) {
         unsigned cp = 0;
+        bool wasEsc = ((UINT)wParam == VK_ESCAPE);
         CodeInput_HandleKey((UINT)wParam, isShift, &cp);
+        if (g_uiCodeActive) {   // 창 없는(UWP) 모드: 매 키마다 헬퍼가 그린 줄을 갱신
+            if (cp || wasEsc || !CodeInput_IsVisible()) UiCodeHide();
+            else UiCodeDraw(obj);
+        }
         if (cp) {
             EditSessionData esd = {0};
             if (cp <= 0xFFFF) { esd.committed[0] = (wchar_t)cp; }
@@ -868,11 +894,18 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             OutputResultSeq(obj, pic, res, TRUE);
         }
         // UWP(AppContainer) 호스트에서는 팝업 창이 화면에 나타나지 않는다(HostIsAppContainer 주석).
-        // 그래서 여기서는 "먼저 16진수를 치고 이 키를 누른다"로 강등한다 — 커서 앞 2~6자리를
-        // 그 코드포인트 문자로 바로 바꾼다. 앞에 16진수가 없으면 아무 일도 하지 않는다(키는 소비 —
-        // 창이 안 뜨는 상태에서 호스트에 Ctrl+Alt+U 를 흘리면 앱 단축키가 잘못 걸린다).
+        //  - 헬퍼가 있으면(RFC-0015 Phase 2) 창 없이 상태만 열고 헬퍼가 그 줄을 그린다 → 평소 UX.
+        //  - 헬퍼가 없으면 "먼저 16진수를 치고 이 키" 로 강등한다(0.19.1 동작).
         if (HostIsAppContainer()) {
-            TryReplaceHexCodepoint(obj, pic);
+            RECT rcC; int cx = 100, cy = 100, cTop = 96;
+            if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
+            if (obj->config.options.useUiHelper && UiClient_Available()) {
+                g_uiCodeX = cx; g_uiCodeY = cy; g_uiCodeTop = cTop;
+                CodeInput_ShowWindowless();
+                UiCodeDraw(obj);
+                if (!g_uiCodeActive) CodeInput_Hide();   // 헬퍼가 못 그렸다 → 열어 두지 않는다
+            }
+            if (!g_uiCodeActive) TryReplaceHexCodepoint(obj, pic);
             if (pfEaten) *pfEaten = TRUE;
             goto kd_done;
         }
@@ -1300,7 +1333,15 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
             // UWP(AppContainer): 팝업이 화면에 나타나지 않는다 → "16진수를 먼저 치고 이 키" 로 강등.
             // (preserved key 경로. OnKeyDown 쪽 SC_FN_CODE 분기와 같은 동작이어야 한다.)
             if (HostIsAppContainer()) {
-                TryReplaceHexCodepoint(obj, pic);
+                RECT rcC; int cx = 100, cy = 100, cTop = 96;
+                if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
+                if (obj->config.options.useUiHelper && UiClient_Available()) {
+                    g_uiCodeX = cx; g_uiCodeY = cy; g_uiCodeTop = cTop;
+                    CodeInput_ShowWindowless();
+                    UiCodeDraw(obj);
+                    if (!g_uiCodeActive) CodeInput_Hide();
+                }
+                if (!g_uiCodeActive) TryReplaceHexCodepoint(obj, pic);
                 break;
             }
             RECT rc; int x = 100, y = 100;
