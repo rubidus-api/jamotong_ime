@@ -277,6 +277,33 @@ static struct {
 
 static void HanjaCycleReset(void) { memset(&g_hanjaCycle, 0, sizeof(g_hanjaCycle)); }
 
+// 커서 앞 2~6자리 16진수를 그 코드포인트 문자로 바꾼다 (성공 시 true).
+// 한자키 경로와, 창을 띄울 수 없는 UWP 호스트의 코드입력 경로가 함께 쓴다.
+static bool TryReplaceHexCodepoint(JamotongTextService *obj, ITfContext *pic) {
+    wchar_t readBuf[32] = {0};
+    if (FAILED(RequestReadSessionString(obj, pic, readBuf, 10))) return false;
+    int len = (int)wcslen(readBuf);
+    int hs = len;
+    while (hs > 0 && IsHexW(readBuf[hs - 1])) hs--;
+    int hlen = len - hs;
+    if (hlen < 2 || hlen > 6) return false;
+    unsigned cp = 0;
+    for (int k = hs; k < len; k++) cp = cp * 16 + HexValW(readBuf[k]);
+    if (cp < 0x20 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+    wchar_t out[3];
+    if (cp <= 0xFFFF) {
+        out[0] = (wchar_t)cp; out[1] = L'\0';
+    } else {   // BMP 밖 → UTF-16 서로게이트 쌍
+        cp -= 0x10000;
+        out[0] = (wchar_t)(0xD800 + (cp >> 10));
+        out[1] = (wchar_t)(0xDC00 + (cp & 0x3FF));
+        out[2] = L'\0';
+    }
+    RequestReplaceSessionString(obj, pic, hlen, out);
+    JamoDiag("CODE hex replace hlen=%d", hlen);
+    return true;
+}
+
 // 후보 문자열을 문서에 반영한다 (후보창 경로와 순환 경로가 함께 쓴다).
 static void ApplyHanjaChoice(CandidateContext *cc, const wchar_t *str, int replaceLen) {
     HWND h = cc->targetHwnd;   // 한자키 시점에 저장한 대상 EDIT (콜백 땐 포커스 이동으로 재조회 불가)
@@ -698,6 +725,15 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);
         }
+        // UWP(AppContainer) 호스트에서는 팝업 창이 화면에 나타나지 않는다(HostIsAppContainer 주석).
+        // 그래서 여기서는 "먼저 16진수를 치고 이 키를 누른다"로 강등한다 — 커서 앞 2~6자리를
+        // 그 코드포인트 문자로 바로 바꾼다. 앞에 16진수가 없으면 아무 일도 하지 않는다(키는 소비 —
+        // 창이 안 뜨는 상태에서 호스트에 Ctrl+Alt+U 를 흘리면 앱 단축키가 잘못 걸린다).
+        if (HostIsAppContainer()) {
+            TryReplaceHexCodepoint(obj, pic);
+            if (pfEaten) *pfEaten = TRUE;
+            goto kd_done;
+        }
         RECT rc; int x = 100, y = 100;
         if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
         CodeInput_Show(x, y);
@@ -793,31 +829,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 }
                 replaceLen = 0;   // EDIT 계열은 EM_REPLACESEL, 비-EDIT는 삽입=선택 교체
             } else {
+            // 유니코드 직접 입력: 커서 앞 2~6자리 16진수 → 해당 코드포인트 문자로 치환
+            if (TryReplaceHexCodepoint(obj, pic)) {
+                if (pfEaten) *pfEaten = TRUE;
+                goto kd_done;
+            }
             wchar_t readBuf[32] = {0};
             if (SUCCEEDED(RequestReadSessionString(obj, pic, readBuf, 10))) {
                 int len = wcslen(readBuf);
-                // 유니코드 직접 입력: 커서 앞 2~6자리 16진수 → 해당 코드포인트 문자로 치환
-                int hs = len;
-                while (hs > 0 && IsHexW(readBuf[hs - 1])) hs--;
-                int hlen = len - hs;
-                if (hlen >= 2 && hlen <= 6) {
-                    unsigned cp = 0;
-                    for (int k = hs; k < len; k++) cp = cp * 16 + HexValW(readBuf[k]);
-                    if (cp >= 0x20 && cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF)) {
-                        wchar_t out[3];
-                        if (cp <= 0xFFFF) {
-                            out[0] = (wchar_t)cp; out[1] = L'\0';
-                        } else {   // BMP 밖 → UTF-16 서로게이트 쌍
-                            cp -= 0x10000;
-                            out[0] = (wchar_t)(0xD800 + (cp >> 10));
-                            out[1] = (wchar_t)(0xDC00 + (cp & 0x3FF));
-                            out[2] = L'\0';
-                        }
-                        RequestReplaceSessionString(obj, pic, hlen, out);
-                        if (pfEaten) *pfEaten = TRUE;
-                        goto kd_done;
-                    }
-                }
                 // 단어 단위 한자 변환 (커서 앞 텍스트 — 교체는 range 편집이라 네이티브 앱 한정)
                 for (int i = 0; i < len; i++) {
                     wchar_t **cands;
@@ -1125,6 +1144,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
             if (obj->fsm.state != STATE_EMPTY) {
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
                 OutputResultSeq(obj, pic, res, TRUE);
+            }
+            // UWP(AppContainer): 팝업이 화면에 나타나지 않는다 → "16진수를 먼저 치고 이 키" 로 강등.
+            // (preserved key 경로. OnKeyDown 쪽 SC_FN_CODE 분기와 같은 동작이어야 한다.)
+            if (HostIsAppContainer()) {
+                TryReplaceHexCodepoint(obj, pic);
+                break;
             }
             RECT rc; int x = 100, y = 100;
             if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }

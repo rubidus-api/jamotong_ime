@@ -135,6 +135,17 @@ Default keys — every function is configurable and accepts multiple bindings
   Hanja key for the conventional symbol tables.
 - **Unicode input**: press `Ctrl+Alt+U`, type a 2–6 digit hex codepoint (live glyph
   preview and character name), press `Enter`.
+
+> **Inside UWP apps (taskbar search, the Settings app, Store apps) some of this works
+> differently.** Windows does not let an input method show its own windows in those apps, so a
+> candidate list or popup can never appear there. In such apps:
+> - **Hanja**: instead of a candidate list, **press the hanja key again** to step through the
+>   candidates (typing anything else keeps the current one). Turn it off with `UwpHanjaCycle=0`.
+> - **Unicode input**: **type the hex first, then press `Ctrl+Alt+U`** to convert it
+>   (for example type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
+> - The composing syllable is shown inline by the app itself, so no preview chip appears.
+>
+> Ordinary desktop apps behave exactly as before.
 - **Settings window**: `Ctrl+Alt+K`, or run `jamotong.exe` (Layout ▸ Settings).
   Tabs: *Layouts* (enable/disable, reorder, add `.jmt`), *Shortcuts* (pick a function,
   then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview

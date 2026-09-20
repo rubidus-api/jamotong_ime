@@ -2630,6 +2630,57 @@ MinGW-w64 의 `msctf.h`/`libuuid` 에는 **`ITfTextInputProcessorEx` 타입도, 
 그 카테고리를 믿고 UI-less 로 켠 호스트에서 **더 크게** 깨진다. 순서는 언제나
 **구현 → 시험 → 등록**이다.
 
+
+### 14.7 ★함정: UWP(AppContainer) 호스트 안에서는 TIP 이 창을 띄울 수 없다
+
+TIP DLL 은 호스트 프로세스 안에서 돈다. 그 호스트가 UWP 앱(작업표시줄 검색, 설정 앱, Store 앱)이면
+**AppContainer** 안에서 도는 것이고, 거기서 만든 최상위 창은 **화면에 합성되지 않는다**.
+
+무서운 점은 실패가 조용하다는 것이다 — `CreateWindowEx` 는 성공하고(`GetLastError()`=0),
+`IsWindowVisible` 도 TRUE 이며, `SetWindowPos(HWND_TOPMOST)` 도 성공한다. 그런데 화면에 없다.
+셸 팝업 바깥 좌표로 옮겨도 안 보이고, 다른 프로세스에서 `EnumWindows` 로 훑어도 그 창은 없다
+(실기 2026-09-19, Windows 11 26200). z-order 나 좌표 계산을 의심하기 전에 호스트가
+AppContainer 인지부터 보라:
+
+```c
+HANDLE tok; DWORD isAC = 0, len = 0;
+if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) {
+    GetTokenInformation(tok, TokenIsAppContainer, &isAC, sizeof(isAC), &len);
+    CloseHandle(tok);
+}
+```
+
+대체 경로여야 할 UI element 도 자동으로 열리지 않는다. `ITfUIElementMgr::BeginUIElement` 가
+`pbShow=TRUE`("네 UI 를 직접 그려라")를 돌려주므로 호스트가 대신 그려 주지도 않는다.
+같은 자리에서 시스템 IME 의 후보창이 보이는 것은 그 UI 를 IME 프로세스가 아니라 시스템 쪽
+입력 UI 호스트가 그리기 때문이다 — 제3자 TIP 에게 열려 있는 길이 아니다.
+
+그러니 **창에 의존하는 기능은 그 호스트에서 창 없이도 되는 형태로 강등**해 두어야 한다.
+jamotong 은 한자 후보창을 "한자키를 거듭 눌러 후보를 순환 교체"로, 코드입력 팝업을
+"16진수를 먼저 치고 `Ctrl+Alt+U`"로 바꾼다.
+
+### 14.8 ★함정: AppContainer 는 `%APPDATA%` 를 읽지 못한다
+
+같은 이유로 더 조용한 사고가 하나 더 있다. 설정 파일을 `%APPDATA%` 에 두면 **UWP 앱 안에서만**
+그 파일이 안 읽힌다 — IME 는 아무 오류 없이 내장 기본값으로 동작한다. 사용자 눈에는
+"이 앱에서만 자판이 다르다"로 보인다. 게다가 **킬스위치도 같이 안 읽히므로**, 설정으로 끄고 켜며
+원인을 좁히는 실험이 통째로 무의미해진다(그 함정에 실제로 빠졌다).
+
+설정 폴더를 만들 때 `ALL APPLICATION PACKAGES`(SID `S-1-15-2-1`) 에 **읽기** 권한을 준다:
+
+```c
+ConvertStringSidToSidW(L"S-1-15-2-1", &sid);
+GetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, &oldDacl, NULL, &sd);
+/* EXPLICIT_ACCESSW: GENERIC_READ|GENERIC_EXECUTE, GRANT_ACCESS, OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE */
+SetEntriesInAclW(1, &ea, oldDacl, &newDacl);
+SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, newDacl, NULL);
+```
+
+같은 이유로 **TIP DLL 이 놓인 폴더**에도 그 권한이 있어야 UWP 앱이 TIP 을 로드한다.
+`C:\Program Files` 는 상속으로 이미 갖고 있지만 임의 폴더와 `%LocalAppData%` 는 아니다 —
+그런 자리에 설치하면 일반 앱에서는 멀쩡한데 UWP 앱에서만 입력기가 목록에 뜨지 않는다.
+
+
 ## 부록 A: jamotong 소스 매핑
 
 | 개념 | 파일 |

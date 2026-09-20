@@ -2867,6 +2867,59 @@ Register `GUID_TFCAT_TIPCAP_UIELEMENTENABLED` and then show UI without going thr
 `ITfUIElementMgr`, and you break **worse** on the very hosts that trusted the declaration and
 activated UI-less. The order is always **implement → test → register**.
 
+
+### 14.7 ★Gotcha: a TIP cannot show a window inside a UWP (AppContainer) host
+
+A TIP DLL runs inside its host process. When that host is a UWP app (the taskbar search box, the
+Settings app, Store apps) the TIP runs inside an **AppContainer**, and a top-level window created
+there is **never composited**.
+
+The failure is silent: `CreateWindowEx` succeeds (`GetLastError()`=0), `IsWindowVisible` is TRUE,
+`SetWindowPos(HWND_TOPMOST)` succeeds — and nothing is on screen. Moving the window outside the
+shell popup does not help, and `EnumWindows` from another process does not list it at all
+(field-checked 2026-09-19, Windows 11 26200). Before suspecting z-order or coordinates, ask whether
+the host is an AppContainer:
+
+```c
+HANDLE tok; DWORD isAC = 0, len = 0;
+if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) {
+    GetTokenInformation(tok, TokenIsAppContainer, &isAC, sizeof(isAC), &len);
+    CloseHandle(tok);
+}
+```
+
+The UI-element path does not open automatically either: `ITfUIElementMgr::BeginUIElement` returns
+`pbShow=TRUE` ("draw your own UI"), so the host will not draw it for you. The system IME's candidate
+list is visible in the same spot because it is drawn by a system input-UI host, not by the IME
+process — that road is not open to third-party TIPs.
+
+So any window-based feature needs a windowless fallback for those hosts. jamotong turns the hanja
+candidate list into "press the hanja key again to cycle candidates", and the codepoint popup into
+"type the hex first, then press `Ctrl+Alt+U`".
+
+### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
+
+The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will
+be unreadable **only inside UWP apps** — the IME then runs on built-in defaults with no error at all.
+To the user this looks like "the layout is different in this one app". Worse, the kill switches are
+in that same unreadable file, so switching them off to narrow down a bug proves nothing (we fell
+into exactly that).
+
+Grant `ALL APPLICATION PACKAGES` (SID `S-1-15-2-1`) **read** access when you create the folder:
+
+```c
+ConvertStringSidToSidW(L"S-1-15-2-1", &sid);
+GetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, &oldDacl, NULL, &sd);
+/* EXPLICIT_ACCESSW: GENERIC_READ|GENERIC_EXECUTE, GRANT_ACCESS, OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE */
+SetEntriesInAclW(1, &ea, oldDacl, &newDacl);
+SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, newDacl, NULL);
+```
+
+The folder holding the **TIP DLL** needs the same right for UWP apps to load the TIP at all.
+`C:\Program Files` inherits it; an arbitrary folder and `%LocalAppData%` do not — install there and
+the IME works in ordinary apps but never appears inside UWP ones.
+
+
 ## Appendix A: jamotong source map
 
 | Concept | File |
