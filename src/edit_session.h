@@ -29,5 +29,7 @@ bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word);
 bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str);
 // 선택을 그 끝의 캐럿으로 접는다 (우리가 잡은 선택을 교체하지 못했을 때 되돌리는 용도).
 void EditCtl_CollapseSelectionToEnd(HWND h);
+// 컨트롤 h 의 현재 선택 텍스트(최대 maxLen 자). 읽지 못하면 false.
+bool EditCtl_ReadSelection(HWND h, wchar_t *outBuf, int maxLen);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op

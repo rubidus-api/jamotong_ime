@@ -225,8 +225,18 @@ static void RemoveKbHook(void) {
 
 #define XBTN_SZ 16   // 우상단 닫기(X) 버튼 한 변
 
+static bool g_inHide = false;   // 우리 Hide 가 부수는 중인가 (소유자 파괴로 끌려가는 경우와 구별)
+
 static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+        case WM_NCDESTROY:
+            // RFC-0008 W1-08: 소유자(대상 최상위 창)가 먼저 파괴되면 우리 창도 끌려간다. 핸들을 비우고,
+            // 열려 있던 후보는 취소로 닫아 콜백이 문맥 참조를 정리하게 한다.
+            if (hwnd == g_hwndCandi) {
+                g_hwndCandi = NULL;
+                if (!g_inHide && g_active) CandidateUI_Cancel();
+            }
+            break;
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -271,7 +281,7 @@ void CandidateUI_Uninitialize(void) {
     UnregisterClassW(L"JamotongCandidateUI", g_hInst);
 }
 
-void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx) {
+bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx) {
     g_candidates = candidates;
     g_count = count;
     g_replaceLen = replaceLen;
@@ -291,11 +301,23 @@ void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     if (g_ownDraw) {
         int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
         if (!g_hwndCandi) {
+            // RFC-0008 W1-08: 소유자 = 이 스레드의 포커스 창의 최상위 창(GetFocus 는 호출 스레드 큐 기준이라
+            // 다른 스레드 창과 입력 큐가 묶일 일이 없다). 소유자가 없으면 예전처럼 소유자 없는 팝업.
+            HWND focus = GetFocus();
+            HWND owner = focus ? GetAncestor(focus, GA_ROOT) : NULL;
             g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
-                x, y, g_winW, h, NULL, NULL, g_hInst, NULL);
+                x, y, g_winW, h, owner, NULL, g_hInst, NULL);
+            JamoDiag("CAND create hwnd=%p owner=%p err=%lu", (void*)g_hwndCandi, (void*)owner,
+                     (unsigned long)GetLastError());
+            if (!g_hwndCandi) {
+                // 표시 실패를 호출자에게 알린다 — 키만 먹고 아무것도 안 뜨던 상태를 없앤다.
+                UiElem_EndCandidate();
+                g_active = false; g_candidates = NULL; g_count = 0;
+                g_onSelect = NULL; g_onCancel = NULL; g_ctx = NULL;
+                return false;
+            }
             OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
-            JamoDiag("CAND create hwnd=%p err=%lu", (void*)g_hwndCandi, (unsigned long)GetLastError());
         }
         PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
         InvalidateRect(g_hwndCandi, NULL, TRUE);
@@ -304,12 +326,15 @@ void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     JamoDiag("CAND after-place hwnd=%p vis=%d", (void*)g_hwndCandi,
              g_hwndCandi ? (int)IsWindowVisible(g_hwndCandi) : -1);
     UiElem_UpdateCandidate(0x3F);   // 첫 갱신 = 전체 비트 (uiless 문서: 첫 Update 는 all-bits)
+    if (g_hwndCandi) NotifyWinEvent(EVENT_OBJECT_IME_SHOW, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
+    return true;
 }
 
 // 페이지 이동/선택 변경 후 크기·내용 갱신
 static void RefreshCandWindow(void) {
     UiElem_UpdateCandidate(0x04|0x10|0x20);   // SELECTION|PAGEINDEX|CURRENTPAGE
     if (!g_hwndCandi) return;
+    NotifyWinEvent(EVENT_OBJECT_IME_CHANGE, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
     g_winW = MeasurePageWidth();
     PlaceCandWindow();   // 폭 변화·화면 클램프 반영 (앵커 기준 재배치)
     InvalidateRect(g_hwndCandi, NULL, TRUE);
@@ -320,7 +345,10 @@ void CandidateUI_Hide(void) {
     UiElem_EndCandidate();   // 게이트 종료 (began 아니면 no-op) — EndUIElement 는 의무
     RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
     if (g_hwndCandi) {
-        DestroyWindow(g_hwndCandi);
+        NotifyWinEvent(EVENT_OBJECT_IME_HIDE, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
+        g_inHide = true;
+        DestroyWindow(g_hwndCandi);   // WM_NCDESTROY 가 핸들을 비운다
+        g_inHide = false;
         g_hwndCandi = NULL;
     }
     g_candidates = NULL;

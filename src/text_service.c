@@ -16,6 +16,7 @@
 #include "ui_client.h"   // RFC-0015 데스크톱 UI 헬퍼
 #include "ui_ipc.h"    // RFC-0012 Phase 3 UI element 게이트
 #include "transition.h" // RFC-0008 W1-09 조합 경계 전환 정책
+#include "hanja_txn.h"  // RFC-0008 W1-02 한자 변환 트랜잭션 정책
 // ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
 static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
@@ -520,8 +521,18 @@ static void ApplyHanjaChoice(JamotongTextService *obj, const wchar_t *str, int r
         // 블록 선택 변환: 선택이 그대로 유지돼 있으므로(후보창=NOACTIVATE) EDIT 계열은
         // EM_REPLACESEL로 선택 전체를 정확히 교체. 비-EDIT는 TSF 삽입=선택 교체.
         //   EDIT 판정이 최종이다(B1) — 교체가 안 됐으면 사용자 선택을 그대로 두고 다시 넣지 않는다.
-        if (h) EditCtl_ReplaceSelection(h, str);
-        else CommitText(obj, obj->candCtx.pic, str);
+        //   W1-02: 후보창을 띄운 뒤 선택이 바뀌었으면(사용자 의도 변경) 바꾸지 않는다. EDIT 만 검증 —
+        //   TSF 경로는 콜백이 키 이벤트 밖일 수 있어 동기 읽기가 거부되면 빈 값이 불일치로 오판된다.
+        if (h) {
+            wchar_t cur[32] = {0};
+            bool read = EditCtl_ReadSelection(h, cur, 31);
+            if (HanjaTxn_SelectionStillValid(obj->candCtx.word, read ? cur : NULL))
+                EditCtl_ReplaceSelection(h, str);
+            else
+                JamoDiag("HANJA selection changed - not replaced");
+        } else {
+            CommitText(obj, obj->candCtx.pic, str);
+        }
     } else if (replaceLen > 0) {
         // 커서 앞 단어/음절 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
         if (h && obj->candCtx.word[0] && EditCtl_SelectWordBeforeCaret(h, obj->candCtx.word)) {
@@ -1040,7 +1051,11 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // 선택한 한자가 그 뒤에 덧붙었다("가家" — 실기 2026-07-24, 백로그 예고 이슈).
         // → 교체 불가 호스트는 커밋하지 않고 조합(칩)을 유지한 채 후보를 띄우고,
         //   선택 시 한자만 삽입(replaceLen=0), 취소 시 조합이 그대로 이어진다(원본 보존).
-        bool canReplace = (EditCtl_FocusEditWindow() != NULL) || JamoComp_IsActive(obj);
+        //   RFC-0008 W1-02: EDIT 계열(CUAS)도 '먼저 넣고 나중에 교체'는 전달 순서가 비동기라
+        //   원문+한자가 남거나 앞 글자만 바뀔 수 있다 → 확정 전용 경로는 전부 원문 보류(조합 유지).
+        //   교체는 인라인 조합(음절이 이미 문서 안 조합)에서만. 정책 = hanja_txn.c.
+        bool canReplace = HanjaTxn_Mode(obj->fsm.state != STATE_EMPTY, JamoComp_IsActive(obj) ? 1 : 0)
+                          == HANJA_COMMIT_THEN_REPLACE;
         bool keepComposing = false;   // 교체 불가 호스트: 조합 유지 중 변환
 
         if (obj->fsm.state == STATE_CHO) {
@@ -1162,7 +1177,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     goto kd_done;
                 }
                 CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
-                CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj);
+                if (!CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj)) {
+                    // 표시 실패(W1-08): 콜백이 안 불리므로 여기서 문맥 참조를 놓는다. 원문 보류(W1-02)면
+                    // 조합이 그대로 남아 잃는 것이 없다.
+                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+                    JamoDiag("HANJA candidate window failed to show");
+                }
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
             }

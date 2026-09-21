@@ -514,6 +514,12 @@ bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str) {
     return !EditVerdict_Failed(v);
 }
 
+bool EditCtl_ReadSelection(HWND h, wchar_t *outBuf, int maxLen) {
+    if (!h || !outBuf || maxLen <= 0) return false;
+    outBuf[0] = L'\0';
+    return ReadSelFromCtl(h, outBuf, maxLen);
+}
+
 void EditCtl_CollapseSelectionToEnd(HWND h) {
     if (!h) return;
     CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;

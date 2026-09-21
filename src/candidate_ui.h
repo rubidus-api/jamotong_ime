@@ -15,7 +15,9 @@ void CandidateUI_Uninitialize(void);
 void CandidateUI_SetStyle(const wchar_t *face, int sizePx);
 // (x,y)=후보창 좌상단 앵커(보통 캐럿 아래), caretTop=캐럿 줄의 위쪽 y — 화면 아래로 넘치면
 // 이 위로 뒤집어 배치한다. 창은 모니터 작업영역 안으로 클램프된다.
-void CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
+// 반환: 표시했는가(RFC-0008 W1-08). false 면 아무것도 열리지 않았고 콜백도 불리지 않는다 —
+// 호출자가 넘긴 문맥(ctx 가 쥔 참조)은 호출자가 정리한다.
+bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
 
 // 키보드 이벤트 가로채기
 // true를 반환하면 UI가 이벤트를 소모한 것
