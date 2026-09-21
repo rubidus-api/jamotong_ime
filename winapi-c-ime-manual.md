@@ -436,6 +436,12 @@ failure path: unadvise every step that succeeded, release every acquired interfa
 clear `clientId`, `threadMgr`, cookies, and transient state. Returning `S_OK` after a failed
 `QueryInterface` or `AdviseKeyEventSink` creates an “active” TIP that can never receive keys.
 
+Registration deserves the same treatment. `DllRegisterServer` writes the COM class, then the
+TSF profile, then the categories; if a later step fails, remove the earlier ones in reverse
+order before returning the error — otherwise the class is registered but no profile exists,
+and the IME is "installed" yet invisible. Check `GetModuleFileNameW` for truncation
+(`n >= MAX_PATH`) before registering that path, and check every `RegSetValueExW`.
+
 ---
 
 ## 4. Registration
@@ -1062,6 +1068,11 @@ There is no single boundary-key resend that is guaranteed for every host.
   a half-written file after a full disk, a lock or a crash. Tell the user when saving failed —
   the new settings then live only in the running session. Field-tested 2026-09-21 on
   Windows 11 (read-only `config.ini`: warning shown, file unchanged, no temporary file left).
+- Let a settings window change files only when the user applies: copy an added layout file
+  and install layouts bundled in an imported file at Apply time (stage the bundle in a
+  side folder until then), and throw the staging away on Cancel. Otherwise Cancel leaves
+  files behind that change the IME at the next start. Field-tested 2026-09-21 (Add and
+  Import each: nothing in the store before Apply or after Cancel; present after Apply).
 
 ### 9.4 Language-bar icon (ITfLangBarItemButton) — optional; barely visible on modern Windows.
 
@@ -2517,6 +2528,14 @@ does not by itself prove that the current main path propagates every failure.
   This preserved the desired order in the tested EDIT route. Terminals (non-EDIT) keep a
   `SendInput` route only where that exact route was separately verified. Do not use this
   as a general character-key or shortcut injector.
+- **Resend to the window that received the key.** If the resend is delayed (a timer), record
+  the focus window when the key arrived and use it when the timer fires: post to that EDIT
+  control even if focus has left it, and use `SendInput` only while that window still has
+  focus — otherwise the Enter meant for one field lands in the one the user just clicked.
+  Check the results: `PostMessageW` can fail (queue quota), and `SendInput` returns how many
+  events it inserted — a key-down without its key-up leaves the key held in the application.
+  Field-tested 2026-09-21 on Windows 11 (WinForms arrow key: one post to the original
+  control; conhost Enter: one `SendInput`).
 
 ```c
 typedef struct BoundaryOutcome {

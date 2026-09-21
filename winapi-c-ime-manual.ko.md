@@ -396,6 +396,15 @@ TIP_Activate(ITfTextInputProcessor *This, ITfThreadMgr *ptim,
 
 `clientId`(TfClientId)는 **우리 TIP의 신분증**. 편집 세션 요청 등 거의 모든 TSF 호출에 넘긴다.
 
+활성화가 키 싱크 뒤에 싱크·UI를 더 붙인다면 실패 경로는 하나로: 성공한 단계를 역순으로 떼고, 얻은
+인터페이스를 모두 놓고, `clientId`·`threadMgr`·쿠키·일시 상태를 비운다. `QueryInterface` 나
+`AdviseKeyEventSink` 가 실패했는데 `S_OK` 를 돌려주면 "켜졌지만 키를 영영 못 받는" TIP 이 된다.
+
+등록도 같다. `DllRegisterServer` 는 COM 클래스 → TSF 프로필 → 카테고리 순으로 쓰는데, 뒤 단계가 실패하면
+앞에서 만든 것을 역순으로 지우고 오류를 돌려줘라 — 아니면 클래스만 있고 프로필이 없어 "설치됐는데
+안 보이는" 입력기가 남는다. 그 경로로 등록하기 전에 `GetModuleFileNameW` 잘림(`n >= MAX_PATH`)을 확인하고,
+`RegSetValueExW` 결과도 모두 확인한다.
+
 ---
 
 ## 4. 등록
@@ -930,6 +939,10 @@ if (hr == S_OK) {
   뒤 모든 IME 인스턴스가 반쯤 쓴 파일을 읽는다. 저장이 실패했으면 사용자에게 알린다 — 새 설정은 실행 중인
   세션에만 남는다. 2026-09-21 Windows 11 실기: 읽기 전용 `config.ini` 에서 경고 표시, 파일 불변, 임시
   파일 없음.
+- 설정창은 사용자가 적용할 때만 파일을 바꾼다: 추가한 자판 파일의 복사와 가져온 묶음 속 자판의 설치는
+  Apply 때 하고(그때까지 묶음은 옆 폴더에 스테이징), Cancel 이면 스테이징을 버린다. 아니면 Cancel 해도
+  파일이 남아 다음 시작 때 IME 가 바뀐다. 2026-09-21 실기: Add·Import 모두 Apply 전·Cancel 후 저장소에
+  없음, Apply 후 있음.
 
 ### 9.4 언어바 아이콘 (ITfLangBarItemButton) — 선택. 최신 Windows에선 잘 안 보임.
 
@@ -2278,6 +2291,12 @@ if (HasCtrlAltWin()){
   게시**(`PostMessage`, WM_KEYDOWN/UP)했다. 이 시험 경로에서는 원하는 순서를 보존했다.
   터미널(비-EDIT)은 정확히 그 호스트에서 별도 검증한 `SendInput` 경로만 유지한다.
   임의 앱·단축키·문자키에 `PostMessage`를 범용 입력 주입 API처럼 쓰지 않는다.
+- **키를 받던 창으로 재전달한다.** 재전달을 (타이머로) 늦춘다면 키가 들어온 순간의 포커스 창을 기억해
+  타이머 때 그 창을 쓴다: EDIT 컨트롤이면 포커스가 떠났어도 그 컨트롤에 게시하고, `SendInput` 은 그 창이
+  아직 포커스일 때만 — 아니면 한 칸에 칠 Enter 가 사용자가 방금 클릭한 칸에 들어간다. 결과도 확인한다:
+  `PostMessageW` 는 실패할 수 있고(큐 한도), `SendInput` 은 넣은 개수를 돌려준다 — key-up 없는 key-down 은
+  앱에 키가 눌린 채 남는다. 2026-09-21 Windows 11 실기: WinForms 방향키는 원래 컨트롤에 한 번 게시, conhost
+  Enter 는 `SendInput` 한 번.
 
 ```c
 typedef struct BoundaryOutcome {
