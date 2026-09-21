@@ -63,16 +63,15 @@ static BOOL GetCaretScreenRect(JamotongTextService *obj, RECT *out) {
 // RFC-0008 W0-04: 문서에 **실제로 들어갔는지**를 돌려준다. 편집 세션은 동기라 삽입 실패가
 // hrSession 으로 올라온다(RFC-0004 P2-2) — 그 값을 버리지 않는 것이 이 계약의 전부다.
 //
-// ★한계(아직): **EDIT 계열 경로는 실패를 알 수 없다.** `EM_REPLACESEL` 은 결과를 돌려주지 않아
-// `EditCtl_ReplaceSelection` 이 무조건 true 다. 그래서 이 계약이 실제로 지켜지는 곳은 TSF 경로
-// (터미널·네이티브·UWP)이고, EDIT 경로에서는 예전처럼 조용히 유실될 수 있다.
-// 고치려면 삽입 전후 선택/캐럿 이동을 견주어야 하는데, **판정을 틀리면 이중 삽입**이 되므로
-// (EM_REPLACESEL 은 이미 넣었는데 TSF 로 또 넣는다) 보수적 판정 + 실기가 필요하다. BACKLOGS 참조.
+// EDIT 계열 경로: `EM_REPLACESEL` 은 결과를 주지 않으므로 전후 선택을 견준다(edit_verdict.h, B1).
+// **확실히 안 들어갔을 때만** 실패다 — 판정 불가는 성공으로 본다. EDIT 로 판정된 창에서 실패하면
+// TSF 로 다시 넣지 않는다: CUAS 를 거쳐도 같은 컨트롤이 받으므로 읽기 전용·길이 제한을 넘지 못할
+// 것이고(미실측), 판정이 틀렸다면 이중 삽입이 된다.
 static bool CommitText(JamotongTextService *obj, ITfContext *pic, const wchar_t *str) {
     HWND edit = EditCtl_FocusEditWindow();
-    if (edit && EditCtl_ReplaceSelection(edit, str)) {
+    if (edit) {
         obj->lastCaretValid = FALSE;   // TSF rect 없음 → 오버레이는 GUIThreadInfo 캐럿 폴백
-        return true;
+        return EditCtl_ReplaceSelection(edit, str);
     }
     EditSessionData esd = {0};
     wcsncpy(esd.committed, str, 127); esd.committed[127] = L'\0';
@@ -164,8 +163,8 @@ void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
             wchar_t cs[2] = { ch, L'\0' };
             BOOL done = FALSE;
             HWND edit = EditCtl_FocusEditWindow();
-            if (edit && EditCtl_ReplaceSelection(edit, cs)) done = TRUE;
-            if (!done && obj->threadMgr) {
+            if (edit) done = EditCtl_ReplaceSelection(edit, cs) ? TRUE : FALSE;   // EDIT 판정이 최종 (B1)
+            else if (obj->threadMgr) {
                 ITfDocumentMgr *dm = NULL; ITfContext *ctx = NULL;
                 if (SUCCEEDED(obj->threadMgr->lpVtbl->GetFocus(obj->threadMgr, &dm)) && dm) {
                     if (SUCCEEDED(dm->lpVtbl->GetTop(dm, &ctx)) && ctx) {

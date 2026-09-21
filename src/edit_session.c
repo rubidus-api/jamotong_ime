@@ -2,6 +2,7 @@
 #include <richedit.h>   // EM_EXGETSEL/EM_GETSELTEXT/CHARRANGE (선택 읽기 RichEdit 폴백)
 #include <string.h>
 #include <wctype.h>     // towlower (포커스 컨트롤 클래스명 판정)
+#include "edit_verdict.h"   // EM_REPLACESEL 전후 선택 비교 판정 (B1)
 
 #ifdef JAMO_DIAG   // 임시 진단 로그 (-DJAMO_DIAG 빌드에서만): %TEMP%\jamotong-diag.log
 #include <stdio.h>
@@ -488,11 +489,29 @@ bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word) {
 // EDIT의 표준 동작이라 정확히 교체/삽입된다 — AkelEdit는 TSF InsertTextAtSelection을 hr=0으로
 // 받고도 실제 반영하지 않아(실기 2026-07-08: raw 좌표 고정), 커밋·교체 모두 이 경로가 신뢰성 있다.
 // h는 EditCtl_FocusEditWindow()로 미리 얻은 EDIT 계열 창.
+// 현재 선택 읽기 (판정용): RichEdit/AkelEdit 는 EM_EXGETSEL, 플레인 EDIT 는 EM_GETSEL.
+static EditSelSnap ReadSelSnap(HWND h) {
+    EditSelSnap snap = { 0, -1, -1 };
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin >= 0) { snap.ok = 1; snap.start = cr.cpMin; snap.end = cr.cpMax; return snap; }
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s != 0xFFFFFFFF) { snap.ok = 1; snap.start = (long)s; snap.end = (long)e; }
+    return snap;
+}
+
+// 반환: 문서에 들어가지 **않은 것이 확실할 때만** false (RFC-0008 W0-04, BACKLOGS B1).
+//   EM_REPLACESEL 은 결과를 주지 않으므로 전후 선택을 견준다 — 규칙은 edit_verdict.h.
 bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str) {
     if (!h) return false;
+    EditSelSnap before = ReadSelSnap(h);
     SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
-    JamoDiag("REPLACESEL len=%d", (int)wcslen(str));
-    return true;
+    EditSelSnap after = ReadSelSnap(h);
+    EditVerdict v = EditVerdict_Decide(before, after, (long)wcslen(str));
+    JamoDiag("REPLACESEL len=%d verdict=%d sel=%ld,%ld->%ld,%ld", (int)wcslen(str), (int)v,
+             before.start, before.end, after.start, after.end);
+    return !EditVerdict_Failed(v);
 }
 
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {
