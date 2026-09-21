@@ -453,13 +453,15 @@ static void ApplyHanjaChoice(JamotongTextService *obj, const wchar_t *str, int r
     if (obj->candCtx.fromSelection) {
         // 블록 선택 변환: 선택이 그대로 유지돼 있으므로(후보창=NOACTIVATE) EDIT 계열은
         // EM_REPLACESEL로 선택 전체를 정확히 교체. 비-EDIT는 TSF 삽입=선택 교체.
-        if (!(h && EditCtl_ReplaceSelection(h, str)))
-            CommitText(obj, obj->candCtx.pic, str);
+        //   EDIT 판정이 최종이다(B1) — 교체가 안 됐으면 사용자 선택을 그대로 두고 다시 넣지 않는다.
+        if (h) EditCtl_ReplaceSelection(h, str);
+        else CommitText(obj, obj->candCtx.pic, str);
     } else if (replaceLen > 0) {
         // 커서 앞 단어/음절 변환: EDIT 계열이면 단어를 선택(읽기 검증)한 뒤 EM_REPLACESEL 교체.
-        if (h && obj->candCtx.word[0] && EditCtl_SelectWordBeforeCaret(h, obj->candCtx.word)
-              && EditCtl_ReplaceSelection(h, str)) {
-            /* 교체 완료 */
+        if (h && obj->candCtx.word[0] && EditCtl_SelectWordBeforeCaret(h, obj->candCtx.word)) {
+            // 우리가 잡은 선택이다 — 교체가 안 됐으면 TSF 로 다시 바꾸지 않고(B1: 이중 적용 방지)
+            // 선택만 접어 다음 키가 그 단어를 덮지 않게 한다.
+            if (!EditCtl_ReplaceSelection(h, str)) EditCtl_CollapseSelectionToEnd(h);
         } else {
             RequestReplaceSessionString(obj, obj->candCtx.pic, replaceLen, str);   // 비-EDIT 네이티브
         }

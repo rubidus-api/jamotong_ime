@@ -514,6 +514,16 @@ bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str) {
     return !EditVerdict_Failed(v);
 }
 
+void EditCtl_CollapseSelectionToEnd(HWND h) {
+    if (!h) return;
+    CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
+    SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    if (cr.cpMin >= 0) { CtlSetSel(h, cr.cpMax, cr.cpMax, true); return; }
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s != 0xFFFFFFFF) CtlSetSel(h, (LONG)e, (LONG)e, false);
+}
+
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen) {
     ReadSelSession *es = (ReadSelSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ReadSelSession));
     if (!es) return E_OUTOFMEMORY;

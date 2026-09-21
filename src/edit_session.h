@@ -27,5 +27,7 @@ bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word);
 // h의 현재 선택을 str로 교체(빈 선택이면 캐럿에 삽입). AkelEdit는 TSF 삽입을 반영 안 해
 // 커밋·교체 모두 이 경로가 신뢰성 있다.
 bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str);
+// 선택을 그 끝의 캐럿으로 접는다 (우리가 잡은 선택을 교체하지 못했을 때 되돌리는 용도).
+void EditCtl_CollapseSelectionToEnd(HWND h);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op
