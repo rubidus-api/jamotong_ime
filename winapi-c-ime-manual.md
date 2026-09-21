@@ -3037,6 +3037,16 @@ That is why `ITfInputProcessorProfileMgr::RegisterProfile` writes to HKLM. A per
 still copy, upgrade and remove files **without elevation** — but **registration needs it once**, so
 the practical shape is an installer that self-elevates for that single step.
 
+**Upgrading files that are in use.** Every process that types text has the TIP DLL loaded, so a
+plain `copy /Y` over it fails — and a script that ignores the result prints "done" while nothing
+changed. A loaded file cannot be overwritten, but it can be **renamed**: move each program file
+aside (`name.old.<tag>`), copy the new one in, compare it byte for byte, and if any file fails,
+put back every file already replaced so the folder never mixes versions. Sweep the `*.old.*`
+files on the next run (the ones still mapped refuse to go until their processes restart). After
+registering, read `InprocServer32` back and check it names the DLL you just installed, and
+check both `regsvr32` exit codes. Field-tested 2026-09-21 on Windows 11 (in-use upgrade, a forced
+failure on the third file rolled back the first two, downgrade with the same script).
+
 
 ## Appendix A: jamotong source map
 
