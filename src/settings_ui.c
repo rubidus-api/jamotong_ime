@@ -59,6 +59,7 @@ static int g_curTab = 0;
 #define ID_LBL_CANDFONT      1046   // 한자 후보창 글꼴 표시
 #define ID_BTN_CANDFONT_SET  1047   // 한자 후보창 글꼴 선택(ChooseFont)
 #define ID_CMB_CANDSIZE      1048   // 한자 후보창 글꼴 크기 (12~72 클램프, 직접 입력 가능)
+#define ID_CHK_INLINE        1049   // 문서 인라인 조합 (RFC-0010, 끄면 확정 전용 + 미리보기)
 
 // 기능 콤보 표시 이름 (ShortcutFn 인덱스와 동일 순서)
 static const wchar_t *g_scFnNames[SC_FN_COUNT] = {
@@ -308,7 +309,7 @@ static void ShowTab(HWND hwnd, int sel) {
 
 // 창 논리 크기 (세로는 리사이즈로 늘어남)
 #define WIN_W 340
-#define WIN_H_MIN 408
+#define WIN_H_MIN 436
 static int g_winH = WIN_H_MIN;   // 현재 논리 높이
 
 // UI 생성 — 탭 4개(Layouts/Shortcuts/IME Options/General) + 하단 Apply/Cancel(항상 표시)
@@ -357,13 +358,15 @@ static void CreateControls(HWND hwnd) {
           14, 74, 312, 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Show composition preview (floating)", BS_AUTOCHECKBOX, 0,
           14, 102, 312, 22, ID_CHK_PREVIEW, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Inline composition (in the document)", BS_AUTOCHECKBOX, 0,
+          14, 130, 312, 22, ID_CHK_INLINE, TAB_OPTIONS);
     // 라벨은 한 줄 전체를 쓰고 컨트롤은 그 아랫줄 — 좁은 열에서 라벨이 잘리던 문제 방지
-    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 132, 312, 18, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 152, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 150, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 184, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 160, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 180, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 178, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 212, 312, 18, 0, TAB_OPTIONS);
     HWND hCmbPv = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
-                        14, 204, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
+                        14, 232, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
     {   // Auto + 흔한 px 크기 (직접 입력도 가능 — 8~96 클램프)
         SendMessageW(hCmbPv, CB_ADDSTRING, 0, (LPARAM)L"Auto");
         static const wchar_t *szs[] = { L"12", L"14", L"16", L"18", L"20", L"24", L"28", L"32", L"40", L"48" };
@@ -376,12 +379,12 @@ static void CreateControls(HWND hwnd) {
         }
     }
     // 한자 후보창 글꼴/크기 — 후보·훈음·페이지 표시 전 요소가 이 하나를 쓴다 (candidate_ui.c)
-    MkCtl(hwnd, L"STATIC", L"Hanja candidate font:", 0, 0, 14, 236, 312, 18, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 256, 222, 22, ID_LBL_CANDFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 254, 82, 26, ID_BTN_CANDFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Hanja candidate size (px):", 0, 0, 14, 288, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate font:", 0, 0, 14, 264, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 284, 222, 22, ID_LBL_CANDFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 282, 82, 26, ID_BTN_CANDFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate size (px):", 0, 0, 14, 316, 312, 18, 0, TAB_OPTIONS);
     HWND hCmbCand = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
-                          14, 308, 120, 200, ID_CMB_CANDSIZE, TAB_OPTIONS);
+                          14, 336, 120, 200, ID_CMB_CANDSIZE, TAB_OPTIONS);
     {   // 흔한 px 크기 (직접 입력도 가능 — 12~72 클램프)
         static const wchar_t *csz[] = { L"16", L"18", L"20", L"24", L"28", L"32", L"40", L"48" };
         for (int i = 0; i < 8; i++) SendMessageW(hCmbCand, CB_ADDSTRING, 0, (LPARAM)csz[i]);
@@ -412,6 +415,7 @@ static void CreateControls(HWND hwnd) {
     SendMessageW(GetDlgItem(hwnd, ID_CHK_FULLWIDTH),  BM_SETCHECK, g_TempConfig.options.fullWidth ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(hwnd, ID_CHK_JAMODELETE), BM_SETCHECK, g_TempConfig.options.jamoDelete ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(hwnd, ID_CHK_PREVIEW),    BM_SETCHECK, g_TempConfig.options.showPreview ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(hwnd, ID_CHK_INLINE),     BM_SETCHECK, g_TempConfig.options.inlineComposition ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_PVFONT),
                    g_TempConfig.options.previewFont[0] ? g_TempConfig.options.previewFont : L"Malgun Gothic");
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_CANDFONT),
@@ -558,6 +562,10 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     break;
                 case ID_CHK_PREVIEW:
                     g_TempConfig.options.showPreview =
+                        (SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    break;
+                case ID_CHK_INLINE:
+                    g_TempConfig.options.inlineComposition =
                         (SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);
                     break;
                 case ID_CMB_PVSIZE:
