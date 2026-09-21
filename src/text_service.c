@@ -205,39 +205,47 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
 
 // compartment 통지 등 '밖'에서 자판이 바뀐 뒤의 공통 뒤처리. 키 싱크의 자판 전환 경로와 같은 순서:
 // 조합 경계(인라인 조합 확정·FSM/칩·모아치기 정리) → 언어바. (compartment 발행은 호출자가 한다.)
-void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
-    // 키 전환 경로(SC_FN_ROTATE)와 같은 규칙: 조합 중 음절은 **확정**하고 넘어간다(버리지 않는다).
-    // 여기는 키 이벤트 밖이다(compartment 통지 = 표시기 클릭/앱). 실기 2026-08-23:
-    //   ① ResetComposition 만 → 칩 잔존(확정 없음)  ② 동기 세션(OutputResultSeq) → 키 밖이라 거부됨.
-    // 다른 IME(MS SampleIME _TerminateComposition)의 방식 = 키 밖에서는 **비동기(ASYNCDONTCARE)** 세션.
-    // 순서: 인라인 조합은 ResetComposition 의 Finalize(동기 거부 시 비동기 재시도, comp_inline.c) —
-    //       칩(commit 전용) 경로는 EDIT 컨트롤이면 EM_REPLACESEL(세션 불필요), 아니면 포커스 컨텍스트에
-    //       비동기 삽입. 둘 다 안 되면 음절을 보류해 다음 키 이벤트(pic 있음)에서 먼저 확정한다.
-    if (!JamoComp_IsActive(obj) && obj->fsm.state != STATE_EMPTY) {
-        wchar_t ch = Fsm_Flush(&obj->fsm);
-        if (ch) {
-            wchar_t cs[2] = { ch, L'\0' };
-            BOOL done = FALSE;
-            HWND edit = EditCtl_FocusEditWindow();
-            if (edit) done = EditCtl_ReplaceSelection(edit, cs) ? TRUE : FALSE;   // EDIT 판정이 최종 (B1)
-            else if (obj->threadMgr) {
-                ITfDocumentMgr *dm = NULL; ITfContext *ctx = NULL;
-                if (SUCCEEDED(obj->threadMgr->lpVtbl->GetFocus(obj->threadMgr, &dm)) && dm) {
-                    if (SUCCEEDED(dm->lpVtbl->GetTop(dm, &ctx)) && ctx) {
-                        EditSessionData esd = {0}; esd.committed[0] = ch;
-                        HRESULT hr = RequestEditSessionDataEx(obj, ctx, &esd, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE);
-                        done = SUCCEEDED(hr);
-                        JamoDiag("EXT-SWITCH flush U+%04X async hr=0x%08lX", (unsigned)ch, (unsigned long)hr);
-                        ctx->lpVtbl->Release(ctx);
-                    }
-                    dm->lpVtbl->Release(dm);
-                }
+// ── 조합 경계 전환 — 한 경로 (RFC-0008 W1-03) ────────────────────────────────────────────
+// 포커스 이동·자판 전환 키·언어바/표시기 전환이 모두 여기로 온다. 순서:
+//   ① 남은 음절 확정 — 키 이벤트 안(TRANS_WHY_KEY)이면 동기 출력, 밖이면 기억한 대상에(비동기/EDIT)
+//   ② 모아치기 hold 모디파이어 key-up (실패해도 반드시)  ③ FSM·칩·조합 대상 리셋  ④ 팝업 정리
+// 설정창 적용(Config_ApplyEdited)은 설정 스레드라 여기 오지 않는다 — 설정창이 포커스를 가져갈 때 ①이 이미 돈다.
+typedef enum { TRANS_WHY_FOCUS, TRANS_WHY_KEY, TRANS_WHY_EXTERNAL } TransWhy;
+
+static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfContext *pic) {
+    if (why == TRANS_WHY_KEY && pic) {
+        LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+        if (cur && cur->type == LAYOUT_TYPE_DLL_PLUGIN) {
+            JAMOTONG_PLUGIN_RESULT pRes = cur->pfnFlush(cur->pvPluginContext);
+            if (pRes.wszCommitted[0]) {
+                EditSessionData esd = {0};
+                wcscpy(esd.committed, pRes.wszCommitted);
+                RequestEditSessionData(obj, pic, &esd);
             }
-            if (!done) Pending_Set(obj, ch, edit, NULL);   // 다음 키 이벤트에서 확정 (OnTestKeyDown 머리)
+        } else if (obj->fsm.state != STATE_EMPTY) {
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            OutputResultSeq(obj, pic, res, TRUE);   // 키 이벤트 안 — 동기 세션 허용
         }
+    } else {
+        Transition_FlushComposition(obj, why == TRANS_WHY_FOCUS ? "focus" : "ext-switch");
     }
-    ResetComposition(obj);           // 인라인 Finalize(동기→비동기 폴백) + FSM/칩/캐시 정리
-    Chord_Init(&obj->chord);
+    ChordKb_ReleaseAll(&obj->chordKb);   // 합성 Ctrl/Alt 가 대상 앱에 눌린 채 남지 않게 (W1-09 후반)
+    ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상 정리
+    CodeInput_Hide();
+    CandidateUI_Cancel();                // 콜백 경유로 pic 참조까지 정리
+}
+
+// 밖(언어바 클릭·표시기·compartment 통지)에서 자판이 바뀔 때. 이름은 기존 호출부 호환.
+void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
+    Jamotong_Transition(obj, TRANS_WHY_EXTERNAL, NULL);
+}
+
+// 키(단축키·preserved key)로 자판을 돌릴 때 — 두 진입점이 같은 순서를 쓴다.
+static void RotateLayoutFromKey(JamotongTextService *obj, ITfContext *pic) {
+    Jamotong_Transition(obj, TRANS_WHY_KEY, pic);
+    Config_RotateLayout(&obj->config);
+    LangBar_Update(obj->pLangBarItem);
+    Compart_Publish(obj);
 }
 
 void Jamotong_OnLayoutSwitched(JamotongTextService *obj) {
@@ -707,10 +715,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fFo
     (void)fForeground;
     // 포커스 변경 시 조합 상태 전면 리셋 + 팝업들 정리 → 새 위치에서 깨끗이 시작.
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조가 정리되게 한다 — 열린 채 방치되던 '멈춤' 방지.
-    Transition_FlushComposition(obj, "KES-focus");   // 남은 음절은 버리지 않고 조합 대상에 확정 (W1-09)
-    ResetComposition(obj);
-    CodeInput_Hide();
-    CandidateUI_Cancel();
+    Jamotong_Transition(obj, TRANS_WHY_FOCUS, NULL);   // 남은 음절은 조합 대상에 확정 + 정리 (W1-09/W1-03)
     // 무간섭 모드 상태 재읽기 — 다른 프로세스의 토글(메뉴/단축키)을 레지스트리로 따라간다.
     {
         BOOL pt = Jamotong_GetPassthroughReg();
@@ -1166,23 +1171,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
 
     // Handle layout rotation
     if (Config_IsShortcut(&obj->config, SC_FN_ROTATE, skVk, skMods)) {
-        // Flush composition before rotating
-        LayoutConfig *curLayout = Config_GetCurrentLayout(&obj->config);
-        if (curLayout && curLayout->type == LAYOUT_TYPE_DLL_PLUGIN) {
-            JAMOTONG_PLUGIN_RESULT pRes = curLayout->pfnFlush(curLayout->pvPluginContext);
-            if (pRes.wszCommitted[0]) {
-                EditSessionData esd = {0};
-                wcscpy(esd.committed, pRes.wszCommitted);
-                RequestEditSessionData(obj, pic, &esd);
-            }
-        } else if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-            OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
-        }
-        Chord_Init(&obj->chord);   // 모아치기 잔여 상태도 정리 (자판 전환 = 조합 경계)
-        Config_RotateLayout(&obj->config);
-        LangBar_Update(obj->pLangBarItem);
-        Compart_Publish(obj);
+        RotateLayoutFromKey(obj, pic);   // 조합 경계 전환 한 경로 (W1-03)
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
@@ -1456,25 +1445,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
             Compart_Publish(obj);
             break;
         }
-        case SC_FN_ROTATE: {
-            LayoutConfig *curLayout = Config_GetCurrentLayout(&obj->config);
-            if (curLayout && curLayout->type == LAYOUT_TYPE_DLL_PLUGIN) {
-                JAMOTONG_PLUGIN_RESULT pRes = curLayout->pfnFlush(curLayout->pvPluginContext);
-                if (pRes.wszCommitted[0]) {
-                    EditSessionData esd = {0};
-                    wcscpy(esd.committed, pRes.wszCommitted);
-                    RequestEditSessionData(obj, pic, &esd);
-                }
-            } else if (obj->fsm.state != STATE_EMPTY) {
-                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
-                OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
-            }
-            Chord_Init(&obj->chord);
-            Config_RotateLayout(&obj->config);
-            LangBar_Update(obj->pLangBarItem);
-            Compart_Publish(obj);
+        case SC_FN_ROTATE:
+            RotateLayoutFromKey(obj, pic);   // 키 싱크 경로와 같은 전환 (W1-03)
             break;
-        }
         default: break;
     }
     LeaveCriticalSection(&g_configLock);
@@ -1592,10 +1565,7 @@ static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, I
         AdviseTextEditSink(obj, NULL);
         Compart_ReadContextDisabled(obj, NULL);
     }
-    Transition_FlushComposition(obj, "doc-focus");   // 남은 음절은 떠나는 문서에 확정 (W1-09)
-    ResetComposition(obj);   // 문서 포커스 이동 → 조합·미리보기 잔상 전면 리셋
-    CodeInput_Hide();
-    CandidateUI_Cancel();    // 후보창도 취소(pic 정리) — 다른 문서 위 잔류 방지
+    Jamotong_Transition(obj, TRANS_WHY_FOCUS, NULL);   // 떠나는 문서에 확정 + 정리 (W1-09/W1-03)
     return S_OK;
 }
 static HRESULT STDMETHODCALLTYPE TMES_OnPushContext(ITfThreadMgrEventSink *pThis, ITfContext *pic) { (void)pThis; (void)pic; return S_OK; }

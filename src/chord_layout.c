@@ -360,6 +360,13 @@ static void ExecChord(ChordKbContext *c, const ChordEntry *e) {
     }
 }
 
+void ChordKb_ReleaseAll(ChordKbContext *c) {
+    if (c->heldMod) SendMods(c->heldMod, false);   // 대상 앱에 Ctrl/Alt 가 눌린 채 남지 않게 (W1-09)
+    int keep = c->curLayer;
+    ChordKb_Init(c);
+    c->curLayer = keep;
+}
+
 bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t keyChar) {
     if (!cl || keyChar == 0 || keyChar >= 128) return false;
     int bit = cl->keyBit[(int)keyChar];

@@ -74,6 +74,9 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);
+// 조합 경계(포커스·자판 전환)에서 호출: hold 로 눌러 둔 모디파이어에 **반드시** key-up 을 보내고
+// 형성 중·hold·임시 레이어 상태를 비운다. 사용자가 고른 레이어(curLayer)는 유지. 여러 번 불러도 안전.
+void ChordKb_ReleaseAll(ChordKbContext *c);
 // KeyDown: 코드 글쇠면 비트 누적(eaten=true). KeyUp: 모두 떨어지면 조합 동작을 SendInput으로 수행.
 // 반환값은 eaten 여부(핸들러가 소비 표시에 사용).
 bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t keyChar);
