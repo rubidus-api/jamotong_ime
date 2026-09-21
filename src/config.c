@@ -308,13 +308,19 @@ bool Config_UserLayoutDir(wchar_t *out, int cch) {
 static const wchar_t *SC_NAMES[SC_FN_COUNT] = { L"Rotate", L"Hanja", L"Code", L"Settings", L"Passthrough" };
 
 // Windows 예약 장치 기본 이름(확장자를 붙여도 여전히 장치로 해석됨: CON.jmt → CON 장치).
+//   장치명은 '첫 점' 앞 구간이다(NUL.tar.gz 도 NUL). 그 구간 끝의 공백은 떼고 본다(CON .jmt).
+//   COM/LPT 뒤 숫자는 1~9 와 ISO 8859-1 위첨자 ¹²³ (Microsoft "Naming Files" 문서).
 static bool IsReservedDeviceBase(const wchar_t *name, size_t baseLen) {
     static const wchar_t *dev3[] = { L"CON", L"PRN", L"AUX", L"NUL" };
     static const wchar_t *dev4[] = { L"COM", L"LPT" };   // + 1~9 숫자
+    for (size_t i = 0; i < baseLen; i++)
+        if (name[i] == L'.') { baseLen = i; break; }
+    while (baseLen > 0 && name[baseLen - 1] == L' ') baseLen--;
     if (baseLen == 3) {
         for (size_t i = 0; i < 4; i++)
             if (_wcsnicmp(name, dev3[i], 3) == 0) return true;
-    } else if (baseLen == 4 && name[3] >= L'1' && name[3] <= L'9') {
+    } else if (baseLen == 4 && ((name[3] >= L'1' && name[3] <= L'9') ||
+                                name[3] == L'¹' || name[3] == L'²' || name[3] == L'³')) {
         for (size_t i = 0; i < 2; i++)
             if (_wcsnicmp(name, dev4[i], 3) == 0) return true;
     }
