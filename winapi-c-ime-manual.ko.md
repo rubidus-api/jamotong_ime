@@ -2163,9 +2163,27 @@ CommitOutcome CommitText(Svc *svc, ITfContext *pic, const wchar_t *str){
 `MUTATION_DONE`으로 승격한다. 검증된 키 helper도 같은 `CommitOutcome` 계약으로 실제 반영,
 무변경, 미확정을 구분해야 한다.
 
-이 반환형은 **migration 목표 계약**이다. 현재 main 제품의 `CommitText`/`OutputResult`가
-outcome을 버리는 동안에는 위 호출자 정책이 보장되지 않으므로, 함수 시그니처부터 모든 호출
-지점까지 한 번에 전파한 뒤 완료로 판정한다.
+이 반환형은 **migration 목표 계약**이다. v0.22.0부터 main 제품의 `CommitText`는 *들어갔다 /
+안 들어갔다* 두 값을 돌려주고, 키 경로는 안 들어갔으면 FSM을 되돌린다. EDIT 경로의
+`EditCtl_ReplaceSelection`은 `EM_REPLACESEL` 전후의 선택을 읽어 **선택이 완전히 같을 때만** 실패로
+보고, 선택을 읽지 못하면 성공으로 본다(아래 선택 postcondition). 세 값 outcome은 여전히 목표다.
+
+**선택 postcondition — `MUTATION_NONE`은 증명할 수 있고 `DONE`은 못 한다.** 성공한 `EM_REPLACESEL`은
+선택을 언제나 `start + length(str)` 캐럿으로 접는다. 그래서 선택(`EM_EXGETSEL`, 없으면 `EM_GETSEL`)을
+전후 모두 읽었고 **완전히 같으면** 아무것도 들어가지 않은 것이다 — `EM_LIMITTEXT`에 이미 닿은
+컨트롤은 이 메시지를 무시한다(2026-09-21 Windows 11 실기: WinForms `TextBox`, `MaxLength` 가득 참,
+선택 `2,2 -> 2,2`). 이 한 경우만 `UNKNOWN`에서 `NONE`으로 올라간다. 같은 시험에서 읽기 전용
+`TextBox`는 이 경로에 오지 않았다 — TIP에 키 이벤트가 아예 들어오지 않았다. 거꾸로는 성립하지 않는다: 선택이 움직였다고 글자가 들어갔다는 증거는 아니고(가득 찬
+컨트롤은 선택만 지우고 아무것도 안 넣을 수 있다), 선택을 못 읽었으면 아무것도 증명하지 못한다.
+"움직임·못 읽음 = 들어감"으로 보는 제품은 위의 중복 회피 risk policy를 택한 것이다. 한 번 EDIT로
+분류한 창에서 실패했다면 TSF로 다시 넣지 않는다 — 그 길은 CUAS를 거쳐 같은 컨트롤에 닿고,
+"안 들어감" 판정이 틀렸다면 두 번 들어간다.
+
+**되돌린 뒤에는 조합 표시를 복원된 상태로 다시 그린다.** 출력 루틴은 커밋 절반이 실패해도 새
+preedit를 이미 그리는 경우가 많다: `r k s k` 는 "가 확정, 나 조합"을 만든다. 확정이 실패해 FSM은
+간으로 돌아갔는데 화면에는 나가 남으면, 다음 키는 사용자가 볼 수 없는 상태 위에서 동작한다.
+복원된 FSM에서 preedit를 (상태를 바꾸지 않고) 다시 계산해 같은 키 이벤트 안에서 그려라. 위 실기에서
+수정 전에 실제로 관찰했다.
 
 - 이제 세 앱 클래스가 세 주입 방법에 대응한다:
 

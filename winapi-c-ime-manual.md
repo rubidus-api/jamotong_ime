@@ -2307,9 +2307,11 @@ device (2026-07-24)**. AkelPad (transitory) non-regression and the remaining det
 
 The route selection exists in the current product. The `CommitOutcome` API and
 mutation-aware caller below are the **migration target**, not a transcription of current
-`src/`: today's `CommitText`/`OutputResult` discard results, and
-`EditCtl_ReplaceSelection` reports that it dispatched `EM_REPLACESEL` without an
-independent mutation acknowledgement (§11).
+`src/`. Since v0.22.0 the product's `CommitText` returns a two-state *landed / did not
+land* result and the key path rolls the FSM back when it did not land. On the EDIT path
+`EditCtl_ReplaceSelection` reads the selection before and after `EM_REPLACESEL`: only an
+identical selection is reported as a failure; an unreadable selection is treated as
+success (see the selection postcondition below). The three-state outcome is still the target.
 
 ```c
 #include <limits.h>   /* UINT_MAX */
@@ -2377,6 +2379,27 @@ an untouched physical text key. A dispatched EDIT message is `MUTATION_UNKNOWN`,
 A strict lossless caller must not translate `S_OK + MUTATION_UNKNOWN` into a proven commit
 or publish its trial FSM. A product may consume the key under a host-scoped compatibility
 policy to avoid duplication, but that is an explicit risk decision—not success.
+
+**Selection postcondition — proving `MUTATION_NONE`, not `DONE`.** A successful
+`EM_REPLACESEL` always collapses the selection to a caret at `start + length(str)`. So when
+the selection (`EM_EXGETSEL`, else `EM_GETSEL`) is readable both before and after and is
+*identical*, nothing went in — a control whose `EM_LIMITTEXT` is already reached ignores the
+message (field-tested 2026-09-21 on Windows 11 with a WinForms `TextBox`, `MaxLength` full:
+selection `2,2 -> 2,2`). That upgrades this one case from `UNKNOWN` to `NONE`. A read-only
+`TextBox` never reached this path in the same test: no key events arrived at the TIP at all.
+The reverse does not hold: a moved selection is not proof that the text landed (a full
+control may delete the selection and insert nothing), and an unreadable selection proves
+nothing. A product that treats "moved" and "unreadable" as landed is taking the
+duplication-avoidance risk decision above. Once a window is classified as EDIT, do not
+retry a failed insert through TSF: that route reaches the same control through CUAS, and
+a wrong "not inserted" verdict would then insert twice.
+
+**After a rollback, redraw the composition from the restored state.** The output routine
+usually draws the new preedit even when the commit half failed: keys `r k s k` produce
+"commit 가, compose 나"; the commit fails and the FSM goes back to 간, but the screen
+still shows 나 — and the next key then acts on something the user cannot see. Recompute the
+preedit from the restored FSM (a pure peek, no state change) and redraw it in the same key
+event. Observed on the field test above before the fix.
 
 - The current support-matrix routing is:
 

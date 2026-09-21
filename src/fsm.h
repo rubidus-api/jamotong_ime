@@ -52,4 +52,7 @@ bool Fsm_Backspace(FsmContext *ctx, wchar_t *outPreedit);
 // 현재 조합을 확정 문자로 만들고 상태를 비운다(부분 상태 초성만/중성만도 올바르게 처리).
 // 조합이 없으면 0. 비자모 키·스페이스·포커스 이동 등에서 조합을 확정할 때 쓴다.
 wchar_t Fsm_Flush(FsmContext *ctx);
+// 지금 조합 중인 글자(Fsm_Flush 가 돌려줄 글자)를 상태를 바꾸지 않고 읽는다. 없으면 0.
+// 입력 트랜잭션을 되돌린 뒤 조합 표시를 복원된 상태로 다시 그릴 때 쓴다(RFC-0008 W0-04).
+wchar_t Fsm_PeekPreedit(const FsmContext *ctx);
 wchar_t ComposeHangul(int cho, int jung, int jong);

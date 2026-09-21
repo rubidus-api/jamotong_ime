@@ -165,6 +165,11 @@ FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const Ha
     return res;
 }
 
+wchar_t Fsm_PeekPreedit(const FsmContext *ctx) {
+    FsmContext copy = *ctx;   // POD — 복사본을 비워도 원본은 그대로
+    return Fsm_Flush(&copy);
+}
+
 wchar_t Fsm_Flush(FsmContext *ctx) {
     wchar_t c = 0;
     if (ctx->state == STATE_CHO)        c = Layout_ChoToCompatJamo(ctx->cho);

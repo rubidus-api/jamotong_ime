@@ -1250,6 +1250,11 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         // 키는 그대로 소비한다: 여기서 앱에 흘리면 조합 중에 원문자가 박혀 더 나쁘다.
                         obj->fsm = fsmBefore;
                         JamoDiag("TXN rollback key=%c", (char)keyChar);
+                        // 출력은 커밋이 실패해도 새 조합(실패한 키의 preedit)을 이미 그렸다 —
+                        // 복원된 상태로 다시 그린다. 안 그러면 화면('나')과 FSM('간')이 어긋나
+                        // 다음 키가 보이는 것과 다르게 먹는다(실기 2026-09-21, EDIT 가득 찬 칸).
+                        FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true };
+                        OutputResultSeq(obj, pic, redraw, FALSE);
                     }
                 }
                 goto kd_done;
