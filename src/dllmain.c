@@ -120,12 +120,21 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv) {
 // DLL Registration
 // ------------------------------------------------------------------
 
+// RFC-0008 W1-04: 등록 도중 실패하면 앞 단계에서 만든 것을 역순으로 지운다 — CLSID 만 있고 프로필이 없는
+// "반쯤 등록된" 입력기를 남기지 않는다. (지우는 쪽 실패는 되돌릴 방법이 없으니 무시한다.)
+static void RegisterRollback(bool profiles, bool categories) {
+    if (categories) UnregisterCategories();
+    if (profiles) UnregisterProfiles();
+    RegDeleteTreeW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix);
+}
+
 STDAPI DllRegisterServer(void) {
     HKEY hKey = NULL;
     HKEY hSubKey = NULL;
     WCHAR szModule[MAX_PATH];
 
-    if (!GetModuleFileNameW(g_hInst, szModule, MAX_PATH)) return E_FAIL;
+    DWORD n = GetModuleFileNameW(g_hInst, szModule, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return E_FAIL;   // 잘린 경로로 등록하면 로드되지 않는다 (W1-04)
 
     // 이 DLL 이 놓인 폴더를 UWP(AppContainer) 프로세스가 읽을 수 있게 한다.
     // TIP 은 호스트 프로세스 안에서 로드된다 — 호스트가 UWP 앱(작업표시줄 검색·설정 앱·Store 앱)
@@ -141,25 +150,29 @@ STDAPI DllRegisterServer(void) {
         if (slash) { *slash = L'\0'; Config_GrantAppContainerRead(dir); }
     }
 
-    // Register CLSID
+    // Register CLSID — 값 쓰기까지 확인한다(W1-04). 실패하면 만든 키를 지우고 실패를 돌려준다.
     if (RegCreateKeyExW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) return E_FAIL;
-    RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)c_szDescription, (DWORD)(wcslen(c_szDescription) + 1) * sizeof(WCHAR));
-
-    if (RegCreateKeyExW(hKey, c_szInprocServer32, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hSubKey, NULL) != ERROR_SUCCESS) {
-        RegCloseKey(hKey);
-        return E_FAIL;   // InprocServer32 없이는 등록이 무의미 — 실패를 숨기지 않는다 (RFC-0004 P1-5)
+    LONG rc = RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)c_szDescription, (DWORD)(wcslen(c_szDescription) + 1) * sizeof(WCHAR));
+    if (rc == ERROR_SUCCESS)
+        rc = RegCreateKeyExW(hKey, c_szInprocServer32, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hSubKey, NULL);
+    if (rc == ERROR_SUCCESS) {
+        rc = RegSetValueExW(hSubKey, NULL, 0, REG_SZ, (const BYTE*)szModule, (DWORD)(wcslen(szModule) + 1) * sizeof(WCHAR));
+        if (rc == ERROR_SUCCESS)
+            rc = RegSetValueExW(hSubKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)c_szModelName, (DWORD)(wcslen(c_szModelName) + 1) * sizeof(WCHAR));
+        RegCloseKey(hSubKey);
     }
-    RegSetValueExW(hSubKey, NULL, 0, REG_SZ, (const BYTE*)szModule, (DWORD)(wcslen(szModule) + 1) * sizeof(WCHAR));
-    RegSetValueExW(hSubKey, L"ThreadingModel", 0, REG_SZ, (const BYTE*)c_szModelName, (DWORD)(wcslen(c_szModelName) + 1) * sizeof(WCHAR));
-    RegCloseKey(hSubKey);
     RegCloseKey(hKey);
+    if (rc != ERROR_SUCCESS) {   // InprocServer32 없이는 등록이 무의미 — 실패를 숨기지 않는다 (RFC-0004 P1-5)
+        RegisterRollback(false, false);
+        return HRESULT_FROM_WIN32((DWORD)rc);
+    }
 
     // TSF 프로파일/카테고리 등록 실패를 regsvr32에 그대로 노출 — "설치 성공인데 IME가 안 보임"이
-    // 설치 시점에 드러나게 한다 (RFC-0004 P1-5).
+    // 설치 시점에 드러나게 한다 (RFC-0004 P1-5). 실패하면 앞 단계를 역순으로 지운다 (W1-04).
     HRESULT hr = RegisterProfiles();
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) { RegisterRollback(true, false); return hr; }
     hr = RegisterCategories();
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) { RegisterRollback(true, true); return hr; }
 
     return S_OK;
 }

@@ -1643,14 +1643,15 @@ static void UnadviseThreadMgrEventSink(JamotongTextService *obj) {
     }
 }
 
-static void AdviseKeyEventSink(JamotongTextService *obj) {
-    if (obj->threadMgr) {
-        ITfKeystrokeMgr *pKeystrokeMgr = NULL;
-        if (SUCCEEDED(obj->threadMgr->lpVtbl->QueryInterface(obj->threadMgr, &IID_ITfKeystrokeMgr, (void**)&pKeystrokeMgr))) {
-            pKeystrokeMgr->lpVtbl->AdviseKeyEventSink(pKeystrokeMgr, obj->clientId, (ITfKeyEventSink*)&obj->lpVtblKES, TRUE);
-            pKeystrokeMgr->lpVtbl->Release(pKeystrokeMgr);
-        }
-    }
+// RFC-0008 W1-04: 결과를 돌려준다 — 키 싱크 없이는 입력을 하나도 못 받는다(활성화 필수 단계).
+static HRESULT AdviseKeyEventSink(JamotongTextService *obj) {
+    if (!obj->threadMgr) return E_UNEXPECTED;
+    ITfKeystrokeMgr *pKeystrokeMgr = NULL;
+    HRESULT hr = obj->threadMgr->lpVtbl->QueryInterface(obj->threadMgr, &IID_ITfKeystrokeMgr, (void**)&pKeystrokeMgr);
+    if (FAILED(hr) || !pKeystrokeMgr) return FAILED(hr) ? hr : E_NOINTERFACE;
+    hr = pKeystrokeMgr->lpVtbl->AdviseKeyEventSink(pKeystrokeMgr, obj->clientId, (ITfKeyEventSink*)&obj->lpVtblKES, TRUE);
+    pKeystrokeMgr->lpVtbl->Release(pKeystrokeMgr);
+    return hr;
 }
 
 static void UnadviseKeyEventSink(JamotongTextService *obj) {
@@ -1663,6 +1664,8 @@ static void UnadviseKeyEventSink(JamotongTextService *obj) {
     }
 }
 
+static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis);   // 활성화 실패 되돌리기용
+
 // Ex 를 구현하면 TSF 는 Activate 대신 ActivateEx 만 부른다(문서 명시) — 초기화는 이 한 함수로 모은다 (RFC-0013 A).
 static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid, DWORD dwFlags) {
     JamotongTextService *obj = IMPL_TO_OBJ(TIP, pThis);
@@ -1672,7 +1675,15 @@ static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *pt
     obj->threadMgr->lpVtbl->AddRef(obj->threadMgr);
     obj->clientId = tid;
 
-    AdviseKeyEventSink(obj);
+    // RFC-0008 W1-04: 키 싱크는 필수 — 실패하면 "켜졌는데 입력을 안 받는" 상태를 남기지 않도록 지금까지
+    // 붙인 것을 모두 떼고(Deactivate 는 부분 상태에서도 안전하다) 실패를 돌려준다. 아래 나머지는 부가
+    // 기능이라 실패해도 그 기능만 빠진 채 계속 간다.
+    HRESULT hrKey = AdviseKeyEventSink(obj);
+    if (FAILED(hrKey)) {
+        JamoDiag("ACTIVATE key sink failed hr=0x%08lX - rolled back", (unsigned long)hrKey);
+        TIP_Deactivate(pThis);
+        return hrKey;
+    }
     Preserved_Register(obj);   // 문맥 무관 명령키 예약 (RFC-0013 C; 불가/실패 항목은 sink 폴백)
     AdviseThreadMgrEventSink(obj);   // 문서 포커스/편집 싱크 부착 (CUAS 조합유지 목적)
     FuncConfig_Advise(obj);   // 설정 "옵션"(ITfFunctionProvider) in-session 노출
@@ -1688,10 +1699,8 @@ static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *pt
     // 활성화마다 파일 IO를 하면 낭비. 첫 한자 요청 시 EnsureHanjaDicts()가 1회 로드(RFC-0004 §6.1).
     {
         static bool s_globalInit = false;
-        if (!s_globalInit) {
-            s_globalInit = true;
-            CandidateUI_Initialize();
-        }
+        if (!s_globalInit)
+            s_globalInit = CandidateUI_Initialize();   // 실패하면 다음 활성화 때 다시 시도 (W1-04)
     }
 
     // 언어 바 아이템 등록
