@@ -17,3 +17,10 @@ int Trans_PendingMatches(const void *pend_hwnd, const void *pend_ctx,
     if (pend_ctx) return cur_ctx == pend_ctx;
     return 1;
 }
+
+TransResendRoute Trans_ResendRoute(int target_known, int target_alive, int target_is_edit, int focus_is_target) {
+    if (!target_known) return TRANS_RESEND_SENDINPUT;   // 예전 동작 (대상 정보 없음)
+    if (!target_alive) return TRANS_RESEND_DROP;
+    if (target_is_edit) return TRANS_RESEND_POST;
+    return focus_is_target ? TRANS_RESEND_SENDINPUT : TRANS_RESEND_DROP;
+}

@@ -22,3 +22,17 @@ TransFlushAction Trans_FlushAction(int inline_active, int fsm_nonempty, int edit
 //   대상이 없는 보류(옛 방식)는 아무 문맥에서나. 지금 문맥이 없으면 넣을 수 없다.
 int Trans_PendingMatches(const void *pend_hwnd, const void *pend_ctx,
                          const void *focus_edit_hwnd, const void *cur_ctx);
+
+// ── RFC-0008 W1-01: 경계키 재전달 경로 ─────────────────────────────────────────────────
+// 확정을 부른 비자모 키(엔터·방향키 등)는 ~30ms 뒤 재전달된다. 그 사이 포커스가 옮겨 가면 '지금
+// 포커스'로 보내는 것은 엉뚱한 창에 키를 넣는 일이다. 예약 때의 대상 창으로만 보낸다:
+// EDIT 계열은 그 창 큐에 게시(포커스가 떠났어도 그 컨트롤 몫), 그 밖은 여전히 포커스일 때만 SendInput.
+typedef enum TransResendRoute {
+    TRANS_RESEND_SENDINPUT = 0,   // 시스템 입력 큐 (터미널 등)
+    TRANS_RESEND_POST = 1,        // 대상 EDIT 창 큐에 WM_KEYDOWN/UP 게시 (순서 보장)
+    TRANS_RESEND_DROP = 2         // 보낼 곳이 없거나 틀린 곳이 된다 — 보내지 않는다(로그)
+} TransResendRoute;
+
+// target_known: 예약 때 포커스 창을 알았는가. target_alive: 그 창이 아직 있는가.
+// target_is_edit: 그 창이 EDIT 계열인가. focus_is_target: 지금 포커스가 그 창인가.
+TransResendRoute Trans_ResendRoute(int target_known, int target_alive, int target_is_edit, int focus_is_target);

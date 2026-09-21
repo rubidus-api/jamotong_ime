@@ -607,7 +607,11 @@ static void SendKeyThrough(WPARAM vk, LPARAM lParam) {
     in[0].ki.dwFlags = ext ? KEYEVENTF_EXTENDEDKEY : 0;
     in[0].ki.dwExtraInfo = JAMO_SYNTH_MARK;
     in[1] = in[0]; in[1].ki.dwFlags |= KEYEVENTF_KEYUP;
-    SendInput(2, in, sizeof(INPUT));
+    // RFC-0008 W1-01: 들어간 개수를 본다. 0 = UIPI 등으로 막힘(더 할 수 없다 — 기록만),
+    // 1 = key-down 만 들어감 → key-up 이 빠지면 앱에 키가 눌린 채 남으므로 한 번 더 보낸다.
+    UINT n = SendInput(2, in, sizeof(INPUT));
+    if (n == 1) n += SendInput(1, &in[1], sizeof(INPUT));
+    if (n < 2) JamoDiag("RESEND SendInput inserted %u/2 err=%lu", n, (unsigned long)GetLastError());
 }
 
 // ── 경계키 '지연' 재전달 (실기 발견 2026-07-08: AkelPad 엔터가 마지막 음절을 소실) ─────────
@@ -621,18 +625,39 @@ static void SendKeyThrough(WPARAM vk, LPARAM lParam) {
 // 확정문자 전달 메시지를 추월할 수 없다(순서 보장). SendInput은 시스템 입력 큐 경유라
 // 앱 큐와 순서가 안 맞을 수 있음(실기 2026-07-08: 30ms 지연으로도 AkelPad 엔터가 마지막
 // 음절을 소실). 비-EDIT(터미널 등)은 종전 SendInput 유지(PuTTY 검증됨).
-static void ResendKeyNow(WPARAM vk, LPARAM lParam) {
+static bool IsEditFamily(HWND h) {
+    DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    return s != 0xFFFFFFFF && e != 0xFFFFFFFF && s <= e;
+}
+
+static HWND FocusHwnd(void) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) {
-        DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
-        SendMessageW(gti.hwndFocus, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
-        if (s != 0xFFFFFFFF && e != 0xFFFFFFFF && s <= e) {   // EDIT 계열로 판정
-            LPARAM base = lParam & 0x01FF0000;   // 스캔코드·확장키 비트 유지
-            PostMessageW(gti.hwndFocus, WM_KEYDOWN, vk, base | 1);
-            PostMessageW(gti.hwndFocus, WM_KEYUP,   vk, base | 0xC0000001);
+    return (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) ? gti.hwndFocus : NULL;
+}
+
+// target = 예약 때의 포커스 창(RFC-0008 W1-01). 경로 규칙은 transition.h.
+static void ResendKeyNow(WPARAM vk, LPARAM lParam, HWND target) {
+    HWND focus = FocusHwnd();
+    int alive = target && IsWindow(target);
+    int isEdit = alive && IsEditFamily(target);
+    TransResendRoute r = Trans_ResendRoute(target != NULL, alive, isEdit, focus == target);
+    if (r == TRANS_RESEND_POST) {
+        LPARAM base = lParam & 0x01FF0000;   // 스캔코드·확장키 비트 유지
+        LPARAM rep = (lParam & 0xFFFF) ? (lParam & 0xFFFF) : 1;   // 원래 반복 횟수 (W1-01)
+        if (PostMessageW(target, WM_KEYDOWN, vk, base | rep)) {
+            if (!PostMessageW(target, WM_KEYUP, vk, base | 0xC0000001))
+                JamoDiag("RESEND vk=%02X keyup post failed err=%lu", (unsigned)vk, (unsigned long)GetLastError());
             JamoDiag("RESEND vk=%02X via PostMessage", (unsigned)vk);
             return;
         }
+        // 게시 실패(큐 한도 등): 그 창이 여전히 포커스면 SendInput 으로 대신, 아니면 버린다.
+        JamoDiag("RESEND vk=%02X post failed err=%lu", (unsigned)vk, (unsigned long)GetLastError());
+        r = (focus == target) ? TRANS_RESEND_SENDINPUT : TRANS_RESEND_DROP;
+    }
+    if (r == TRANS_RESEND_DROP) {
+        JamoDiag("RESEND vk=%02X dropped (target gone or focus moved)", (unsigned)vk);
+        return;
     }
     JamoDiag("RESEND vk=%02X via SendInput", (unsigned)vk);
     SendKeyThrough(vk, lParam);
@@ -642,6 +667,7 @@ static void ResendKeyNow(WPARAM vk, LPARAM lParam) {
 // 내려갈 때 자기 것만 정리하고 남의 것은 건드리지 않는다.
 static WPARAM  g_pendResendVk = 0;
 static LPARAM  g_pendResendLp = 0;
+static HWND    g_pendResendHwnd = NULL;   // 예약 때의 포커스 창 (W1-01)
 static UINT_PTR g_pendResendTimer = 0;
 static JamotongTextService *g_pendResendOwner = NULL;
 
@@ -650,7 +676,7 @@ static void CALLBACK ResendTimerProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD tim
     KillTimer(NULL, id);
     if (id == g_pendResendTimer) {
         g_pendResendTimer = 0;
-        ResendKeyNow(g_pendResendVk, g_pendResendLp);
+        ResendKeyNow(g_pendResendVk, g_pendResendLp, g_pendResendHwnd);
     }
 }
 // RFC-0008 W0-02: 보류 중인 재전송을 지금 끝낸다. Deactivate 가 이걸 안 부르면 타이머 콜백이
@@ -664,7 +690,7 @@ static void FlushPendingKeyResend(JamotongTextService *obj) {
     g_pendResendTimer = 0;
     g_pendResendOwner = NULL;
     KillTimer(NULL, t);
-    ResendKeyNow(g_pendResendVk, g_pendResendLp);
+    ResendKeyNow(g_pendResendVk, g_pendResendLp, g_pendResendHwnd);
 }
 
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
@@ -674,11 +700,12 @@ static void ScheduleKeyResend(JamotongTextService *obj, WPARAM vk, LPARAM lParam
     if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
         KillTimer(NULL, g_pendResendTimer);
         g_pendResendTimer = 0;
-        ResendKeyNow(g_pendResendVk, g_pendResendLp);
+        ResendKeyNow(g_pendResendVk, g_pendResendLp, g_pendResendHwnd);
     }
     g_pendResendVk = vk; g_pendResendLp = lParam; g_pendResendOwner = obj;
+    g_pendResendHwnd = FocusHwnd();   // 지금 키를 받던 창 — 30ms 뒤 포커스가 바뀌어도 여기로만 (W1-01)
     g_pendResendTimer = SetTimer(NULL, 0, RESEND_DELAY_MS, ResendTimerProc);
-    if (!g_pendResendTimer) ResendKeyNow(vk, lParam);   // 타이머 실패 시 즉시 재전달
+    if (!g_pendResendTimer) ResendKeyNow(vk, lParam, g_pendResendHwnd);   // 타이머 실패 시 즉시 재전달
 }
 
 // ASCII → 전각(full-width). 전각 모드일 때 라틴/숫자/기호를 전각 폭 문자로 변환.
