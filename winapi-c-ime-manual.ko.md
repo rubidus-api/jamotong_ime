@@ -1048,7 +1048,8 @@ if (hr == S_OK) {
 
 - [ ] COM: `IClassFactory`, `DllGetClassObject/CanUnloadNow/RegisterServer/UnregisterServer` + `.def`
 - [ ] `ITfTextInputProcessor` (Activate에서 `AdviseKeyEventSink`)
-- [ ] `ITfKeyEventSink` (OnTestKeyDown/OnKeyDown 조건 일치, OnSetFocus에서 FSM 리셋)
+- [ ] `ITfKeyEventSink` (OnTestKeyDown/OnKeyDown 조건 일치, 포커스 변경 때 남은 음절을 *기억한*
+      대상에 확정한 뒤 FSM 리셋)
 - [ ] 한글 FSM (2벌식 조합 → `{commit, preedit}`)
 - [ ] 편집 세션(`ITfEditSession`)의 request/session/inner 결과와 `NONE`/`DONE`/`UNKNOWN` 분리
 - [ ] 독립 postcondition으로 `DONE`일 때만 FSM publish; `NONE`만 원래 키 통과,
@@ -2184,6 +2185,17 @@ preedit를 이미 그리는 경우가 많다: `r k s k` 는 "가 확정, 나 조
 간으로 돌아갔는데 화면에는 나가 남으면, 다음 키는 사용자가 볼 수 없는 상태 위에서 동작한다.
 복원된 FSM에서 preedit를 (상태를 바꾸지 않고) 다시 계산해 같은 키 이벤트 안에서 그려라. 위 실기에서
 수정 전에 실제로 관찰했다.
+
+**포커스가 바뀌면 조합을 시작한 곳에 확정한다 — 지금 포커스가 있는 곳이 아니다.**
+`ITfThreadMgrEventSink::OnSetFocus` 와 `ITfKeyEventSink::OnSetFocus` 는 포커스가 **이미 옮겨 간 뒤에**
+온다. 확정 전용 IME가 여기서 FSM만 리셋하면 조합 중이던 음절이 조용히 사라지고, "포커스 컨트롤에
+확정"하면 사용자가 방금 클릭한 칸에 들어간다. 조합을 시작할 때 대상을 기억하고(EDIT 계열이면 그 HWND,
+그리고 `ITfContext` 를 AddRef), 포커스 알림에서 그 대상에 넣어라: EDIT이면 `EM_REPLACESEL`(위의 선택
+검사 포함), 아니면 기억한 문맥에 **비동기** 편집 세션 — 키 이벤트 밖에서 동기 세션은 거부된다. 그래도
+실패하면 음절을 그 대상에 묶어 두었다가 사용자가 거기서 다시 칠 때 한 번 재시도하고, 다른 문서에는
+절대 흘리지 않는다. 인라인 조합은 해당 없다 — 텍스트가 이미 문서에 있고 확정만 하면 된다.
+2026-09-21 Windows 11 실기: WinForms `TextBox` → 다른 `TextBox`(앞 칸에 확정), conhost(비동기 세션으로
+확정), 메모장 인라인(변화 없음).
 
 - 이제 세 앱 클래스가 세 주입 방법에 대응한다:
 

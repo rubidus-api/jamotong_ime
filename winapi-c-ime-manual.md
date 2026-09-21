@@ -1182,7 +1182,8 @@ Minimum parts for a commit-only Korean TSF IME:
 
 - [ ] COM: `IClassFactory`, `DllGetClassObject/CanUnloadNow/RegisterServer/UnregisterServer` + `.def`
 - [ ] `ITfTextInputProcessor` (call `AdviseKeyEventSink` in Activate)
-- [ ] `ITfKeyEventSink` (OnTestKeyDown/OnKeyDown conditions in lockstep; reset FSM in OnSetFocus)
+- [ ] `ITfKeyEventSink` (OnTestKeyDown/OnKeyDown conditions in lockstep; on focus change commit the
+      pending syllable to the *remembered* target, then reset the FSM)
 - [ ] Hangul FSM (dubeolsik composition → `{commit, preedit}`)
 - [ ] Edit session (`ITfEditSession`) + `InsertTextAtSelection` for the minimal/validated TSF route
       (finalized syllables only; move caret to end; add tested host routing per §13)
@@ -2400,6 +2401,20 @@ usually draws the new preedit even when the commit half failed: keys `r k s k` p
 still shows 나 — and the next key then acts on something the user cannot see. Recompute the
 preedit from the restored FSM (a pure peek, no state change) and redraw it in the same key
 event. Observed on the field test above before the fix.
+
+**On a focus change, commit to where the composition started — not to where focus is now.**
+`ITfThreadMgrEventSink::OnSetFocus` and `ITfKeyEventSink::OnSetFocus` arrive *after* focus
+has moved. A commit-only IME that simply resets its FSM there silently drops the syllable
+being composed; one that commits "to the focused control" puts it into the control the user
+just clicked. Remember the target when a composition starts (the EDIT HWND if the control is
+EDIT-family, and the `ITfContext`, AddRef'd), and on the focus notification commit into that
+target: `EM_REPLACESEL` for the EDIT (with the selection check above), otherwise an
+**asynchronous** edit session on the remembered context — a synchronous one is refused
+outside a key event. If it still fails, keep the syllable bound to that target and retry once
+when the user types there again; never release it into a different document. An inline
+composition needs none of this: its text is already in the document and is finalized.
+Field-tested 2026-09-21 on Windows 11 (WinForms `TextBox` → another `TextBox`: committed to
+the first; conhost: committed by the asynchronous session; Notepad inline: unchanged).
 
 - The current support-matrix routing is:
 
