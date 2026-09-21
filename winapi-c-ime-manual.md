@@ -2416,6 +2416,15 @@ composition needs none of this: its text is already in the document and is final
 Field-tested 2026-09-21 on Windows 11 (WinForms `TextBox` → another `TextBox`: committed to
 the first; conhost: committed by the asynchronous session; Notepad inline: unchanged).
 
+**Give every composition boundary one code path.** Focus changes, the layout-switch key (and
+its preserved-key twin), and a language-bar or indicator switch are the same event for the
+IME: commit the pending syllable (synchronously inside a key event, to the remembered target
+outside one), **send a key-up for every modifier the IME itself pressed** (a chord layout that
+holds Ctrl/Alt with `SendInput`), reset, then close popups. When each path does its own subset,
+one of them eventually forgets the key-up and the host is left with Ctrl held down. The
+key-up must be sent even when the commit fails. Field-tested 2026-09-21 on Windows 11
+(WinForms `TextBox`: switch key, indicator click and focus change each committed once).
+
 - The current support-matrix routing is:
 
   | Observed route | Required capability match | Finalized-text path |
