@@ -1055,6 +1055,13 @@ There is no single boundary-key resend that is guaranteed for every host.
 - Practical alternatives: a **hotkey** (e.g. Ctrl+Alt+K) that opens your settings window,
   or a **separate settings exe** that edits a shared config file
   (`%APPDATA%\App\config.ini`) which the IME loads on next activation.
+- Save that file **atomically**: write a temporary file in the same folder, check every
+  write, `fflush`, `_commit` and `fclose`, then `MoveFileExW(tmp, target,
+  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`; on any failure delete the temporary
+  file and keep the old one. Truncating the target in place leaves every IME instance reading
+  a half-written file after a full disk, a lock or a crash. Tell the user when saving failed —
+  the new settings then live only in the running session. Field-tested 2026-09-21 on
+  Windows 11 (read-only `config.ini`: warning shown, file unchanged, no temporary file left).
 
 ### 9.4 Language-bar icon (ITfLangBarItemButton) — optional; barely visible on modern Windows.
 

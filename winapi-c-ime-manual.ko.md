@@ -924,6 +924,12 @@ if (hr == S_OK) {
   `ITfFnConfigure`는 클래식 경로에서는 유효하지만, 모던 UI 노출을 보장하는 계약으로 보지 않는다.
 - 실용적 대안: **단축키**(예: Ctrl+Alt+K)로 설정창을 띄우거나, **별도 설정 exe**를 실행해
   공용 설정 파일(`%APPDATA%\App\config.ini`)을 편집·저장하고 IME가 다음 활성화 때 로드.
+- 그 파일은 **원자적으로** 저장한다: 같은 폴더의 임시 파일에 쓰고, 모든 쓰기·`fflush`·`_commit`·
+  `fclose` 를 확인한 뒤 `MoveFileExW(tmp, target, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`.
+  하나라도 실패하면 임시 파일을 지우고 옛 파일을 둔다. 대상을 바로 잘라 쓰면 디스크 가득·잠김·강제 종료
+  뒤 모든 IME 인스턴스가 반쯤 쓴 파일을 읽는다. 저장이 실패했으면 사용자에게 알린다 — 새 설정은 실행 중인
+  세션에만 남는다. 2026-09-21 Windows 11 실기: 읽기 전용 `config.ini` 에서 경고 표시, 파일 불변, 임시
+  파일 없음.
 
 ### 9.4 언어바 아이콘 (ITfLangBarItemButton) — 선택. 최신 Windows에선 잘 안 보임.
 
