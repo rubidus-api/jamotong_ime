@@ -2,6 +2,7 @@
 #ifdef _WIN32
 #include <sddl.h>     // ConvertStringSidToSidW
 #include <aclapi.h>   // GetNamedSecurityInfoW / SetEntriesInAclW
+#include <io.h>       // _commit (원자적 저장: 교체 전 디스크 반영, W1-06)
 #endif
 #include <windows.h>   // GetEnvironmentVariableW / CreateDirectoryW (Config_UserPath)
 #include "plugin_loader.h"
@@ -403,6 +404,26 @@ static void TrimCrLf(wchar_t *str) {
     }
 }
 
+// ── 원자적 파일 쓰기 (RFC-0008 W1-06) ─────────────────────────────────────────────────
+// 대상 파일을 바로 잘라 쓰면 도중 실패(디스크 가득·잠김·종료)에 설정이 반쯤 빈 채 남는다. 같은 폴더의
+// 임시 파일에 끝까지 쓰고, 쓰기·flush·디스크 반영·close 가 모두 성공했을 때만 대상과 바꾼다.
+// 실패하면 임시 파일을 지우고 원본은 그대로 둔다.
+static FILE *AtomicOpen(const wchar_t *target, wchar_t *tmp, int cch) {
+    if (_snwprintf(tmp, cch, L"%ls.tmp", target) < 0) return NULL;
+    tmp[cch - 1] = L'\0';
+    return _wfopen(tmp, L"w, ccs=UTF-8");
+}
+
+static bool AtomicCommit(FILE *fp, const wchar_t *tmp, const wchar_t *target, bool replace) {
+    bool ok = !ferror(fp);
+    ok = (fflush(fp) == 0) && ok;
+    ok = (_commit(_fileno(fp)) == 0) && ok;   // 교체 전에 내용을 디스크에
+    ok = (fclose(fp) == 0) && ok;
+    if (ok) ok = MoveFileExW(tmp, target, (replace ? MOVEFILE_REPLACE_EXISTING : 0) | MOVEFILE_WRITE_THROUGH) != 0;
+    if (!ok) _wremove(tmp);
+    return ok;
+}
+
 // 사용자 자판 저장소의 모든 .jmt를 [LayoutFile:name] … [EndLayoutFile] 로 인라인 (Export용).
 static void BundleUserLayouts(FILE *fp) {
     wchar_t dir[MAX_PATH];
@@ -441,7 +462,8 @@ static void BundleUserLayouts(FILE *fp) {
 }
 
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts) {
-    FILE *fp = _wfopen(filepath, L"w, ccs=UTF-8");
+    wchar_t tmp[MAX_PATH + 8];
+    FILE *fp = AtomicOpen(filepath, tmp, MAX_PATH + 8);   // W1-06: 임시 파일에 다 쓴 뒤 교체
     if (!fp) return false;
 
     fwprintf(fp, L"[Layouts]\nCount=%d\n", config->layoutCount);
@@ -479,8 +501,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
 
     if (bundleLayouts) BundleUserLayouts(fp);   // Export: 사용자 자판 .jmt 본문 인라인
 
-    fclose(fp);
-    return true;
+    return AtomicCommit(fp, tmp, filepath, true);
 }
 
 // 설정 파일 로드 = '병합(merge)'. 파일에는 메타데이터(자판 이름/켜짐/순서·단축키·옵션)만 있다.
@@ -526,6 +547,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
         if (swscanf(line, L"[LayoutFile:%127l[^]]", lfName) == 1) {
             Config_DecodeLayoutName(lfName);   // Export 의 ']'/'%' percent-encoding 복원
             wchar_t dst[MAX_PATH];
+            wchar_t dstTmp[MAX_PATH + 8];
             FILE *out = NULL;
             // 파일명 안전성 검사: 신뢰 못 할 config.ini 를 Import 할 때 [LayoutFile:...] 이름은
             //   공격자가 100% 제어한다. basename + .jmt 인 경우에만 복원 — 이 검사가 없으면
@@ -535,10 +557,8 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
             if (haveLayoutDir && lfRestored < 8 && Config_IsSafeLayoutFileName(lfName)) {
                 _snwprintf(dst, MAX_PATH, L"%ls\\%ls", layoutDir, lfName);
                 dst[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
-                if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES) {   // 없을 때만 복원
-                    out = _wfopen(dst, L"w, ccs=UTF-8");
-                    if (out) lfRestored++;
-                }
+                if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
+                    out = AtomicOpen(dst, dstTmp, MAX_PATH + 8);   // W1-06: 반쯤 쓴 자판을 남기지 않는다
             }
             // 본문은 Export 와 같은 512 버퍼로 읽어 긴 줄이 쪼개지지 않게 한다(마커 격리가
             //   연속 청크에서 깨지는 것을 막음). 각 줄은 선두 공백 마커 — 첫 칸만 벗겨 복원.
@@ -549,7 +569,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
                 if (wcscmp(body, L"[EndLayoutFile]") == 0) break;
                 if (out) fwprintf(out, L"%ls\n", body[0] == L' ' ? body + 1 : body);
             }
-            if (out) fclose(out);
+            if (out && AtomicCommit(out, dstTmp, dst, false)) lfRestored++;   // 덮어쓰지 않는다
             section = 0;
             continue;
         }

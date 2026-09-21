@@ -705,6 +705,24 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     ofn.lpstrFilter = L"Jamotong Layout (*.jmt)\0*.jmt\0All Files\0*.*\0";
                     ofn.nFilterIndex = 1; ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
                     if (GetOpenFileNameW(&ofn)) {
+                        // RFC-0008 W1-06: 저장소에 같은 이름의 다른 자판이 있으면 묻고 덮어쓴다(예전엔 조용히 덮었다).
+                        //   '아니요'면 추가 자체를 취소 — 이번 세션만 새 자판을 쓰고 저장소엔 옛 파일이 남으면
+                        //   재시작 뒤 자판 내용이 말없이 바뀐다.
+                        {
+                            wchar_t udir0[MAX_PATH], dst0[MAX_PATH];
+                            const wchar_t *base0 = wcsrchr(szFile, L'\\');
+                            base0 = base0 ? base0 + 1 : szFile;
+                            if (Config_UserLayoutDir(udir0, MAX_PATH)) {
+                                _snwprintf(dst0, MAX_PATH, L"%ls\\%ls", udir0, base0);
+                                dst0[MAX_PATH - 1] = L'\0';
+                                if (_wcsicmp(dst0, szFile) != 0 && GetFileAttributesW(dst0) != INVALID_FILE_ATTRIBUTES
+                                    && MessageBoxW(hwnd,
+                                        L"A layout file with the same name already exists in the user layout store.\n\n"
+                                        L"Replace it with the selected file?",
+                                        L"Replace layout?", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                                    break;
+                            }
+                        }
                         LayoutConfig lc; memset(&lc, 0, sizeof(lc));
                         KlayDiag diag = {0};
                         if (Klay_Load(szFile, &lc, &diag)) {
@@ -846,8 +864,15 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         g_LastSavedConfig = *g_pRealConfig;
                         // 사용자 설정 파일에 저장 → 다음 활성화/다른 프로세스·"옵션" 버튼에 반영.
                         wchar_t cfgPath[MAX_PATH];
-                        if (Config_UserPath(cfgPath, MAX_PATH)) Config_SaveToFile(g_pRealConfig, cfgPath, false);
+                        bool saved = Config_UserPath(cfgPath, MAX_PATH) && Config_SaveToFile(g_pRealConfig, cfgPath, false);
                         LeaveCriticalSection(&g_configLock);
+                        // RFC-0008 W1-06: 저장 실패를 숨기지 않는다(원자적 저장이라 기존 파일은 그대로 남아 있다).
+                        if (!saved)
+                            MessageBoxW(hwnd,
+                                L"The settings were applied to this session, but saving them failed.\n\n"
+                                L"The previous settings file was left unchanged, so the new settings will be lost "
+                                L"after sign-out. Check that %APPDATA%\\Jamotong is writable.",
+                                L"Settings not saved", MB_ICONWARNING);
                     }
                     DestroyWindow(hwnd);
                     break;
