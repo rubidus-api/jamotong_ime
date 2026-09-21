@@ -85,6 +85,15 @@ if not "%RC%"=="0" (
   pause
   exit /B 1
 )
+rem RFC-0008 W1-05: the registration must point at THIS folder (a stale entry from another
+rem  folder would load an old or missing DLL).
+reg query "HKCR\CLSID\{C471BCF2-343F-4187-A103-24151C3E20B9}\InprocServer32" /ve 2>nul | find /I "%~dp0jamotong.dll" >nul
+if errorlevel 1 (
+  echo [FAIL] Registration does not point at %~dp0jamotong.dll.
+  >>"%LOG%" echo ERROR: registration path mismatch
+  pause
+  exit /B 1
+)
 echo    [OK] 64-bit registered.
 >>"%LOG%" echo OK x64
 

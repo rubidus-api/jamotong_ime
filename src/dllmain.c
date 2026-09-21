@@ -177,12 +177,22 @@ STDAPI DllRegisterServer(void) {
     return S_OK;
 }
 
+// RFC-0008 W1-05: 해제는 끝까지 시도하되, "원래 없었다"와 실제 실패를 구분해 돌려준다 —
+// 권한 부족 등으로 남은 등록을 설치 스크립트가 "제거됨"으로 믿지 않게.
 STDAPI DllUnregisterServer(void) {
-    UnregisterProfiles();
-    UnregisterCategories();
+    // 시작 때 CLSID 키가 없었으면 "원래 없음" — 정리만 시도하고 성공으로 본다(프로필 해제가 이미 없는
+    // 등록에 무엇을 돌려주는지는 실측하지 않았다).
+    HKEY probe = NULL;
+    bool existed = RegOpenKeyExW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix, 0, KEY_READ, &probe) == ERROR_SUCCESS;
+    if (probe) RegCloseKey(probe);
+    HRESULT first = S_OK;
+    HRESULT hr = UnregisterProfiles();
+    if (FAILED(hr) && first == S_OK) first = hr;
+    hr = UnregisterCategories();
+    if (FAILED(hr) && first == S_OK) first = hr;
 
     // Unregister CLSID
-    RegDeleteTreeW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix);
-    
-    return S_OK;
+    LONG rc = RegDeleteTreeW(HKEY_CLASSES_ROOT, c_szInfoKeyPrefix);
+    if (rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND && first == S_OK) first = HRESULT_FROM_WIN32((DWORD)rc);
+    return existed ? first : S_OK;
 }

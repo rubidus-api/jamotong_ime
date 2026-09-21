@@ -26,18 +26,20 @@ if not exist "%~dp0jamotong.dll" (
 
 echo [1/3] Copying files to %DEST% ...
 if not exist "%DEST%" mkdir "%DEST%"
-copy /Y "%~dp0jamotong.dll"   "%DEST%\" >nul && echo        jamotong.dll
-copy /Y "%~dp0jamotong32.dll" "%DEST%\" >nul && echo        jamotong32.dll
-copy /Y "%~dp0jamotong.exe"   "%DEST%\" >nul && echo        jamotong.exe
-for %%F in (hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt UNICODE-LICENSE.txt README.md README.ko.md LICENSE COPYRIGHT.md uninstall-user.bat upgrade-user.bat) do (
-  if exist "%~dp0%%F" copy /Y "%~dp0%%F" "%DEST%\" >nul
+rem RFC-0008 W1-05: the three program files are replaced as one unit (upgrade-user.bat :copyall).
+call "%~dp0upgrade-user.bat" --copy
+if errorlevel 1 (
+  echo [FAIL] Copying failed - nothing was changed. Close programs that may hold the files, then retry.
+  >>"%LOG%" echo ERROR: copy failed
+  pause
+  exit /B 1
 )
 >>"%LOG%" echo files copied
 
 net session >nul 2>&1
 if "%errorlevel%"=="0" goto :doreg
 echo [2/3] Registering - Windows will ask for administrator approval once...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','\"%DEST%\upgrade-user.bat\" --register-only' -Verb RunAs -Wait" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','\"%DEST%\upgrade-user.bat\" --register-only' -Verb RunAs -Wait -PassThru; exit $p.ExitCode" >nul 2>&1
 goto :after
 
 :doreg
@@ -45,6 +47,16 @@ echo [2/3] Registering (already elevated)...
 call "%DEST%\upgrade-user.bat" --register-only
 
 :after
+rem RFC-0008 W1-05: 0 = OK, 2 = 64-bit OK but 32-bit failed, anything else = not registered.
+set "RRC=%errorlevel%"
+>>"%LOG%" echo register exit=%RRC%
+if "%RRC%"=="2" echo [warn] 32-bit registration failed - 64-bit apps still work.
+if not "%RRC%"=="0" if not "%RRC%"=="2" (
+  echo [FAIL] Registration failed or was cancelled ^(code %RRC%^). The files are in %DEST%;
+  echo        run install-user.bat again and approve the administrator prompt.
+  pause
+  exit /B 1
+)
 echo [3/3] Done.
 echo.
 echo  Press Win+Space and pick "Jamotong IME". If it is not listed, sign out and in.
