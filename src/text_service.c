@@ -62,6 +62,12 @@ static BOOL GetCaretScreenRect(JamotongTextService *obj, RECT *out) {
 //   올바른 캐럿 소스를 쓰게 한다(EDIT=GUIThreadInfo 시스템 캐럿, TSF=세션 GetTextExt).
 // RFC-0008 W0-04: 문서에 **실제로 들어갔는지**를 돌려준다. 편집 세션은 동기라 삽입 실패가
 // hrSession 으로 올라온다(RFC-0004 P2-2) — 그 값을 버리지 않는 것이 이 계약의 전부다.
+//
+// ★한계(아직): **EDIT 계열 경로는 실패를 알 수 없다.** `EM_REPLACESEL` 은 결과를 돌려주지 않아
+// `EditCtl_ReplaceSelection` 이 무조건 true 다. 그래서 이 계약이 실제로 지켜지는 곳은 TSF 경로
+// (터미널·네이티브·UWP)이고, EDIT 경로에서는 예전처럼 조용히 유실될 수 있다.
+// 고치려면 삽입 전후 선택/캐럿 이동을 견주어야 하는데, **판정을 틀리면 이중 삽입**이 되므로
+// (EM_REPLACESEL 은 이미 넣었는데 TSF 로 또 넣는다) 보수적 판정 + 실기가 필요하다. BACKLOGS 참조.
 static bool CommitText(JamotongTextService *obj, ITfContext *pic, const wchar_t *str) {
     HWND edit = EditCtl_FocusEditWindow();
     if (edit && EditCtl_ReplaceSelection(edit, str)) {
