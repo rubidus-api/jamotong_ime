@@ -424,6 +424,50 @@ static bool AtomicCommit(FILE *fp, const wchar_t *tmp, const wchar_t *target, bo
     return ok;
 }
 
+bool Config_CopyFileAtomic(const wchar_t *src, const wchar_t *dst) {
+    wchar_t tmp[MAX_PATH + 8];
+    if (_snwprintf(tmp, MAX_PATH + 8, L"%ls.tmp", dst) < 0) return false;
+    tmp[MAX_PATH + 7] = L'\0';
+    if (!CopyFileW(src, tmp, FALSE)) { _wremove(tmp); return false; }
+    if (!MoveFileExW(tmp, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { _wremove(tmp); return false; }
+    return true;
+}
+
+static bool JoinPath(wchar_t *out, int cch, const wchar_t *dir, const wchar_t *name) {
+    int n = _snwprintf(out, cch, L"%ls\\%ls", dir, name);
+    out[cch - 1] = L'\0';
+    return n > 0 && n < cch;
+}
+
+int Config_CommitStagedLayouts(const ConfigStagedLayouts *st, const wchar_t *stagingDir, const wchar_t *storeDir) {
+    int moved = 0;
+    for (int i = 0; st && i < st->count; i++) {
+        if (!Config_IsSafeLayoutFileName(st->names[i])) continue;   // 방어 — 복원 때 이미 검사했다
+        wchar_t from[MAX_PATH], to[MAX_PATH];
+        if (!JoinPath(from, MAX_PATH, stagingDir, st->names[i]) || !JoinPath(to, MAX_PATH, storeDir, st->names[i])) continue;
+        if (MoveFileExW(from, to, MOVEFILE_WRITE_THROUGH)) moved++;   // 덮어쓰지 않는다 — 있으면 실패
+        else _wremove(from);                                          // 남은 스테이징은 치운다
+    }
+    return moved;
+}
+
+void Config_DiscardStagedLayouts(const ConfigStagedLayouts *st, const wchar_t *stagingDir) {
+    for (int i = 0; st && i < st->count; i++) {
+        wchar_t p[MAX_PATH];
+        if (JoinPath(p, MAX_PATH, stagingDir, st->names[i])) _wremove(p);
+    }
+}
+
+bool Config_StagingLayoutDir(wchar_t *out, int cch) {
+    wchar_t store[MAX_PATH];
+    if (!out || cch < 8 || !Config_UserLayoutDir(store, MAX_PATH)) return false;
+    int n = _snwprintf(out, cch, L"%ls.staging", store);
+    out[cch - 1] = L'\0';
+    if (n <= 0 || n >= cch) return false;
+    CreateDirectoryW(out, NULL);
+    return true;
+}
+
 // 사용자 자판 저장소의 모든 .jmt를 [LayoutFile:name] … [EndLayoutFile] 로 인라인 (Export용).
 static void BundleUserLayouts(FILE *fp) {
     wchar_t dir[MAX_PATH];
@@ -512,6 +556,12 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
 //     (2) 파일에서 온 자판은 리소스가 빈 껍데기라(드보락 charMap 소실, 플러그인 pfn=NULL 호출
 //         크래시 위험) 실사용이 깨졌다. 파일에만 있고 현재 없는 자판은 무시한다.
 bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
+    return Config_LoadFromFileEx(config, filepath, NULL, NULL);
+}
+
+bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
+                           const wchar_t *restoreDir, ConfigStagedLayouts *restored) {
+    if (restored) restored->count = 0;
     FILE *fp = _wfopen(filepath, L"r, ccs=UTF-8");
     if (!fp) return false;
 
@@ -536,7 +586,14 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     // 번들 자판 복원용: 디렉터리는 한 번만 해석(섹션마다 env 읽기+CreateDirectory 반복 방지),
     //   복원 개수는 자판 배열 크기(8)로 제한 — 적대적 config가 사용자 자판을 밀어내지 못하게.
     wchar_t layoutDir[MAX_PATH];
-    bool haveLayoutDir = Config_UserLayoutDir(layoutDir, MAX_PATH);
+    bool haveLayoutDir;
+    if (restoreDir) {   // B8: Import 는 스테이징에 — 저장소는 Apply 때만 바뀐다
+        _snwprintf(layoutDir, MAX_PATH, L"%ls", restoreDir);
+        layoutDir[MAX_PATH - 1] = L'\0';
+        haveLayoutDir = true;
+    } else {
+        haveLayoutDir = Config_UserLayoutDir(layoutDir, MAX_PATH);
+    }
     int lfRestored = 0;
 
     while (fgetws(line, 256, fp)) {
@@ -569,7 +626,14 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
                 if (wcscmp(body, L"[EndLayoutFile]") == 0) break;
                 if (out) fwprintf(out, L"%ls\n", body[0] == L' ' ? body + 1 : body);
             }
-            if (out && AtomicCommit(out, dstTmp, dst, false)) lfRestored++;   // 덮어쓰지 않는다
+            if (out && AtomicCommit(out, dstTmp, dst, false)) {   // 덮어쓰지 않는다
+                lfRestored++;
+                if (restored && restored->count < CONFIG_STAGED_MAX) {
+                    wcsncpy(restored->names[restored->count], lfName, 127);
+                    restored->names[restored->count][127] = L'\0';
+                    restored->count++;
+                }
+            }
             section = 0;
             continue;
         }

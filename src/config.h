@@ -130,6 +130,22 @@ LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config);
 // Apply(자동 저장)는 false. Load는 그 섹션을 만나면 layouts 폴더에 복원한다(다음 시작 시 로드).
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts);
 bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath);
+
+// ── 설정창 파일 작업은 Apply 때만 (RFC-0008 W1-06 남은 절반, BACKLOGS B8) ──
+// Import 의 번들 자판은 restoreDir(스테이징)에 복원하고 이름을 기록한다. Apply = Commit(저장소로 이동,
+// 덮어쓰지 않음), Cancel = Discard(스테이징만 지움). restoreDir=NULL 이면 예전처럼 사용자 저장소에 바로.
+#define CONFIG_STAGED_MAX 8
+typedef struct ConfigStagedLayouts {
+    int count;
+    wchar_t names[CONFIG_STAGED_MAX][128];
+} ConfigStagedLayouts;
+bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
+                           const wchar_t *restoreDir, ConfigStagedLayouts *restored);
+int  Config_CommitStagedLayouts(const ConfigStagedLayouts *st, const wchar_t *stagingDir, const wchar_t *storeDir);
+void Config_DiscardStagedLayouts(const ConfigStagedLayouts *st, const wchar_t *stagingDir);
+bool Config_StagingLayoutDir(wchar_t *out, int cch);   // %APPDATA%\Jamotong\layouts.staging
+// 원자적 파일 복사(같은 폴더 임시 파일 → 교체). 실패하면 대상은 그대로.
+bool Config_CopyFileAtomic(const wchar_t *src, const wchar_t *dst);
 bool Config_UserPath(wchar_t *out, int cch);   // %APPDATA%\Jamotong\config.ini (자동 저장/로드용)
 // 사용자 자판 저장소 %APPDATA%\Jamotong\layouts — 설정창 Add가 여기로 복사하고, 시작 시
 // 자동 로드된다(외부 경로 .jmt가 재시작 후 사라지던 문제의 영속화 경로, RFC-0004 P0-2).

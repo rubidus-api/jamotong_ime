@@ -13,6 +13,49 @@ static JamotongConfig *g_pRealConfig = NULL;
 
 // 임시 설정 상태 (트랜잭션/Revert 용도)
 static JamotongConfig g_TempConfig;
+
+// ── RFC-0008 W1-06 남은 절반 (B8): 파일 작업은 [Apply & Save] 때만 ──────────────────────────
+// Add 는 복사할 파일을 적어 두고, Import 는 번들 자판을 스테이징 폴더에 복원해 둔다. Apply 가 둘을 저장소에
+// 반영하고, Cancel·창 닫기·Revert·Reset 은 버린다. (예전엔 누르는 즉시 저장소가 바뀌어 Cancel 해도 남았다.)
+typedef struct { wchar_t src[MAX_PATH]; wchar_t name[128]; const wchar_t *layoutName; } PendingAdd;
+static PendingAdd g_pendingAdds[8];
+static int g_pendingAddCount = 0;
+static ConfigStagedLayouts g_stagedImport;
+
+static void DiscardPendingFileOps(void) {
+    wchar_t stg[MAX_PATH];
+    if (g_stagedImport.count > 0 && Config_StagingLayoutDir(stg, MAX_PATH))
+        Config_DiscardStagedLayouts(&g_stagedImport, stg);
+    g_stagedImport.count = 0;
+    g_pendingAddCount = 0;
+}
+
+// Apply: 적어 둔 파일 작업을 저장소에 반영한다. 반환 = 실패 개수.
+static int CommitPendingFileOps(void) {
+    int failed = 0;
+    wchar_t store[MAX_PATH];
+    if (!Config_UserLayoutDir(store, MAX_PATH)) {
+        failed = g_pendingAddCount + g_stagedImport.count;
+        DiscardPendingFileOps();
+        return failed;
+    }
+    for (int i = 0; i < g_pendingAddCount; i++) {
+        wchar_t dst[MAX_PATH];
+        _snwprintf(dst, MAX_PATH, L"%ls\\%ls", store, g_pendingAdds[i].name);
+        dst[MAX_PATH - 1] = L'\0';
+        if (_wcsicmp(dst, g_pendingAdds[i].src) == 0) continue;   // 이미 저장소의 그 파일
+        if (!Config_CopyFileAtomic(g_pendingAdds[i].src, dst)) failed++;
+    }
+    g_pendingAddCount = 0;
+    if (g_stagedImport.count > 0) {
+        wchar_t stg[MAX_PATH];
+        if (Config_StagingLayoutDir(stg, MAX_PATH))
+            Config_CommitStagedLayouts(&g_stagedImport, stg, store);   // 이미 있는 이름은 덮어쓰지 않는다(의도)
+        else failed += g_stagedImport.count;
+    }
+    g_stagedImport.count = 0;
+    return failed;
+}
 static JamotongConfig g_LastSavedConfig;
 
 // DPI 스케일링 전역 변수
@@ -653,14 +696,18 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     if (GetOpenFileNameW(&ofn)) {
                         // 병합 로드: 파일의 순서/켜짐/단축키/옵션을 현재 temp에 이름 매칭으로 반영.
                         // (리소스 포인터는 재배열만 되고 해제/생성이 없어 누수·빈 껍데기 자판이 없음)
-                        if (Config_LoadFromFile(&g_TempConfig, szFile)) {
+                        // B8: 번들 자판은 스테이징에 — 저장소에는 [Apply & Save] 때 들어간다.
+                        wchar_t stg[MAX_PATH];
+                        ConfigStagedLayouts got; memset(&got, 0, sizeof(got));
+                        bool haveStg = Config_StagingLayoutDir(stg, MAX_PATH);
+                        if (Config_LoadFromFileEx(&g_TempConfig, szFile, haveStg ? stg : NULL, haveStg ? &got : NULL)) {
+                            for (int i = 0; i < got.count && g_stagedImport.count < CONFIG_STAGED_MAX; i++)
+                                wcscpy(g_stagedImport.names[g_stagedImport.count++], got.names[i]);
                             RefreshLists(hwnd);
-                            // 번들된 사용자 자판 .jmt는 %APPDATA%\Jamotong\layouts에 복원됨(없던 것만).
-                            // 새로 복원된 자판은 다음 IME 시작 시 로드된다.
                             MessageBoxW(hwnd,
-                                L"Configuration imported successfully.\n"
-                                L"Any bundled user layouts were restored to %APPDATA%\\Jamotong\\layouts\n"
-                                L"and will be available after the IME restarts (sign out / in).",
+                                L"Configuration imported. Press Apply & Save to keep it.\n\n"
+                                L"Bundled user layouts are installed when you apply, and are available "
+                                L"after the IME restarts (sign out / in).",
                                 L"Success", MB_OK);
                         } else {
                             MessageBoxW(hwnd, L"Failed to import configuration.", L"Error", MB_ICONERROR);
@@ -729,24 +776,15 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                             lc.enabled = true;
                             g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
                             RefreshLists(hwnd);
-                            // 사용자 자판 저장소로 복사 → 재시작 후에도 자동 로드 (RFC-0004 P0-2).
-                            // 이미 저장소/DLL 옆에 있는 파일이면 복사 실패(ERROR_FILE_EXISTS)여도 영속.
-                            bool persisted = false;
-                            wchar_t udir[MAX_PATH];
-                            if (Config_UserLayoutDir(udir, MAX_PATH)) {
+                            // 사용자 자판 저장소로의 복사는 [Apply & Save] 때 (B8) — 재시작 후 자동 로드 (RFC-0004 P0-2).
+                            if (g_pendingAddCount < 8) {
                                 const wchar_t *base = wcsrchr(szFile, L'\\');
                                 base = base ? base + 1 : szFile;
-                                wchar_t dst[MAX_PATH];
-                                _snwprintf(dst, MAX_PATH, L"%ls\\%ls", udir, base);
-                                if (CopyFileW(szFile, dst, FALSE) || GetLastError() == ERROR_FILE_EXISTS)
-                                    persisted = true;
+                                PendingAdd *pa = &g_pendingAdds[g_pendingAddCount++];
+                                wcsncpy(pa->src, szFile, MAX_PATH - 1); pa->src[MAX_PATH - 1] = L'\0';
+                                wcsncpy(pa->name, base, 127); pa->name[127] = L'\0';
+                                pa->layoutName = lc.name;   // Apply 전에 Del 하면 이것으로 찾아 뺀다
                             }
-                            if (!persisted)
-                                MessageBoxW(hwnd,
-                                    L"Loaded for this session, but copying to the user layout store failed.\n"
-                                    L"It will disappear after sign-out. Copy the .jmt file manually to\n"
-                                    L"%APPDATA%\\Jamotong\\layouts or next to jamotong.dll.",
-                                    L"Warning", MB_ICONWARNING);
                         } else {
                             // 파서 진단(줄 번호 + 영어 사유)을 그대로 보여준다.
                             wchar_t msg[320];
@@ -795,6 +833,13 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                             if (g_TempConfig.layouts[i].enabled) on++;
                         if (on <= 1) {
                             MessageBoxW(hwnd, L"At least one layout must stay On.", L"Info", MB_OK);
+                            break;
+                        }
+                    }
+                    // Apply 전에 Add 했던 자판을 지우면 적어 둔 복사도 뺀다 (B8)
+                    for (int i = 0; i < g_pendingAddCount; i++) {
+                        if (g_pendingAdds[i].layoutName == g_TempConfig.layouts[sel].name) {
+                            g_pendingAdds[i] = g_pendingAdds[--g_pendingAddCount];
                             break;
                         }
                     }
@@ -866,6 +911,12 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         wchar_t cfgPath[MAX_PATH];
                         bool saved = Config_UserPath(cfgPath, MAX_PATH) && Config_SaveToFile(g_pRealConfig, cfgPath, false);
                         LeaveCriticalSection(&g_configLock);
+                        if (CommitPendingFileOps() > 0)   // B8: Add/Import 의 파일은 지금 저장소에
+                            MessageBoxW(hwnd,
+                                L"Some layout files could not be copied to the user layout store.\n\n"
+                                L"They are loaded for this session only. Copy the .jmt files manually to "
+                                L"%APPDATA%\\Jamotong\\layouts.",
+                                L"Warning", MB_ICONWARNING);
                         // RFC-0008 W1-06: 저장 실패를 숨기지 않는다(원자적 저장이라 기존 파일은 그대로 남아 있다).
                         if (!saved)
                             MessageBoxW(hwnd,
@@ -877,12 +928,14 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     DestroyWindow(hwnd);
                     break;
                 case ID_BTN_RESET:
+                    DiscardPendingFileOps();   // B8
                     Config_DiscardEdited(&g_TempConfig, g_pRealConfig);   // temp 고유 리소스 해제 후 재로드
                     Config_LoadDefault(&g_TempConfig);
                     RefreshLists(hwnd);
                     MessageBoxW(hwnd, L"Reset to factory defaults.", L"Info", MB_OK);
                     break;
                 case ID_BTN_REVERT:
+                    DiscardPendingFileOps();   // B8
                     Config_DiscardEdited(&g_TempConfig, g_pRealConfig);   // temp 고유 리소스 해제 후 복원
                     g_TempConfig = g_LastSavedConfig;
                     RefreshLists(hwnd);
@@ -894,6 +947,7 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
         case WM_DESTROY:
             // 적용 없이 닫힘(취소/X): live가 소유하지 않는 temp 리소스(예: import·reset 잔여) 정리
             if (g_pRealConfig) Config_DiscardEdited(&g_TempConfig, g_pRealConfig);
+            DiscardPendingFileOps();   // B8: 적용 없이 닫혔으면 스테이징·적어 둔 복사를 버린다 (적용 뒤면 이미 비어 있다)
             if (g_hUiFont) { DeleteObject(g_hUiFont); g_hUiFont = NULL; }
             if (g_brBg)  { DeleteObject(g_brBg);  g_brBg = NULL; }
             if (g_brCtl) { DeleteObject(g_brCtl); g_brCtl = NULL; }
@@ -936,6 +990,8 @@ static DWORD WINAPI SettingsThreadProc(LPVOID lpParam) {
         g_LastSavedConfig = *g_pRealConfig;
         LeaveCriticalSection(&g_configLock);
     }
+    g_pendingAddCount = 0;          // B8: 새 창은 적어 둔 파일 작업 없이 시작
+    g_stagedImport.count = 0;
 
     g_hwndSettings = CreateWindowExW(
         0, wc.lpszClassName, L"Jamotong IME Settings",
