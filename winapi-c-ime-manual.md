@@ -2739,6 +2739,22 @@ universal repeat detector or blindly substitute another global key-state API.
 > and on selection insert only the hanja (the original syllable is never sent); on
 > cancel the composition simply continues — the original is preserved as a *live
 > composition* rather than as committed text.
+>
+> **Update (2026-09-21, v0.23.3)**: the EDIT family now takes the terminal route too —
+> commit-then-replace is kept **only for inline composition**, where the syllable already
+> sits in the document as the composition. Through CUAS the commit and the later replace
+> are delivered asynchronously, so the replace can land before the committed original or
+> after the selection moved, leaving "original + hanja" or converting only the first
+> character. Holding the original as a live composition until a candidate is chosen
+> removes that window entirely. For a **block-selection** conversion, re-read the selection
+> just before replacing and skip the replace if it no longer equals the text read when the
+> Hanja key was pressed (the user changed it). Only do that check where the read is reliable
+> (a direct EDIT read); a TSF read from a candidate callback outside a key event can be
+> refused, and an empty result must not be taken as "changed". Also make the candidate
+> window report whether it was shown: when `CreateWindowEx` fails the caller must release
+> what it prepared for the callbacks, and with the original held nothing is lost. Field-tested
+> 2026-09-21 on Windows 11 (WinForms `TextBox`: select, cancel, block selection, changed
+> selection; Notepad inline: unchanged).
 
 ### 13.7 Required reset choke point + a captured target window
 
