@@ -15,6 +15,7 @@
 #include "ui_element.h"
 #include "ui_client.h"   // RFC-0015 데스크톱 UI 헬퍼
 #include "ui_ipc.h"    // RFC-0012 Phase 3 UI element 게이트
+#include "transition.h" // RFC-0008 W1-09 조합 경계 전환 정책
 // ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
 static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
@@ -147,6 +148,61 @@ void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on) {
     JamoDiag("PASSTHROUGH %s", on ? "ON" : "OFF");
 }
 
+// ── RFC-0008 W1-09: 조합 대상 기억과 대상에 묶인 보류 ────────────────────────────────────
+// 포커스 알림 시점엔 이미 새 창에 포커스가 있다. 그래서 '지금 포커스'가 아니라 조합을 시작한
+// 대상(창·문맥)에 남은 음절을 넣는다. 규칙(순수)은 transition.h.
+static void CompTarget_Clear(JamotongTextService *obj) {
+    if (obj->compTargetCtx) { obj->compTargetCtx->lpVtbl->Release(obj->compTargetCtx); obj->compTargetCtx = NULL; }
+    obj->compTargetHwnd = NULL;
+}
+
+static void CompTarget_Remember(JamotongTextService *obj, ITfContext *pic) {
+    if (!pic || obj->compTargetCtx) return;   // 조합마다 한 번 (ResetComposition 이 비운다)
+    pic->lpVtbl->AddRef(pic);
+    obj->compTargetCtx = pic;
+    obj->compTargetHwnd = EditCtl_FocusEditWindow();
+}
+
+void Jamotong_PendingClear(JamotongTextService *obj) {
+    if (obj->cpPendingCtx) { obj->cpPendingCtx->lpVtbl->Release(obj->cpPendingCtx); obj->cpPendingCtx = NULL; }
+    obj->cpPendingHwnd = NULL;
+    obj->cpPendingCommit = 0;
+}
+
+static void Pending_Set(JamotongTextService *obj, wchar_t ch, HWND hwnd, ITfContext *ctx) {
+    if (obj->cpPendingCommit)   // 보류 칸은 하나 — 앞의 것을 밀어낸다(로그로 남긴다)
+        JamoDiag("PENDING drop U+%04X (replaced)", (unsigned)obj->cpPendingCommit);
+    Jamotong_PendingClear(obj);
+    obj->cpPendingCommit = ch;
+    obj->cpPendingHwnd = hwnd;
+    if (ctx) { ctx->lpVtbl->AddRef(ctx); obj->cpPendingCtx = ctx; }
+}
+
+// 포커스를 떠날 때: 확정 전용 경로에 남은 음절을 **기억한 대상**에 정확히 한 번 넣는다(Q1 확정).
+// 인라인 조합은 여기서 손대지 않는다 — 뒤따르는 ResetComposition 의 Finalize 가 확정한다.
+// 넣지 못하면 대상에 묶어 보류한다(Q2) — 그 대상으로 돌아와 키를 칠 때 한 번 재시도.
+static void Transition_FlushComposition(JamotongTextService *obj, const char *why) {
+    HWND eh = obj->compTargetHwnd;
+    int editOk = eh && IsWindow(eh) && GetWindowThreadProcessId(eh, NULL) == GetCurrentThreadId();
+    TransFlushAction a = Trans_FlushAction(JamoComp_IsActive(obj) ? 1 : 0,
+                                           obj->fsm.state != STATE_EMPTY, editOk,
+                                           obj->compTargetCtx != NULL);
+    if (a == TRANS_NONE || a == TRANS_FINALIZE_INLINE) return;
+    wchar_t ch = Fsm_Flush(&obj->fsm);
+    if (!ch) return;
+    wchar_t cs[2] = { ch, L'\0' };
+    BOOL done = FALSE;
+    if (a == TRANS_EDIT_REPLACE) {
+        done = EditCtl_ReplaceSelection(eh, cs) ? TRUE : FALSE;   // B1 판정 (EDIT 판정이 최종)
+    } else if (a == TRANS_ASYNC_SESSION) {
+        EditSessionData esd = {0}; esd.committed[0] = ch;
+        HRESULT hr = RequestEditSessionDataEx(obj, obj->compTargetCtx, &esd, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE);
+        done = SUCCEEDED(hr);
+    }
+    JamoDiag("TRANS %s flush U+%04X action=%d done=%d", why, (unsigned)ch, (int)a, (int)done);
+    if (!done) Pending_Set(obj, ch, editOk ? eh : NULL, obj->compTargetCtx);
+}
+
 // compartment 통지 등 '밖'에서 자판이 바뀐 뒤의 공통 뒤처리. 키 싱크의 자판 전환 경로와 같은 순서:
 // 조합 경계(인라인 조합 확정·FSM/칩·모아치기 정리) → 언어바. (compartment 발행은 호출자가 한다.)
 void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
@@ -177,7 +233,7 @@ void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
                     dm->lpVtbl->Release(dm);
                 }
             }
-            if (!done) obj->cpPendingCommit = ch;   // 다음 키 이벤트에서 확정 (OnTestKeyDown 머리)
+            if (!done) Pending_Set(obj, ch, edit, NULL);   // 다음 키 이벤트에서 확정 (OnTestKeyDown 머리)
         }
     }
     ResetComposition(obj);           // 인라인 Finalize(동기→비동기 폴백) + FSM/칩/캐시 정리
@@ -204,6 +260,7 @@ static void ResetComposition(JamotongTextService *obj) {
     obj->prevChipValid = FALSE;
     obj->chipPendingAdv = 0;
     PreeditOverlay_Hide();
+    CompTarget_Clear(obj);         // 조합이 끝났다 — 다음 조합은 대상을 새로 기억한다 (W1-09)
 }
 
 // 순차 FSM 결과 출력 — RFC-0010 분기: 비단명 컨텍스트(표준 composition 지원)는 문서 인라인
@@ -213,6 +270,7 @@ static void ResetComposition(JamotongTextService *obj) {
 // 모아치기/코드/정적/플러그인 경로는 기존 OutputResult를 그대로 쓴다.
 static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
 static bool OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush) {
+    CompTarget_Remember(obj, pic);   // 조합 대상 기억 (조합마다 한 번, RFC-0008 W1-09)
     // 경로 선택은 transitory 판정이 단독으로 한다. EDIT 계열 검출(EditCtl_*)은 경로 선택자가
     // 아니라 COMMIT 경로 '안'의 주입 방식이다 — Win11 메모장 편집 컨트롤이 RichEditD2DPT
     // (클래스명에 'edit', EM_* 응답)라서 EDIT 검출을 선행시키면 표준 조합의 1차 대상인
@@ -649,6 +707,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fFo
     (void)fForeground;
     // 포커스 변경 시 조합 상태 전면 리셋 + 팝업들 정리 → 새 위치에서 깨끗이 시작.
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조가 정리되게 한다 — 열린 채 방치되던 '멈춤' 방지.
+    Transition_FlushComposition(obj, "KES-focus");   // 남은 음절은 버리지 않고 조합 대상에 확정 (W1-09)
     ResetComposition(obj);
     CodeInput_Hide();
     CandidateUI_Cancel();
@@ -678,10 +737,15 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     if (obj->ctxKeyboardDisabled) return S_OK;
 
     // 밖에서 온 자판 전환 때 확정 못 한 음절이 있으면, 키 이벤트 안(동기 세션 허용)인 지금 먼저 넣는다.
+    // 포커스를 떠날 때 넣지 못한 음절도 여기서 — 단 **그 대상으로 돌아왔을 때만**, 한 번만(W1-09 Q2).
     if (obj->cpPendingCommit && pic) {
-        wchar_t cs[2] = { obj->cpPendingCommit, L'\0' };
-        obj->cpPendingCommit = 0;
-        CommitText(obj, pic, cs);
+        HWND fe = obj->cpPendingHwnd ? EditCtl_FocusEditWindow() : NULL;
+        if (Trans_PendingMatches(obj->cpPendingHwnd, obj->cpPendingCtx, fe, pic)) {
+            wchar_t cs[2] = { obj->cpPendingCommit, L'\0' };
+            Jamotong_PendingClear(obj);   // 재시도는 한 번 — 실패해도 다시 보류하지 않는다
+            bool ok = CommitText(obj, pic, cs);
+            JamoDiag("PENDING retry U+%04X ok=%d", (unsigned)cs[0], (int)ok);
+        }
     }
 
     // 무간섭(직접 입력) 모드: 해제 단축키만 예측-소비하고 그 외 전부 통과 —
@@ -1528,6 +1592,7 @@ static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, I
         AdviseTextEditSink(obj, NULL);
         Compart_ReadContextDisabled(obj, NULL);
     }
+    Transition_FlushComposition(obj, "doc-focus");   // 남은 음절은 떠나는 문서에 확정 (W1-09)
     ResetComposition(obj);   // 문서 포커스 이동 → 조합·미리보기 잔상 전면 리셋
     CodeInput_Hide();
     CandidateUI_Cancel();    // 후보창도 취소(pic 정리) — 다른 문서 위 잔류 방지
@@ -1676,6 +1741,8 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     // 열린 채 Deactivate되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
     CandidateUI_Cancel();
     JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리
+    CompTarget_Clear(obj);        // W1-09 대상·보류가 쥔 문맥 참조를 놓는다
+    Jamotong_PendingClear(obj);
     Fsm_Init(&obj->fsm);
     Chord_Init(&obj->chord);
     PreeditOverlay_Uninitialize();

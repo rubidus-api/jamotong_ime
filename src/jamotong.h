@@ -94,13 +94,19 @@ typedef struct JamotongTextService {
     // 이 필드는 캐시다(포커스 변경·토글 시 재읽기 — text_service.c).
     BOOL passthrough;
 
+    // ── RFC-0008 W1-09: 조합을 시작한 대상 — 포커스를 떠날 때 남은 음절을 여기에 확정한다 ──
+    HWND compTargetHwnd;           // 조합 시작 때 포커스였던 EDIT 창 (EDIT 계열이 아니면 NULL)
+    ITfContext *compTargetCtx;     // 조합 시작 때 문맥 (AddRef 보유)
+
     // ── RFC-0012 Phase 1 compartment (compartment.c) — 한/영 상태의 표준 자리 ──
     ITfCompartmentEventSinkVtbl *lpVtblCES;   // OPENCLOSE 변경 통지 sink
     ITfCompartment *cpOpenClose;   // GUID_COMPARTMENT_KEYBOARD_OPENCLOSE (thread mgr 스코프)
     ITfCompartment *cpConvMode;    // GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION
     DWORD cpCookie;                // OPENCLOSE advise 쿠키
     DWORD cpCookieConv;            // INPUTMODE_CONVERSION advise 쿠키 (한/A 표시기는 이쪽을 바꿀 수 있다)
-    wchar_t cpPendingCommit;       // 밖에서 온 전환 때 확정 못 한 음절 — 다음 키 이벤트(pic 있음)에서 먼저 확정
+    wchar_t cpPendingCommit;       // 확정 못 한 음절(0=없음) — 그 대상으로 돌아와 키를 칠 때 한 번 재시도 (RFC-0008 W1-09)
+    HWND cpPendingHwnd;            // 보류 대상 EDIT 창 (없으면 NULL)
+    ITfContext *cpPendingCtx;      // 보류 대상 문맥 (AddRef 보유; NULL = 아무 문맥)
     long  cpLastOpen, cpLastConv;  // 마지막으로 발행/수용한 값 (-1 = 아직 없음). 같으면 안 쓴다.
     BOOL  cpSelfWrite;             // 우리가 쓰는 중 — OnChange 메아리 무시
     BOOL  ctxKeyboardDisabled;     // 포커스 문맥의 KEYBOARD_DISABLED (앱이 입력기를 껐다) 캐시
@@ -161,6 +167,7 @@ void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on);   // 조합 정
 // 밖(compartment 통지 등)에서 자판이 바뀌었을 때의 공통 뒤처리: 조합 경계 정리 + 언어바. (text_service.c)
 // 키 이벤트 밖에서 자판을 바꾸기 **전에** 조합 중 음절을 확정·정리한다 (언어바 버튼 클릭·compartment 통지).
 // 실기 2026-08-23: 트레이의 한/A 칩 = 우리 언어바 버튼이고, 그 클릭은 0.16.2 부터 확정 없이 Rotate 만 했다.
+void Jamotong_PendingClear(JamotongTextService *obj);   // 보류 음절과 그 대상 참조를 비운다
 void Jamotong_FlushForExternalSwitch(JamotongTextService *obj);
 void Jamotong_OnLayoutSwitched(JamotongTextService *obj);
 

@@ -149,7 +149,7 @@ void Compart_Attach(JamotongTextService *obj) {
             src->lpVtbl->Release(src);
         }
     }
-    obj->cpPendingCommit = 0;
+    Jamotong_PendingClear(obj);
     Compart_Publish(obj);   // 처음 한 번은 무조건 쓴다(cpLast* = -1)
 }
 
