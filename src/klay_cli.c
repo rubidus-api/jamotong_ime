@@ -85,14 +85,43 @@ static bool WriteCanonical(const wchar_t *src, const LayoutConfig *lc, const Kla
         return true;
     }
     // chord: 동작 표를 다시 글로 옮기는 대신, Extends/Include 를 편 원문 줄을 쓴다(자립 파일).
+    //   단 같은 조합(층·키 집합·tap/hold)이 여러 번이면 로더가 고르는 한 줄만 쓴다 — 다른 파일(상속)은 나중 줄,
+    //   같은 파일은 첫 줄 (chord_layout.c 와 같은 규칙, RFC-0016 §4). 안 그러면 펼친 한 파일 안의 중복이 되어
+    //   첫 줄(부모)이 이기고 의미가 바뀐다 (§9: 펼치기는 의미를 보존한다).
     KlayLines L;
     if (!KlayLines_Build(&L, src, NULL)) { KlayLines_Free(&L); return false; }
+    typedef struct { wchar_t id[80]; int file, line; } ChordId;
+    ChordId *ids = (ChordId *)calloc((size_t)L.n + 1, sizeof(ChordId));
+    int *winner = (int *)calloc((size_t)L.n + 1, sizeof(int));   // ids[i] 가 이긴 줄 번호, -1 = 조합 줄 아님
+    if (!ids || !winner) { free(ids); free(winner); KlayLines_Free(&L); return false; }
+    wchar_t layer[32] = L"base";
+    for (int i = 0; i < L.n; i++) {
+        const wchar_t *p = L.v[i].text;
+        while (*p == L' ' || *p == L'\t') p++;
+        wchar_t nm[32] = L"", keys[32] = L"";
+        winner[i] = -1;
+        if (swscanf(p, L"Layer %31ls", nm) == 1) { lstrcpynW(layer, nm, 32); continue; }
+        bool hold = !wcsncmp(p, L"Hold ", 5);
+        if (!hold && wcsncmp(p, L"Chord ", 6)) continue;
+        if (swscanf(p + (hold ? 5 : 6), L"%31ls", keys) != 1) continue;
+        size_t nk = wcslen(keys);   // 키 집합 — 순서 무시 (jk == kj)
+        for (size_t a = 1; a < nk; a++) for (size_t c = a; c > 0 && keys[c-1] > keys[c]; c--) { wchar_t t = keys[c]; keys[c] = keys[c-1]; keys[c-1] = t; }
+        swprintf(ids[i].id, 80, L"%ls|%ls|%d", layer, keys, hold ? 1 : 0);
+        ids[i].file = L.v[i].file;
+        int prev = -1;
+        for (int j = 0; j < i; j++) if (winner[j] >= 0 && !wcscmp(ids[j].id, ids[i].id)) { prev = j; break; }
+        if (prev < 0) winner[i] = i;
+        else if (ids[prev].file != ids[i].file) { winner[i] = i; winner[prev] = -2; }   // 상속 덮어쓰기: 나중 줄
+        else winner[i] = -2;                                                             // 같은 파일 중복: 첫 줄
+    }
     for (int i = 0; i < L.n; i++) {
         const wchar_t *p = L.v[i].text;
         while (*p == L' ' || *p == L'\t') p++;
         if (KlayHeader_IsKnownKey(p) || !wcsncmp(p, L"FormatVersion", 13)) continue;   // 머리부는 위에 썼다
+        if (winner[i] == -2) continue;                                                  // 진 조합 줄
         W(b, L"%ls\n", L.v[i].text);
     }
+    free(ids); free(winner);
     KlayLines_Free(&L);
     return true;
 }

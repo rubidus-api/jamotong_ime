@@ -73,7 +73,11 @@ static int KeyNameToVK(const wchar_t *n, bool *ext) {
         if (!_wcsicmp(k, L"enter")) { *ext = true; return VK_RETURN; }   // 키패드 Enter = 확장
     }
     // F1~F24 (보이지 않는 F13~24 포함)
-    if ((n[0] == L'f' || n[0] == L'F') && n[1]) { int f = _wtoi(n + 1); if (f >= 1 && f <= 24) return VK_F1 + (f - 1); }
+    if ((n[0] == L'f' || n[0] == L'F') && n[1]) {   // RFC-0016 P1: F 뒤는 숫자만 (전엔 f1junk 가 F1)
+        int f = 0; const wchar_t *q = n + 1;
+        for (; *q >= L'0' && *q <= L'9' && f < 100; q++) f = f * 10 + (*q - L'0');
+        if (!*q && f >= 1 && f <= 24) return VK_F1 + (f - 1);
+    }
     // 단일 문자
     if (n[1] == L'\0') {
         wchar_t c = n[0];
@@ -106,73 +110,115 @@ static int LayerFindOrAdd(ChordLayout *cl, const wchar_t *name) {
     }
     return idx;
 }
-static void ExpandText(wchar_t *dst, size_t dstn, const wchar_t *src) {
-    size_t j = 0;
-    for (size_t i = 0; src[i] && j+1 < dstn; i++) {
+// 넘치면 false (RFC-0016 P1 — 전엔 조용히 잘렸다)
+static bool ExpandText(wchar_t *dst, size_t dstn, const wchar_t *src) {
+    size_t j = 0, i = 0;
+    for (; src[i] && j+1 < dstn; i++) {
         if (src[i]==L'\\' && src[i+1]) {
             wchar_t c = src[++i];
             dst[j++] = (c==L'n')?L'\n':(c==L't')?L'\t':(c==L's')?L' ':(c==L'\\')?L'\\':c;
         } else dst[j++] = src[i];
     }
     dst[j] = L'\0';
+    return src[i] == L'\0';
 }
 
 // RHS 동작 문자열을 파싱해 e에 채운다. false = 잘못된 이름/대상 (RFC-0004 P1-3:
 // 예전엔 unknown key/mod/layer가 무음 no-op 엔트리로 저장돼 "로드 성공인데 조합이 안 먹는"
 // 상태가 됐다 — 이제 로드 실패로 표면화).
-static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
-    wchar_t verb[16] = {0}, a1[32] = {0}, a2[16] = {0};
-    if (swscanf(rhs, L"%15ls %31ls %15ls", verb, a1, a2) >= 1) {
+// 명령 동작의 토큰: 공백으로 나누고 '#' 로 시작하는 토큰부터는 줄 끝 주석 (RFC-0016 P1).
+//   반환 = 토큰 수, 토큰이 너무 길면 -1.
+#define ACT_MAXTOK 6
+static int ActTokens(const wchar_t *s, wchar_t tok[ACT_MAXTOK][32]) {
+    int n = 0;
+    while (*s) {
+        while (*s == L' ' || *s == L'\t') s++;
+        if (!*s || *s == L'#') break;
+        if (n >= ACT_MAXTOK) return n + 1;   // 너무 많다 — 호출자가 개수로 거부
+        size_t k = 0;
+        while (*s && *s != L' ' && *s != L'\t') { if (k >= 31) return -1; tok[n][k++] = *s++; }
+        tok[n][k] = L'\0'; n++;
+    }
+    return n;
+}
+// 부호 있는 10진 정수 전체 + 범위 (전엔 swscanf %d 가 "5x" 를 5 로 받았다)
+static bool StrictInt(const wchar_t *t, long lo, long hi, int *out) {
+    wchar_t *end = NULL;
+    if (!t[0]) return false;
+    long v = wcstol(t, &end, 10);
+    if (!end || *end || v < lo || v > hi) return false;
+    *out = (int)v; return true;
+}
+#define PA_OK        0
+#define PA_BAD       1   // 모르는 동작·이름, 여분 토큰, 잘못된 숫자
+#define PA_TEXT_LONG 2   // 문자열이 ChordEntry.text 에 들어가지 않는다
+
+static int ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
+    wchar_t t[ACT_MAXTOK][32];
+    int n = ActTokens(rhs, t);
+    if (n >= 1) {
+        const wchar_t *verb = t[0];
         if (!_wcsicmp(verb, L"key")) {
-            bool ex = false; e->act = CA_KEY; e->vk = KeyNameToVK(a1, &ex); e->keyExt = ex;
-            return e->vk != 0;   // 미지의 키 이름 거부
+            bool ex = false;
+            if (n != 2) return PA_BAD;   // 'key A junk' 거부 (RFC-0016 P1)
+            e->act = CA_KEY; e->vk = KeyNameToVK(t[1], &ex); e->keyExt = ex;
+            return e->vk ? PA_OK : PA_BAD;   // 미지의 키 이름 거부
         }
         if (!_wcsicmp(verb, L"mod")) {
-            e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(a1);
-            return e->mod != 0;   // 미지의 모디파이어 이름 거부
+            if (n != 2) return PA_BAD;
+            e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(t[1]);
+            return e->mod ? PA_OK : PA_BAD;   // 미지의 모디파이어 이름 거부
         }
-        if (!_wcsicmp(verb, L"layer")) {
-            e->act = CA_LAYER_ONESHOT; e->targetLayer = LayerFindOrAdd(cl, a1);
-            return e->targetLayer >= 0;   // 레이어 정원(CL_MAX_LAYERS) 초과 거부
-        }
-        if (!_wcsicmp(verb, L"tlayer")) {
-            e->act = CA_LAYER_TOGGLE; e->targetLayer = LayerFindOrAdd(cl, a1);
-            return e->targetLayer >= 0;
-        }
-        if (!_wcsicmp(verb, L"slayer")) {
-            e->act = CA_LAYER_SWITCH; e->targetLayer = LayerFindOrAdd(cl, a1);
-            return e->targetLayer >= 0;
+        if (!_wcsicmp(verb, L"layer") || !_wcsicmp(verb, L"tlayer") || !_wcsicmp(verb, L"slayer")) {
+            if (n != 2) return PA_BAD;
+            e->act = !_wcsicmp(verb, L"layer") ? CA_LAYER_ONESHOT : !_wcsicmp(verb, L"tlayer") ? CA_LAYER_TOGGLE : CA_LAYER_SWITCH;
+            e->targetLayer = LayerFindOrAdd(cl, t[1]);
+            return e->targetLayer >= 0 ? PA_OK : PA_BAD;   // 레이어 정원(CL_MAX_LAYERS) 초과 거부
         }
         if (!_wcsicmp(verb, L"mouse")) {
-            if (!_wcsicmp(a1, L"move")) { e->act = CA_MOUSE_MOVE;
-                // 두 번째 좌표는 rhs에서 재파싱
-                int dx=0, dy=0;
-                if (swscanf(rhs, L"mouse move %d %d", &dx, &dy) != 2) return false;   // W2-02: 좌표 둘 다 필요
-                e->p1=dx; e->p2=dy; return true; }
-            if (!_wcsicmp(a1, L"click") || !_wcsicmp(a1, L"down") || !_wcsicmp(a1, L"up")) {
-                if (a2[0] && _wcsicmp(a2, L"left") && _wcsicmp(a2, L"right") && _wcsicmp(a2, L"middle")) return false;   // W2-02
+            if (n < 2) return PA_BAD;
+            if (!_wcsicmp(t[1], L"move")) {   // W2-02: 좌표 둘 다, RFC-0016 P1: 정수 전체·범위·여분 없음
+                int dx, dy;
+                if (n != 4 || !StrictInt(t[2], -10000, 10000, &dx) || !StrictInt(t[3], -10000, 10000, &dy)) return PA_BAD;
+                e->act = CA_MOUSE_MOVE; e->p1 = dx; e->p2 = dy; return PA_OK;
+            }
+            if (!_wcsicmp(t[1], L"click") || !_wcsicmp(t[1], L"down") || !_wcsicmp(t[1], L"up")) {
+                if (n > 3) return PA_BAD;
+                const wchar_t *b = (n == 3) ? t[2] : L"left";
+                if (_wcsicmp(b, L"left") && _wcsicmp(b, L"right") && _wcsicmp(b, L"middle")) return PA_BAD;   // W2-02
                 e->act = CA_MOUSE_BTN;
-                e->p1 = (!_wcsicmp(a2, L"right"))?1 : (!_wcsicmp(a2, L"middle"))?2 : 0;
-                e->p2 = (!_wcsicmp(a1, L"down"))?1 : (!_wcsicmp(a1, L"up"))?2 : 0;
-                return true;
+                e->p1 = (!_wcsicmp(b, L"right"))?1 : (!_wcsicmp(b, L"middle"))?2 : 0;
+                e->p2 = (!_wcsicmp(t[1], L"down"))?1 : (!_wcsicmp(t[1], L"up"))?2 : 0;
+                return PA_OK;
             }
-            if (!_wcsicmp(a1, L"wheel")) {
-                e->act = CA_MOUSE_WHEEL;
-                if (!_wcsicmp(a2, L"up")) e->p1 = WHEEL_DELTA;
-                else if (!_wcsicmp(a2, L"down")) e->p1 = -WHEEL_DELTA;
-                else e->p1 = _wtoi(a2);
-                e->p2 = 0; return true;
+            if (!_wcsicmp(t[1], L"wheel")) {
+                if (n != 3) return PA_BAD;
+                e->act = CA_MOUSE_WHEEL; e->p2 = 0;
+                if (!_wcsicmp(t[2], L"up")) e->p1 = WHEEL_DELTA;
+                else if (!_wcsicmp(t[2], L"down")) e->p1 = -WHEEL_DELTA;
+                else if (!StrictInt(t[2], -12000, 12000, &e->p1)) return PA_BAD;
+                return PA_OK;
             }
-            return false;   // mouse 뒤 미지의 하위 동작
+            return PA_BAD;   // mouse 뒤 미지의 하위 동작
         }
     }
-    // 기본: 텍스트 (\b\n\t\s 는 특수키/문자로)
-    if (!wcscmp(rhs, L"\\b")) { e->act = CA_KEY; e->vk = VK_BACK; return true; }
-    if (!wcscmp(rhs, L"\\n")) { e->act = CA_KEY; e->vk = VK_RETURN; return true; }
-    if (!wcscmp(rhs, L"\\t")) { e->act = CA_KEY; e->vk = VK_TAB; return true; }
+    // 기본: 텍스트 (\b\n\t\s 는 특수키/문자로). 텍스트에선 '#' 도 글자다.
+    if (!wcscmp(rhs, L"\\b")) { e->act = CA_KEY; e->vk = VK_BACK; return PA_OK; }
+    if (!wcscmp(rhs, L"\\n")) { e->act = CA_KEY; e->vk = VK_RETURN; return PA_OK; }
+    if (!wcscmp(rhs, L"\\t")) { e->act = CA_KEY; e->vk = VK_TAB; return PA_OK; }
     e->act = CA_TEXT;
-    ExpandText(e->text, 24, rhs);
-    return e->text[0] != L'\0';
+    // 줄 끝 주석: 공백 뒤의 '#' 부터 (README 예제의 형태). 맨 앞의 '#', 'C#' 처럼 붙은 '#', '\#' 은 글자다.
+    //   전엔 주석까지 문자열로 읽어 23자에서 잘랐다 (RFC-0016 P1).
+    wchar_t body[256];
+    lstrcpynW(body, rhs, 256);
+    for (int i = 1; body[i]; i++)
+        if (body[i] == L'#' && (body[i-1] == L' ' || body[i-1] == L'\t')) {
+            body[i] = L'\0';
+            for (int k = i - 1; k >= 0 && (body[k] == L' ' || body[k] == L'\t'); k--) body[k] = L'\0';
+            break;
+        }
+    if (!ExpandText(e->text, sizeof(e->text) / sizeof(e->text[0]), body)) return PA_TEXT_LONG;
+    return e->text[0] != L'\0' ? PA_OK : PA_BAD;
 }
 
 // 오류를 모두 기록 (RFC-0011 P1) — col 은 1-based.
@@ -209,6 +255,9 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     cl->layerCount = 1;
     int curLayer = 0;
     bool bad = false;   // 잘못된 글쇠/동작 참조 발견 시 파일 전체 거부 (RFC-0004 P1-3)
+    // 각 조합을 정의한 파일 (상속 덮어쓰기 판정, RFC-0016 §4). 로드마다 따로 — 설정창·입력 스레드가 겹쳐도 안전.
+    unsigned char *srcFile = (unsigned char *)calloc(CL_MAX_CHORDS, 1);
+    if (!srcFile) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     int lineno = 0;
 
     wchar_t line[256];
@@ -222,7 +271,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         if (*p==L'\0' || *p==L'#') continue;
         const int col0 = (int)(p - line) + 1;
 
-        wchar_t name[32] = {0}, keys[32] = {0}, rhs[64] = {0};
+        wchar_t name[32] = {0}, keys[32] = {0}, rhs[256] = {0};   // rhs = 줄 한도까지 (전엔 63자에서 잘렸다)
         int bit = 0;
 
         if (swscanf(p, L"Name = %63l[^\n]", cl->name) == 1) { TrimEnds(cl->name); }
@@ -246,7 +295,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         else if (!wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)) {
             if (cl->chordCount >= CL_MAX_CHORDS) { FAIL(col0, L"E-JMT-LIMIT", L"too many chords (max 2048)", NULL); continue; }
             int isHold = (p[0] == L'H' || p[0] == L'h');
-            const wchar_t *fmt = isHold ? L"Hold %31ls = %63l[^\n]" : L"Chord %31ls = %63l[^\n]";
+            const wchar_t *fmt = isHold ? L"Hold %31ls = %255l[^\n]" : L"Chord %31ls = %255l[^\n]";
             if (swscanf(p, fmt, keys, rhs) == 2) {
                 unsigned mask = 0; bool ok = true;
                 for (int i = 0; keys[i]; i++) {
@@ -255,13 +304,27 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                     mask |= (1u << kb);
                 }
                 if (ok && mask) {
-                    ChordEntry *e = &cl->chords[cl->chordCount];
-                    memset(e, 0, sizeof(*e));
-                    e->mask = mask; e->layer = curLayer; e->targetLayer = -1; e->isHold = isHold;
+                    ChordEntry ne; memset(&ne, 0, sizeof(ne));
+                    ne.mask = mask; ne.layer = curLayer; ne.targetLayer = -1; ne.isHold = isHold;
                     TrimEnds(rhs);
-                    if (ParseAction(cl, e, rhs)) cl->chordCount++;
-                    else FAIL(col0, L"E-JMT-ACTION", L"unknown action (key/mod/layer name or mouse sub-action)",
-                              L"use text, 'key <name>', 'mod <name>', 'layer <name>' or a mouse action");
+                    int pr = ParseAction(cl, &ne, rhs);
+                    if (pr == PA_OK) {
+                        // 같은 (layer, mask, tap/hold) — RFC-0016 §4: 상속(다른 파일)은 나중 정의 우선,
+                        // 같은 파일 안의 중복은 v1/v2 에선 첫 정의 유지 + 경고 (v3 에선 오류 예정).
+                        int dup = -1;
+                        for (int j = 0; j < cl->chordCount; j++)
+                            if (cl->chords[j].mask == mask && cl->chords[j].layer == curLayer && cl->chords[j].isHold == isHold) { dup = j; break; }
+                        if (dup < 0) { srcFile[cl->chordCount] = (unsigned char)L->v[li].file; cl->chords[cl->chordCount++] = ne; }
+                        else if (srcFile[dup] != (unsigned char)L->v[li].file) { cl->chords[dup] = ne; srcFile[dup] = (unsigned char)L->v[li].file; }
+                        else KlayDiag_Add(diag, KLAY_SEV_WARNING, lineno, col0, L"W-JMT-DUP-CHORD",
+                                          L"same chord defined twice in this file - the first definition is used",
+                                          L"remove one of the two lines");
+                    }
+                    else if (pr == PA_TEXT_LONG)
+                        FAIL(col0, L"E-JMT-TEXT-LONG", L"chord text is longer than 23 characters",
+                             L"shorten the text (at most 23 characters after \\n, \\t and \\s)");
+                    else FAIL(col0, L"E-JMT-ACTION", L"unknown action, or extra/invalid words after it",
+                              L"use text, 'key <name>', 'mod <name>', 'layer <name>' or a mouse action; comments start with #");
                 } else FAIL(col0 + (isHold ? 5 : 6), L"E-JMT-UNDECLARED", L"chord references a key not declared with 'Key'",
                             L"declare every chord key first, e.g. 'Key j = 0'");
             } else FAIL(col0, L"E-JMT-KEY-SYNTAX", L"malformed Chord/Hold line (missing '=')", NULL);
@@ -279,6 +342,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
             KlayDiag_Add(diag, KLAY_SEV_WARNING, 0, 1, L"W-JMT-EMPTY-LAYER", msg, L"check the layer name, or add 'Layer <name>' and its chords");
         }
     }
+    free(srcFile);
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
     // 정확 크기로 축소 재할당 (RFC-0011 P0): 고정 배열 chords[2048] 전체(≈182KB)를 모든 호스트
     // 프로세스가 지는 대신, 실제 조합 수만큼만. 구조체 선언은 그대로 두되 할당만 줄인다 —

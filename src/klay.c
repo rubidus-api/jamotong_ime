@@ -127,11 +127,15 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
     diag->formatVersion = m.formatVersion;
     if (meta) *meta = m;
 
-    // RFC-0011 P2: 머리부 검사 — 더 새 형식은 경고 후 최선 로드, 더 높은 판을 요구하면 거부.
-    if (m.formatVersion > 2)
-        KlayDiag_Add(diag, KLAY_SEV_WARNING, hl0.lnFv, 1, L"W-JMT-FORMAT-NEWER",
-                     L"file uses a newer format version - loading what this version understands",
-                     L"update Jamotong to use every feature of this layout");
+    // 머리부 검사 — 더 새 형식은 거부한다 (RFC-0016 §4, 2026-09-22 채택: RFC-0011 P2 의 "경고 후 최선 로드"를
+    // 바꿨다 — 새 형식의 의미를 옛 해석으로 돌리면 조용히 다른 자판이 된다). 더 높은 판을 요구해도 거부.
+    if (m.formatVersion > 2) {
+        wchar_t msg[160];
+        swprintf(msg, 160, L"file uses FormatVersion %d - this Jamotong reads up to 2", m.formatVersion);
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, hl0.lnFv, 1, L"E-JMT-FORMAT-NEWER", msg, L"update Jamotong to load this layout");
+        KlayLines_Free(&L);
+        return false;
+    }
     if (m.requires[0] && Klay_CompareVersion(m.requires, JAMOTONG_VERSION) > 0) {
         wchar_t msg[160];
         swprintf(msg, 160, L"this layout requires Jamotong %ls or newer (this is %ls)", m.requires, JAMOTONG_VERSION);
