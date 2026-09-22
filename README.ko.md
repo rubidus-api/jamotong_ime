@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.30.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.30.0/jamotong-0.30.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.31.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.31.0/jamotong-0.31.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -222,7 +222,7 @@ RequiresJamotong = 0.24.0            # 이보다 낮은 자모통에서는 알�
 ```ini
 FormatVersion = 2
 Type    = hangul
-Extends = @ko_3bul          # 내장 자판(@ko_3bul, @en_dvorak, @en_qwerty) 또는 ./base.jmt
+Extends = @ko_3bul          # 내장 자판(@ko_2bul, @ko_3bul, @en_dvorak, @en_qwerty) 또는 ./base.jmt
 Name    = 내 세벌식
 Key 1   = M13               # 글쇠 다시 정하기 (뒤의 줄이 이긴다)
 Key 2   = -                 # '-' = 기반에서 물려받은 글쇠 지우기
@@ -234,8 +234,8 @@ Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (�
 오류다. `Name`·`Abbrev` 는 따로 적지 않으면 물려받지만 기반의 `Id`·`Version`·`Author` 등은 물려받지
 않는다. 조합(chord) 자판에서 기반이 이미 정의한 `Chord`/`Hold`(같은 층, 순서와 무관한 같은 키, 같은 tap/hold)를
 다시 쓰면 물려받은 것을 **대체**한다. *한 파일 안에서* 같은 조합을 두 번 쓰면 첫 줄을 쓰고 `W-JMT-DUP-CHORD` 로 경고한다.
-두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
-오토마타 안에 있기 때문이다.
+두벌식(`@ko_2bul`)도 기반이 된다: `Extends = @ko_2bul` 은 두벌식 동작(아래 `Composition = dubeol`)을
+그대로 두고 적은 키만 바꾼다.
 
 ### Shift 면·물리 글쇠·블록 (형식 2판)
 
@@ -310,7 +310,14 @@ Key <키> = <C|M|T><인덱스>          # 키 하나에 자모 하나: C=초성 
 Key <키…> = <스펙> <스펙> …         # 배열 지정: 키 수만큼 스펙 나열, 위치 대응
 Combine <C|M|T> <a> <b> = <결과>    # 자모 a 다음 b가 오면 <결과>로 결합
 Moachigi = 0|1                      # 1 = 모아치기(순서 무관 결합), 아래 설명
+Composition = sebeol|dubeol         # 받침을 치는 방식 (생략 = sebeol), 아래 설명
 ```
+
+**`Composition`** — `sebeol`(기본값): 받침(종성) 키가 따로 있다(`T` 스펙). `dubeol`: 내장 두벌식처럼 자음 키(`C`)가
+받침이 될 수 있으면 받침이 되고, 뒤에 모음이 오면 다음 음절로 넘어간다(`r k s k` → 가나). 두벌식 파일에는 `T` 키가
+없고, 겹받침은 `Combine T <받침> <자음을 받침으로 바꾼 번호> = <결과>` 로 적는다(`Combine T 1 19 = 3`: ㄱ 다음 ㅅ → ㄳ).
+어느 자음이 어느 받침이 되는지와 겹받침이 어떻게 나뉘는지는 표준 현대 한글 규칙을 따른다. `dubeol` 은
+`Moachigi = 1` 과 함께 쓸 수 없다. `jamotong --export @ko_2bul` 은 내장 두벌식 전체를 파일로 쓴다.
 
 인덱스 표 (C/M/T 뒤의 숫자):
 

@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.30.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.30.0/jamotong-0.30.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.31.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.31.0/jamotong-0.31.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -253,7 +253,7 @@ Start from another layout and write only what changes:
 ```ini
 FormatVersion = 2
 Type    = hangul
-Extends = @ko_3bul          # a built-in (@ko_3bul, @en_dvorak, @en_qwerty) or ./base.jmt
+Extends = @ko_3bul          # a built-in (@ko_2bul, @ko_3bul, @en_dvorak, @en_qwerty) or ./base.jmt
 Name    = my 3-beol
 Key 1   = M13               # redefine a key (the later line wins)
 Key 2   = -                 # '-' removes a key inherited from the base
@@ -266,8 +266,8 @@ different from the base are errors. Name/Abbrev are inherited unless you set the
 base's `Id`, `Version`, `Author`, … are not. In a chord layout, a `Chord`/`Hold` that the base
 already defines (same layer, same keys in any order, same tap/hold) **replaces** the inherited
 one; the same chord written twice in *one* file keeps the first and warns `W-JMT-DUP-CHORD`.
-Dubeolsik (`@ko_2bul`) cannot be a base: its
-"final consonant moves to the next syllable" rule lives in the automata, not in a table.
+Dubeolsik (`@ko_2bul`) can be a base too: `Extends = @ko_2bul` keeps its 2-set behaviour
+(`Composition = dubeol`, below) and you change only the keys you list.
 
 ### Shift level, physical keys and blocks (format version 2)
 
@@ -345,7 +345,16 @@ Key <key> = <C|M|T><index>          # one jamo per key: C=choseong M=jungseong T
 Key <keys...> = <spec> <spec> ...   # array: one spec per key, paired by position
 Combine <C|M|T> <a> <b> = <result>  # jamo <a> then <b> combine into <result>
 Moachigi = 0|1                      # 1 = simultaneous (order-free) combination, see below
+Composition = sebeol|dubeol         # how finals are typed (omitted = sebeol), see below
 ```
+
+**`Composition`** — `sebeol` (default): final consonants have their own keys (`T` specs).
+`dubeol`: like the built-in 2-set, a consonant key (`C`) becomes the final of the syllable
+when it can, and moves to the next syllable when a vowel follows (`r k s k` → 가나). A dubeol
+file has no `T` keys; compound finals come from `Combine T <final> <consonant as final> = <result>`
+(`Combine T 1 19 = 3`: ㄱ then ㅅ → ㄳ). Which consonant becomes which final, and how a
+compound final splits, follow standard modern Hangul. `dubeol` cannot be combined with
+`Moachigi = 1`. `jamotong --export @ko_2bul` writes the full built-in 2-set as a file.
 
 Index tables (the number after C/M/T):
 
