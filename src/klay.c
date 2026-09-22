@@ -54,13 +54,17 @@ static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *abbrev, KlayMeta
     }
 }
 
-static const wchar_t *const kStaticDirectives[] = { L"Map", NULL };
+static const wchar_t *const kStaticDirectives[] = { L"Map", L"Identity", NULL };
 
 static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
     wchar_t nameBuf[64]; wcscpy_s(nameBuf, 64, L"static");
     wchar_t line[256];
     bool bad = false; int lineno = 0;
+    // RFC-0016 §5.2: Identity = passthrough — 원래 키를 그대로 통과 (내장 QWERTY 와 같다; 무변경 표를 다시 보내는 것과 다르다).
+    //   적용된 Map 이 없을 때만 통과 자판. 상속받은 passthrough 위에 자식이 Map 을 쓰면 정적 표(자식이 키를 바꾼다),
+    //   같은 파일에 둘 다 있으면 모순이라 오류.
+    bool identity = false; int identityFile = -1, mapLines = 0;
     #define SFAIL(col, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (col), (code), (msg), (help)); bad = true; } while (0)
     for (int li = 0; li < L->n; li++) {
         lstrcpynW(line, L->v[li].text, 256);
@@ -77,7 +81,20 @@ static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
             while (k > 0 && (nameBuf[k-1]==L' '||nameBuf[k-1]==L'\t'||nameBuf[k-1]==L'\r')) nameBuf[--k]=L'\0';
             continue;
         }
+        if (!wcsncmp(p, L"Identity", 8) && (p[8] == L' ' || p[8] == L'\t' || p[8] == L'=')) {
+            wchar_t v[32] = {0};
+            if (swscanf(p, L"Identity = %31ls", v) == 1 && !_wcsicmp(v, L"passthrough")) { identity = true; identityFile = L->v[li].file; }
+            else if (swscanf(p, L"Identity = %31ls", v) == 1 && !_wcsicmp(v, L"map")) { identity = false; identityFile = -1; }
+            else SFAIL(col, L"E-JMT-VALUE", L"Identity must be passthrough or map", L"passthrough = keys go through unchanged (like the built-in QWERTY)");
+            continue;
+        }
         if (!wcsncmp(p, L"Map ", 4)) {   // P6: `Map q shift = X`, `Map @Q = x`
+            if (identity && identityFile == L->v[li].file) {
+                SFAIL(col, L"E-JMT-IDENTITY", L"Map cannot be used with 'Identity = passthrough' in the same file",
+                      L"remove 'Identity = passthrough' to remap keys");
+                continue;
+            }
+            mapLines++;
             const wchar_t *sp = NULL;
             if (!Klay_ParseKeyHead(p + 4, lhs, 64, &sp, diag, lineno, col + 4)) { bad = true; continue; }
             if (swscanf(sp, L" %63ls", rhs) != 1) {
@@ -102,7 +119,7 @@ static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
     #undef SFAIL
     if (diag) diag->curFile = NULL;
     if (bad) return false;
-    out->type = LAYOUT_TYPE_STATIC_MAP;
+    out->type = (identity && mapLines == 0) ? LAYOUT_TYPE_PASSTHROUGH : LAYOUT_TYPE_STATIC_MAP;
     out->name = _wcsdup(nameBuf);
     return out->name != NULL;
 }

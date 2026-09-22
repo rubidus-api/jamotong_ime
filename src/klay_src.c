@@ -64,6 +64,7 @@ bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *wh
         bool dv = !wcscmp(name, L"en_dvorak");
         o = Appendf(out, cch, o, L"FormatVersion = 2\nType = static\nId = jamotong.%ls\nName = %ls\nAbbrev = %ls\n",
                     name, name, dv ? L"ENDV" : L"ENQW");
+        if (!dv) o = Appendf(out, cch, o, L"Identity = passthrough\n");   // RFC-0016 §5.2: 내장 QWERTY 와 같게 통과
         if (dv) {
             wchar_t m[256]; for (int i = 0; i < 256; i++) m[i] = (wchar_t)i;
             Layout_FillDvorak(m);

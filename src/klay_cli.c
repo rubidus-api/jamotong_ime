@@ -26,6 +26,7 @@ int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
 static const wchar_t *TypeName(int t) {
     switch (t) {
         case LAYOUT_TYPE_STATIC_MAP: return L"static";
+        case LAYOUT_TYPE_PASSTHROUGH: return L"static";   // Identity = passthrough
         case LAYOUT_TYPE_CHORD: return L"chord";
         default: return L"hangul";
     }
@@ -79,6 +80,7 @@ static bool WriteCanonical(const wchar_t *src, const LayoutConfig *lc, const Kla
         }
         return true;
     }
+    if (lc->type == LAYOUT_TYPE_PASSTHROUGH) { W(b, L"Identity = passthrough\n"); return true; }
     if (lc->type == LAYOUT_TYPE_STATIC_MAP) {
         for (int c = 33; c < 256; c++)
             if (lc->charMap[c] != (wchar_t)c && lc->charMap[c] > L' ') W(b, L"Map %lc = %lc\n", (wchar_t)c, lc->charMap[c]);
