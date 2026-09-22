@@ -1,19 +1,22 @@
 // Jamotong 리소스: 프로파일 아이콘(Win11 트레이 입력표시기/언어전환창, 정적 "자모통").
 // 리소스 ID 100 → RegisterProfile에 iconIndex=-100(음수=리소스ID) 전달. (-1은 특수값이라 회피)
+#include "version.h"   // 판은 version.h 에서 파생 — 여기서 고치지 않는다
 100 ICON "jamotong.ico"
 
-// Layout Display Name용 문자열(레지스트리 "@...jamotong.ime,-1000" 이 참조). Win10/11 설정 UI가
-// 키보드/IME를 목록에 표시하려면 이 간접 문자열이 필요할 수 있다. ASCII(인코딩 리스크 회피).
+// Layout Display Name용 문자열(레지스트리 "@...jamotong.ime,-1000" 이 참조) — 보존 중인 IMM32 .ime
+// 실험 빌드에서만 넣는다(비공개 빌드가 -DJAMOTONG_IME_BUILD). TSF DLL 은 쓰지 않는다 (RFC-0008 W2-08).
+#ifdef JAMOTONG_IME_BUILD
 STRINGTABLE
 BEGIN
     1000 "Jamotong (IMM32)"
 END
+#endif
 
 // 버전 리소스(RT_VERSION). ImmInstallIME는 IME의 버전 리소스를 읽으며, 없으면 등록이
 // ERROR_RESOURCE_TYPE_NOT_FOUND(1813)로 실패한다. (DLL/.ime 공용 — 둘 다 VFT_DLL)
 1 VERSIONINFO
- FILEVERSION 0,27,1,0
- PRODUCTVERSION 0,27,1,0
+ FILEVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
+ PRODUCTVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -26,12 +29,18 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "rubidus-api"
             VALUE "FileDescription", "Jamotong Korean IME"
-            VALUE "FileVersion", "0.27.1"
+            VALUE "FileVersion", JAMOTONG_VERSION_A
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
+#ifdef JAMOTONG_IME_BUILD
+            VALUE "OriginalFilename", "jamotong.ime"
+#elif defined(JAMOTONG_X86)
+            VALUE "OriginalFilename", "jamotong32.dll"
+#else
             VALUE "OriginalFilename", "jamotong.dll"
+#endif
             VALUE "ProductName", "Jamotong IME"
-            VALUE "ProductVersion", "0.27.1"
+            VALUE "ProductVersion", JAMOTONG_VERSION_A
         END
     END
     BLOCK "VarFileInfo"

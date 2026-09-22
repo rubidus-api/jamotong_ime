@@ -1,10 +1,11 @@
 // Jamotong 관리자 앱(jamotong.exe) 리소스 — 창 아이콘 + 버전 정보 (RFC-0008 W2-08).
-// 판 숫자는 src/jamotong.rc 와 함께 올린다(릴리스 절차: src/*.rc 둘 다).
+// 판은 version.h 에서 파생 — 여기서 고치지 않는다.
+#include "version.h"
 100 ICON "jamotong.ico"
 
 1 VERSIONINFO
- FILEVERSION 0,27,1,0
- PRODUCTVERSION 0,27,1,0
+ FILEVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
+ PRODUCTVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -17,12 +18,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "rubidus-api"
             VALUE "FileDescription", "Jamotong Manager"
-            VALUE "FileVersion", "0.27.1"
+            VALUE "FileVersion", JAMOTONG_VERSION_A
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
             VALUE "OriginalFilename", "jamotong.exe"
             VALUE "ProductName", "Jamotong IME"
-            VALUE "ProductVersion", "0.27.1"
+            VALUE "ProductVersion", JAMOTONG_VERSION_A
         END
     END
     BLOCK "VarFileInfo"

@@ -19,7 +19,7 @@ HEADERS = $(wildcard src/*.h)
 DEF = src/jamotong.def
 # 리소스: 프로파일 아이콘("자모통") + 버전(VERSIONINFO). windres로 COFF 오브젝트 생성 후 링크.
 RC = src/jamotong.rc
-RCDEP = src/jamotong.rc src/jamotong.ico
+RCDEP = src/jamotong.rc src/jamotong.ico src/version.h
 WINDRES64 = x86_64-w64-mingw32-windres
 WINDRES32 = i686-w64-mingw32-windres
 
@@ -33,14 +33,14 @@ $(TARGET): $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 win32: dist/jamotong32.dll
 dist/jamotong32.dll: $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 	@mkdir -p dist
-	$(WINDRES32) -I src $(RC) -O coff -o dist/jamotong_res32.o
+	$(WINDRES32) -I src -DJAMOTONG_X86 $(RC) -O coff -o dist/jamotong_res32.o
 	$(CC32) $(CFLAGS) -o $@ $(SRCS) $(DEF) dist/jamotong_res32.o $(LDFLAGS)
 
 # 트레이 모니터링/설정 앱
 APP_SRCS = src/tray_app.c src/config.c src/layout.c src/fsm.c src/hangul_layout.c \
            src/chord.c src/chord_layout.c src/klay.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c src/jamo_class.c
 configapp: dist/jamotong.exe
-dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico
+dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico src/version.h
 	@mkdir -p dist
 	$(WINDRES64) -I src src/jamotong_app.rc -O coff -o dist/jamotong_app_res.o
 	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) dist/jamotong_app_res.o -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32 -ladvapi32
