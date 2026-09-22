@@ -5,7 +5,13 @@
 
 ## [Unreleased]
 
-(비어 있음)
+### Added
+- **자판 파일(.jmt) 진단이 자세해졌다**(RFC-0011 P1). 첫 오류에서 멈추지 않고 문제를 모두(최대 16개)
+  `파일:줄:열`·코드·고치는 법과 함께 보여 준다. 설정창 [Add] 실패 창도 이 형식을 쓴다.
+- **자판 파일 머리부 메타데이터**(RFC-0011 P2): `FormatVersion`·`Id`·`Version`·`Author`·`License`·`Homepage`·
+  `Description`·`Locale`·`RequiresJamotong`. 모르는 머리부 키는 경고와 철자 제안(예: *Author 를 뜻하셨나요?*),
+  알아보지 못한 줄은 1판 파일에서는 예전처럼 경고만, `FormatVersion = 2` 파일에서는 오류다.
+  기존 자판 파일은 그대로 로드된다.
 
 ## [0.23.6] - 2026-09-21
 

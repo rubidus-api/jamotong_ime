@@ -176,6 +176,27 @@ Name   = my_layout     # 자판 목록/언어바에 표시되는 이름 (최대 
 Abbrev = 마            # 트레이 2x2 아이콘에 그릴 1~4글자 (선택)
 ```
 
+선택 메타데이터(형식 2판 — 전부 선택이고, 이것들이 없는 1판 파일은 예전 그대로 로드된다):
+
+```ini
+FormatVersion    = 2                 # 생략 = 1
+Id               = kim.sebeol391     # 자판 식별자 (역-도메인 꼴 권장)
+Version          = 1.2.0             # 자판 자신의 판
+Author           = 이름 <mail@example.com>
+License          = CC0-1.0           # 공유하는 자판이면 SPDX 식별자 권장
+Homepage         = https://example.com/my-layout
+Description      = 세벌식 391 에서 숫자열만 바꿈
+Locale           = ko-KR
+RequiresJamotong = 0.24.0            # 이보다 낮은 자모통에서는 알기 쉬운 메시지와 함께 로드 거부
+```
+
+**진단.** 오류가 있는 자판은 절대 반쯤 로드되지 않는다. 문제는 모두(최대 16개)
+`파일:줄:열: error|warning: 메시지 [코드]` 와 `help:` 도움말로 보고된다. 예:
+`my.jmt:2:9: error: Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27) [E-JMT-RANGE]`.
+경고는 로드를 막지 않는다: 모르는 머리부 키(`Athor = …` → *did you mean 'Author'?*), 4글자를 넘는
+`Abbrev`, 더 새로운 `FormatVersion`. 알아보지 못한 줄은 1판 파일에서는 경고, **`FormatVersion = 2`
+부터는 오류**다 — 새 파일에서 오타로 글쇠가 조용히 빠지는 일이 없게.
+
 키는 항상 **US QWERTY 기준으로 그 물리 키가 내는 문자**로 지정한다. Shift 포함:
 `k`=K키, `K`=Shift+K, `;` `!` 같은 기호도 그대로 쓴다.
 

@@ -198,6 +198,29 @@ Name   = my_layout     # shown in the layout list / language bar (up to 63 chars
 Abbrev = 마            # 1–4 characters drawn in the 2x2 tray icon (optional)
 ```
 
+Optional metadata (format version 2; every key is optional and a v1 file without them loads
+exactly as before):
+
+```ini
+FormatVersion    = 2                 # omitted = 1
+Id               = kim.sebeol391     # stable identity (reverse-domain style recommended)
+Version          = 1.2.0             # the layout's own version
+Author           = Name <mail@example.com>
+License          = CC0-1.0           # SPDX identifier recommended for shared layouts
+Homepage         = https://example.com/my-layout
+Description      = Sebeolsik 391 with a changed number row
+Locale           = ko-KR
+RequiresJamotong = 0.24.0            # refuse to load on older Jamotong, with a clear message
+```
+
+**Diagnostics.** A layout with an error is never loaded half-way. Every problem is reported
+(up to 16) as `file:line:column: error|warning: message [code]` with a `help:` hint, e.g.
+`my.jmt:2:9: error: Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27) [E-JMT-RANGE]`.
+Warnings do not block loading: an unknown header key (`Athor = …` → *did you mean 'Author'?*),
+an `Abbrev` longer than 4 characters, or a newer `FormatVersion`. An unrecognised line is a
+warning in a version-1 file and an **error** from `FormatVersion = 2`, so typos in new files
+cannot silently drop keys.
+
 Keys are always identified by **the character the physical key produces on a US QWERTY
 base**, including Shift: `k` is the K key, `K` is Shift+K, `;` `!` etc. work too.
 
