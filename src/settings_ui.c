@@ -344,6 +344,10 @@ static HWND MkCtl(HWND parent, LPCWSTR cls, LPCWSTR txt, DWORD style, DWORD ex,
 // 빈칸으로 보이던 원인.
 static void ShowTab(HWND hwnd, int sel) {
     g_curTab = sel;
+    // 탭 머리도 같은 탭을 가리키게 한다 — 창을 다시 만들면 탭 컨트롤은 0(Layouts)으로 시작하는데
+    // 내용은 기억한 탭을 보여 줘 머리와 내용이 어긋났다 (BACKLOGS B9). 같은 값이면 알림도 없다.
+    HWND tab = GetDlgItem(hwnd, ID_TAB);
+    if (tab && (int)SendMessageW(tab, TCM_GETCURSEL, 0, 0) != sel) SendMessageW(tab, TCM_SETCURSEL, (WPARAM)sel, 0);
     for (HWND h = GetWindow(hwnd, GW_CHILD); h; h = GetWindow(h, GW_HWNDNEXT)) {
         LONG_PTR t = GetWindowLongPtrW(h, GWLP_USERDATA);
         ShowWindow(h, (t == sel || t == TAB_ALWAYS) ? SW_SHOW : SW_HIDE);

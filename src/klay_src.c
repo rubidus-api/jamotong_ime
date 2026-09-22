@@ -254,7 +254,43 @@ static bool AddSource(KlayLines *L, const wchar_t *path, const wchar_t *builtin,
         }
     }
     // 2) 자기 줄 — Include 는 그 자리에 조각을 편다, Extends 줄은 이미 처리했다.
+    //    P6: `Begin <지시문> [공통 인자]` … `End` 블록은 안쪽 줄마다 머리를 붙여 한 줄 지시문으로 편다
+    //    (파서는 여전히 한 줄씩 읽는다). 중첩 없음, 빠진 End·짝 없는 End 는 오류.
+    wchar_t blockHead[128] = L"";
+    int blockLine = 0;
     for (int i = 0; ok && i < raw.n; i++) {
+        const wchar_t *t = Skip(raw.text[i]);
+        const int col = (int)(t - raw.text[i]) + 1;
+        if (!wcsncmp(t, L"Begin ", 6) || !wcscmp(t, L"Begin")) {
+            if (blockLine) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, i + 1, col, L"E-JMT-BLOCK", L"Begin inside another Begin block", L"close the first block with End");
+                ok = false; continue;
+            }
+            lstrcpynW(blockHead, Skip(t + 5), 128);
+            size_t hn = wcslen(blockHead);
+            while (hn > 0 && (blockHead[hn-1] == L' ' || blockHead[hn-1] == L'\t' || blockHead[hn-1] == L'\r')) blockHead[--hn] = L'\0';
+            if (!blockHead[0]) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, i + 1, col, L"E-JMT-BLOCK", L"Begin needs a directive", L"e.g. 'Begin Combine C'");
+                ok = false; continue;
+            }
+            blockLine = i + 1;
+            continue;
+        }
+        if (!wcscmp(t, L"End")) {
+            if (!blockLine) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, i + 1, col, L"E-JMT-BLOCK", L"End without Begin", NULL);
+                ok = false; continue;
+            }
+            blockLine = 0; blockHead[0] = L'\0';
+            continue;
+        }
+        if (blockLine) {
+            if (*t == L'\0' || *t == L'#') continue;
+            wchar_t joined[512];
+            swprintf(joined, 512, L"%ls %ls", blockHead, t);
+            if (!Push(L, joined, i + 1, fidx)) ok = false;
+            continue;
+        }
         if (ValueOf(raw.text[i], L"Extends", v, MAX_PATH)) continue;
         if (ValueOf(raw.text[i], L"Include", v, MAX_PATH)) {
             int col = (int)(Skip(raw.text[i]) - raw.text[i]) + 1;
@@ -268,6 +304,10 @@ static bool AddSource(KlayLines *L, const wchar_t *path, const wchar_t *builtin,
             continue;
         }
         if (!Push(L, raw.text[i], i + 1, fidx)) ok = false;
+    }
+    if (ok && blockLine) {
+        KlayDiag_Add(d, KLAY_SEV_ERROR, blockLine, 1, L"E-JMT-BLOCK", L"Begin block is never closed", L"add 'End' after the block");
+        ok = false;
     }
     RawFree(&raw);
     if (d) d->curFile = prevFile;

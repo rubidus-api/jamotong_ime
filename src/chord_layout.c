@@ -185,6 +185,18 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     return cl;
 }
 
+// `Key <keys> [base|shift] = <bit>` (P6). 머리가 틀리면 진단을 내고 bad 를 세운 뒤 false(다른 분기로 안 감).
+static bool ChordKeyHead(const wchar_t *p, wchar_t *keys, size_t cch, int *bit, KlayDiag *diag, int lineno, int col, bool *bad) {
+    const wchar_t *sp = NULL;
+    if (!Klay_ParseKeyHead(p, keys, cch, &sp, diag, lineno, col)) { *bad = true; return false; }
+    if (swscanf(sp, L" %d", bit) != 1) {
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, col, L"E-JMT-KEY-SYNTAX", L"Key: expected a bit number after '='", L"e.g. 'Key j = 0'");
+        *bad = true;
+        return false;
+    }
+    return true;
+}
+
 ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     ChordLayout *cl = (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
     if (!cl) return NULL;
@@ -212,7 +224,8 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
 
         if (swscanf(p, L"Name = %63l[^\n]", cl->name) == 1) { TrimEnds(cl->name); }
         else if (swscanf(p, L"Type = %31ls", name) == 1) { /* 통합 로더가 사용, 여기선 무시 */ }
-        else if (swscanf(p, L"Key %31ls = %d", keys, &bit) == 2) {
+        else if (!wcsncmp(p, L"Key ", 4)) {
+            if (!ChordKeyHead(p + 4, keys, 32, &bit, diag, lineno, col0 + 4, &bad)) continue;
             // 좌변 키 나열 = 배열 지정: 시작 비트부터 연속 배정 (예: Key jkl; = 0 → j0 k1 l2 ;3).
             // 단건(Key j = 0)은 길이 1의 특수형. 범위(0~31) 밖·비ASCII 키는 파일 거부.
             size_t nk = wcslen(keys);

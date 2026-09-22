@@ -44,6 +44,15 @@ bool KlayHeader_IsKnownKey(const wchar_t *line);
 // 모르는 줄: `Word = …` 꼴이면 미지 머리부 키 경고(철자 제안), 아니면 v2 에서 오류·v1 에서 경고.
 //   known = 그 자판 종류의 지시문 이름 목록(NULL 끝) — 철자 제안에 쓴다. 반환 = 오류였는가.
 bool Klay_UnknownLine(KlayDiag *d, const wchar_t *line, int lineno, int col, const wchar_t *const *known);
+// ── 글쇠 머리 해석 (RFC-0011 P6) ────────────────────────────────────────────────────
+// `<keys> [base|shift] =` 에서 글쇠 문자열을 US QWERTY 가 내는 문자들로 바꾼다.
+//   keys: 문자 나열(예 `khj`) 또는 물리 글쇠 하나 — `@Q`(US 자리 이름), `@SC10`(스캔코드 16진),
+//   `@VK_OEM_1`(가상키 이름). shift 면 각 문자를 US Shift 문자로(`q`→`Q`, `1`→`!`).
+//   allowAltGr=false 면 altgr 는 오류(엔진이 AltGr 면을 읽지 않는다).
+// 성공 시 out 에 문자들, *specPos 에 '=' 다음 위치. 실패 시 진단을 내고 false.
+bool Klay_ParseKeyHead(const wchar_t *p, wchar_t *out, size_t cch, const wchar_t **specPos,
+                       KlayDiag *d, int lineno, int col0);
+
 // "a.b.c" 판 비교 (-1/0/1). 모자란 자리는 0.
 int Klay_CompareVersion(const wchar_t *a, const wchar_t *b);
 

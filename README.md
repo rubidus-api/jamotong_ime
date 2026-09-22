@@ -244,6 +244,28 @@ different from the base are errors. Name/Abbrev are inherited unless you set the
 base's `Id`, `Version`, `Author`, … are not. Dubeolsik (`@ko_2bul`) cannot be a base: its
 "final consonant moves to the next syllable" rule lives in the automata, not in a table.
 
+### Shift level, physical keys and blocks (format version 2)
+
+```ini
+Key q shift = C1         # the Shift face of q (= 'Key Q'); symbols too: 'Key 1 shift' is '!'
+Key q base  = C0         # the unshifted face (the default)
+Key @Q      = C0         # a key named by its US QWERTY position
+Key @SC10   = C0         # ... or by its scan code (hex)
+Key @VK_OEM_1 = T4       # ... or by its virtual-key name
+Map @SC11 shift = W      # works in static layouts too
+
+Begin Combine C          # a block: each inner line gets the prefix 'Combine C'
+  0 0 = 1
+  3 3 = 4
+End
+```
+
+A physical key names one key per line and resolves to the character that key produces on a
+US QWERTY layout — the IME still reads keys through that mapping, so on a non-US Windows
+keyboard layout the result follows Windows' key codes (not yet verified on such layouts).
+`altgr` is rejected: the IME does not read the AltGr face. Blocks do not nest; a missing
+`End` is an error.
+
 ### Authoring in the manager (`jamotong.exe`)
 
 - **File ▸ New copy of a built-in layout** — a complete editable copy of Sebeolsik final, Dvorak or QWERTY.

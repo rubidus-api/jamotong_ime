@@ -76,11 +76,10 @@ HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         } else if (!wcsncmp(p, L"Key ", 4)) {
             // Key <키…> = <타입인덱스 …>  — 좌변 키 나열 = 배열 지정(키 수 = 스펙 수, 위치 대응).
             //   예: Key khj = C0 C2 C11.  단건(Key k = C0)은 길이 1의 특수형. 꼬리 '#' 주석 허용.
+            //   P6: `Key q shift = …`, `Key @Q = …`(물리 글쇠) — 머리 해석은 Klay_ParseKeyHead.
             wchar_t lhs[64] = {0};
-            int consumed = 0;
-            swscanf(p, L"Key %63ls = %n", lhs, &consumed);
-            if (consumed <= 0) { FAIL(col0, L"E-JMT-KEY-SYNTAX", L"malformed Key line (missing '=')", L"write 'Key <keys> = <specs>', e.g. 'Key k = C0'"); continue; }
-            const wchar_t *q = p + consumed;
+            const wchar_t *q = NULL;
+            if (!Klay_ParseKeyHead(p + 4, lhs, 64, &q, diag, lineno, col0 + 4)) { bad = true; continue; }
             size_t nk = wcslen(lhs), ki = 0;
             bool lineErr = false;
             for (; ki < nk; ki++) {

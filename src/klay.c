@@ -77,7 +77,13 @@ static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
             while (k > 0 && (nameBuf[k-1]==L' '||nameBuf[k-1]==L'\t'||nameBuf[k-1]==L'\r')) nameBuf[--k]=L'\0';
             continue;
         }
-        if (swscanf(p, L"Map %63ls = %63ls", lhs, rhs) == 2) {
+        if (!wcsncmp(p, L"Map ", 4)) {   // P6: `Map q shift = X`, `Map @Q = x`
+            const wchar_t *sp = NULL;
+            if (!Klay_ParseKeyHead(p + 4, lhs, 64, &sp, diag, lineno, col + 4)) { bad = true; continue; }
+            if (swscanf(sp, L" %63ls", rhs) != 1) {
+                SFAIL(col, L"E-JMT-MAP-LEN", L"Map: missing output after '='", NULL);
+                continue;
+            }
             size_t n = wcslen(lhs);
             if (n == 0 || n != wcslen(rhs)) {
                 SFAIL(col + 4, L"E-JMT-MAP-LEN", L"Map: left and right sides must have the same length",

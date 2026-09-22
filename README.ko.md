@@ -220,6 +220,26 @@ Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (�
 않는다. 두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
 오토마타 안에 있기 때문이다.
 
+### Shift 면·물리 글쇠·블록 (형식 2판)
+
+```ini
+Key q shift = C1         # q 의 Shift 면(= 'Key Q'). 기호도: 'Key 1 shift' 는 '!'
+Key q base  = C0         # Shift 없는 면 (생략 시 이것)
+Key @Q      = C0         # US QWERTY 자리 이름으로 글쇠 지정
+Key @SC10   = C0         # ... 또는 스캔코드(16진)
+Key @VK_OEM_1 = T4       # ... 또는 가상키 이름
+Map @SC11 shift = W      # static 자판에서도 된다
+
+Begin Combine C          # 블록: 안쪽 줄마다 'Combine C' 를 붙인다
+  0 0 = 1
+  3 3 = 4
+End
+```
+
+물리 글쇠는 한 줄에 하나이고, 그 글쇠가 US QWERTY 에서 내는 문자로 풀린다. IME 는 여전히 그 대응으로 글쇠를
+읽으므로 US 가 아닌 Windows 자판 배열에서는 Windows 가 주는 키 코드를 따른다(그런 배열에서는 아직 실측하지
+않았다). `altgr` 는 오류다 — IME 가 AltGr 면을 읽지 않는다. 블록은 중첩되지 않고, `End` 가 빠지면 오류다.
+
 ### 관리자 앱(`jamotong.exe`)에서 만들기
 
 - **File ▸ New copy of a built-in layout** — 세벌식 최종·드보락·QWERTY 의 완전한 사본을 편집기로.

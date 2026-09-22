@@ -140,3 +140,119 @@ int Klay_CompareVersion(const wchar_t *a, const wchar_t *b) {
     }
     return 0;
 }
+
+// ── 글쇠 머리 해석 (RFC-0011 P6) ────────────────────────────────────────────────────
+static const wchar_t kUsBase[]  = L"`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./";
+static const wchar_t kUsShift[] = L"~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?";
+
+static wchar_t UsShift(wchar_t c) {
+    for (int i = 0; kUsBase[i]; i++) if (kUsBase[i] == c) return kUsShift[i];
+    return 0;
+}
+static bool IsUsShifted(wchar_t c) {
+    for (int i = 0; kUsShift[i]; i++) if (kUsShift[i] == c) return true;
+    return false;
+}
+
+// US 스캔코드(set 1) → 기본 문자
+static wchar_t FromScan(unsigned sc) {
+    static const struct { unsigned sc; const wchar_t *row; } R[] = {
+        { 0x02, L"1234567890-=" }, { 0x10, L"qwertyuiop[]" }, { 0x1E, L"asdfghjkl;'`" }, { 0x2C, L"zxcvbnm,./" } };
+    if (sc == 0x29) return L'`';
+    if (sc == 0x2B) return L'\\';
+    if (sc == 0x39) return L' ';
+    for (int r = 0; r < 4; r++) {
+        size_t n = wcslen(R[r].row);
+        if (sc >= R[r].sc && sc < R[r].sc + n) {
+            wchar_t c = R[r].row[sc - R[r].sc];
+            if (r == 2 && sc == 0x28) return L'\'';
+            if (r == 2 && c == L'`') return 0;
+            return c;
+        }
+    }
+    return 0;
+}
+
+static wchar_t FromVkName(const wchar_t *n) {
+    static const struct { const wchar_t *name; wchar_t c; } V[] = {
+        { L"VK_OEM_1", L';' }, { L"VK_OEM_PLUS", L'=' }, { L"VK_OEM_COMMA", L',' }, { L"VK_OEM_MINUS", L'-' },
+        { L"VK_OEM_PERIOD", L'.' }, { L"VK_OEM_2", L'/' }, { L"VK_OEM_3", L'`' }, { L"VK_OEM_4", L'[' },
+        { L"VK_OEM_5", L'\\' }, { L"VK_OEM_6", L']' }, { L"VK_OEM_7", L'\'' }, { L"VK_SPACE", L' ' } };
+    for (size_t i = 0; i < sizeof V / sizeof V[0]; i++) if (!wcscmp(n, V[i].name)) return V[i].c;
+    if (!wcsncmp(n, L"VK_", 3) && n[3] && !n[4]) {
+        wchar_t c = n[3];
+        if (c >= L'A' && c <= L'Z') return (wchar_t)(c + 32);
+        if (c >= L'0' && c <= L'9') return c;
+    }
+    return 0;
+}
+
+bool Klay_ParseKeyHead(const wchar_t *p, wchar_t *out, size_t cch, const wchar_t **specPos,
+                       KlayDiag *d, int lineno, int col0) {
+    const wchar_t *q = p;
+    while (*q == L' ' || *q == L'\t') q++;
+    const int colKeys = col0 + (int)(q - p);
+    wchar_t keys[64]; size_t k = 0;
+    // 글쇠 토큰은 공백까지 (예전 `%ls` 와 같다) — `=` 글쇠 자체(`Map = = ]`)도 글쇠로 읽힌다.
+    while (*q && *q != L' ' && *q != L'\t' && k + 1 < 64) keys[k++] = *q++;
+    keys[k] = L'\0';
+    while (*q == L' ' || *q == L'\t') q++;
+    wchar_t level[16] = L""; size_t lv = 0;
+    if (*q != L'=') {
+        while (*q && *q != L' ' && *q != L'\t' && *q != L'=' && lv + 1 < 16) level[lv++] = *q++;
+        level[lv] = L'\0';
+        while (*q == L' ' || *q == L'\t') q++;
+    }
+    if (*q != L'=' || !keys[0]) {
+        KlayDiag_Add(d, KLAY_SEV_ERROR, lineno, colKeys, L"E-JMT-KEY-SYNTAX", L"expected '<keys> [base|shift] = ...'",
+                     L"e.g. 'Key q = C0' or 'Key q shift = C1'");
+        return false;
+    }
+    *specPos = q + 1;
+    bool shift = false;
+    if (level[0]) {
+        if (!wcscmp(level, L"shift")) shift = true;
+        else if (wcscmp(level, L"base") != 0) {
+            wchar_t msg[160];
+            swprintf(msg, 160, L"unknown or unsupported shift level '%ls'", level);
+            KlayDiag_Add(d, KLAY_SEV_ERROR, lineno, colKeys + (int)k + 1, L"E-JMT-LEVEL", msg,
+                         L"use 'base' or 'shift' (AltGr is not read by the IME)");
+            return false;
+        }
+    }
+    wchar_t chars[64]; size_t n = 0;
+    if (keys[0] == L'@' && keys[1]) {   // `@` 한 글자는 '@' 글쇠 자체, `@이름` 은 물리 글쇠
+        const wchar_t *name = keys + 1;
+        wchar_t c = 0;
+        if (!wcsncmp(name, L"SC", 2) && name[2]) { wchar_t *e; unsigned long v = wcstoul(name + 2, &e, 16); if (!*e) c = FromScan((unsigned)v); }
+        else if (!wcsncmp(name, L"VK_", 3)) c = FromVkName(name);
+        else if (name[0] && !name[1]) { c = name[0]; if (c >= L'A' && c <= L'Z') c = (wchar_t)(c + 32); if (!UsShift(c) && c != L' ') c = 0; }
+        if (!c) {
+            wchar_t msg[160]; swprintf(msg, 160, L"unknown physical key '%ls'", keys);
+            KlayDiag_Add(d, KLAY_SEV_ERROR, lineno, colKeys, L"E-JMT-PHYSKEY", msg,
+                         L"one key per line: @Q (US key name), @SC10 (scan code, hex) or @VK_OEM_1");
+            return false;
+        }
+        chars[n++] = c;
+    } else {
+        for (size_t i = 0; i < k && n + 1 < 64; i++) chars[n++] = keys[i];
+    }
+    chars[n] = L'\0';
+    if (shift) {
+        for (size_t i = 0; i < n; i++) {
+            wchar_t sc = UsShift(chars[i]);
+            if (!sc) {
+                wchar_t msg[160];
+                swprintf(msg, 160, IsUsShifted(chars[i]) ? L"'%lc' is already a Shift character" : L"'%lc' has no Shift character",
+                         chars[i]);
+                KlayDiag_Add(d, KLAY_SEV_ERROR, lineno, colKeys + (int)i, L"E-JMT-LEVEL", msg,
+                             L"write the unshifted key with 'shift', e.g. 'Key q shift' for Q");
+                return false;
+            }
+            chars[i] = sc;
+        }
+    }
+    if (n + 1 > cch) return false;
+    wcscpy(out, chars);
+    return true;
+}
