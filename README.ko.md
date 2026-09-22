@@ -482,5 +482,5 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립
 (jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. 아이콘 글자는
 비트맵 글꼴 [Spleen 5x8](https://github.com/fcambus/spleen)
 (Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**)에서 파생한 글리프를
-사용하며, 고지는 `src/icon_font.h`와 배포 zip의 COPYRIGHT.md에 동봉됨. GPL/LGPL/CC BY-SA
+사용하며, 고지는 `src/icon_font.h`와 [COPYRIGHT.md](COPYRIGHT.md)(배포 zip에도 동봉)에 있음. GPL/LGPL/CC BY-SA
 자료는 사용하지 않음.

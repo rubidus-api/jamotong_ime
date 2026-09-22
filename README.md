@@ -519,5 +519,5 @@ mappings from jemdiggity/hanja-wordlist (MIT; Korean↔hanja mappings only, no
 definitions). Icon lettering uses glyphs derived from the
 [Spleen 5x8](https://github.com/fcambus/spleen) bitmap font
 (Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**); the notice ships
-in `src/icon_font.h` and in the distribution's COPYRIGHT.md. No GPL/LGPL/CC BY-SA
+in `src/icon_font.h` and in [COPYRIGHT.md](COPYRIGHT.md) (also shipped in the zip). No GPL/LGPL/CC BY-SA
 material is used.

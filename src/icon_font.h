@@ -3,7 +3,7 @@
 // 원본 글꼴: Spleen 5x8 (https://github.com/fcambus/spleen)
 //   Copyright (c) 2018-2026, Frederic Cambus — BSD 2-Clause License.
 //   Redistribution and use permitted provided the above copyright notice is retained.
-//   전체 라이선스 본문: 배포 zip의 COPYRIGHT.md 및 jamotong-private/resources/spleen-font/LICENSE.
+//   전체 라이선스 본문: 저장소·배포 zip의 COPYRIGHT.md.
 // 각 글리프는 8행, 행당 1바이트(상위 5비트 사용, MSB=왼쪽).
 
 #define ICONFONT_W 5
