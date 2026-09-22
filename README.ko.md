@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.32.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.32.0/jamotong-0.32.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.33.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.33.0/jamotong-0.33.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -462,6 +462,40 @@ Hold  jkl = key enter  # 홀드 (0.2초 이상 누르고 있다가 뗌) → Ente
 문자·단어 조합, 백스페이스/스페이스/엔터, 원샷 Shift, 원샷·모멘터리 숫자 레이어,
 토글 마우스 레이어(이동·클릭·휠), 탭/홀드 쌍, 미디어 키. 이 파일을 복사해 `Key`
 비트 선언은 두고 조합표만 원하는 자판(예: 공개된 ARTSEY 표)으로 채우면 된다.
+
+#### 형식 3판 (조합 자판)
+
+`FormatVersion = 3` 은 조합 자판에 헷갈리지 않는 동작 문법을 주고, 겹치는 탭/홀드 조합을 늘 같은 규칙으로 판정한다.
+1·2판 파일은 예전과 똑같이 동작한다. 3판 파일은 필요한 자모통 판을 적어야 하고(`RequiresJamotong = 0.33.0`), 옛 판은 이
+파일을 거부한다.
+
+```ini
+FormatVersion    = 3
+Type             = chord
+RequiresJamotong = 0.33.0
+Key jkl; = 0
+ComboTermMs = 50            # 첫 키 뒤 이 시간(ms) 안이면 더 큰 조합을 기다린다 (1-1000)
+HoldTermMs  = 200           # 탭/홀드 판정 시간 (1-5000)
+HoldPolicy  = interrupt     # interrupt: 다른 키가 홀드를 확정 / timeout: HoldTermMs 가 지나야
+
+Chord jkl = text "the"            # 정확한 문자열: "..." 안에서 \" \\ \n \t \u{1F600}; 따옴표 안의 '#' 은 글자
+Chord l   = key B mods(ctrl,shift) # 수정키를 곁들인 키
+Chord ;   = oneshot mod(shift)    # 다음 키에만 (이어지는 text 에는 씌우지 않는다)
+Chord jl  = oneshot layer(num)
+Hold  jk  = momentary layer(num)  # 누르고 있는 동안 (Hold 전용)
+Hold  kl  = momentary mod(lctrl)
+Chord kl  = toggle layer(num)
+Chord j;  = switch layer(base)
+Layer num                         # num 층의 조합
+Chord j   = text "1"
+```
+
+- **더 큰 조합이 이긴다**: `Hold jk` 와 `Chord jkl` 이 함께 있을 때 j k l 을 `ComboTermMs` 안에 누르면 `the` 가 입력된다.
+  `jk` 홀드는 더 큰 조합이 더는 만들어질 수 없을 때에야 시작한다.
+- **굴려 치기(rolling)**: 첫 키를 떼면 조합이 닫힌다. 나머지 키를 떼기 전에 새 키를 누르면 닫힌 조합이 먼저 나가고, 새
+  키는 다음 조합을 시작한다.
+- 3판에서는 따옴표 없는 문자열, 동작 뒤의 여분 낱말, 한 파일 안의 같은 조합 두 번이 오류다. 마우스 동작은 2판과 같은
+  낱말을 쓴다.
 
 ## 삭제 (언인스톨)
 

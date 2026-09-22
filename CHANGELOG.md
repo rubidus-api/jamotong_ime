@@ -7,6 +7,21 @@
 
 (비어 있음)
 
+## [0.33.0] - 2026-09-23
+
+RFC-0016 3판 문법(오너 채택) + 조합 판정(P3).
+
+### Added
+- **형식 3판 조합 자판**: `text "…"`(이스케이프 `\"` `\\` `\n` `\t` `\u{…}`), `key NAME mods(…)`, `oneshot mod(x)`·`oneshot layer(x)`,
+  `momentary mod(x)`·`momentary layer(x)`(Hold), `toggle layer(x)`, `switch layer(x)`. 문자열은 23자 한도 없이 줄 길이까지.
+  3판 파일은 `RequiresJamotong` 이 필요하다.
+- **3판 조합 판정**: `ComboTermMs`·`HoldTermMs`·`HoldPolicy = interrupt|timeout`. 조합 시간 안에 더 큰 조합이 가능하면
+  홀드보다 그것을 기다린다(`Hold jk` 와 `Chord jkl` 이 함께 있어도 j k l 은 `jkl`). 굴려 치기: 첫 키를 떼면 조합이 닫히고,
+  새 키가 오면 닫힌 조합이 먼저 나간다. 3판 문자열에는 대기 중 원샷 수정키를 씌우지 않는다.
+
+### Changed
+- `FormatVersion` 상한이 3 으로 올라갔다(4 이상은 거부). 1·2판 파일의 동작은 그대로다.
+
 ## [0.32.0] - 2026-09-23
 
 ### Added

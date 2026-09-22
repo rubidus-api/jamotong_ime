@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.32.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.32.0/jamotong-0.32.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.33.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.33.0/jamotong-0.33.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -503,6 +503,40 @@ letters, word chords, Backspace/Space/Enter, one-shot Shift, one-shot and moment
 number layer, a toggled mouse layer (pointer movement, clicks, wheel), tap/hold pairs
 and media keys. Copy it, keep the `Key` bit declarations, and fill in your own chord
 table (e.g. the published ARTSEY map).
+
+#### Format version 3 (chord layouts)
+
+`FormatVersion = 3` gives chord layouts an unambiguous action syntax and decides overlapping
+tap/hold chords deterministically. Version 1/2 files keep working exactly as before. A version 3
+file must say which Jamotong it needs (`RequiresJamotong = 0.33.0`); older versions refuse it.
+
+```ini
+FormatVersion    = 3
+Type             = chord
+RequiresJamotong = 0.33.0
+Key jkl; = 0
+ComboTermMs = 50            # wait this long (ms) after the first key for a bigger chord (1-1000)
+HoldTermMs  = 200           # tap/hold threshold (1-5000)
+HoldPolicy  = interrupt     # interrupt: another key confirms the hold; timeout: only after HoldTermMs
+
+Chord jkl = text "the"            # exact text: "..." with \" \\ \n \t \u{1F600}; '#' inside quotes is text
+Chord l   = key B mods(ctrl,shift) # a key with modifiers
+Chord ;   = oneshot mod(shift)    # next key only (a following text is NOT shifted)
+Chord jl  = oneshot layer(num)
+Hold  jk  = momentary layer(num)  # while held (Hold only)
+Hold  kl  = momentary mod(lctrl)
+Chord kl  = toggle layer(num)
+Chord j;  = switch layer(base)
+Layer num                         # chords of the num layer
+Chord j   = text "1"
+```
+
+- **Bigger chords win**: with `Hold jk` and `Chord jkl`, pressing j k l within `ComboTermMs`
+  types `the`; the `jk` hold only starts when no bigger chord can still be formed.
+- **Rolling**: the first release closes a chord. If a new key goes down before the rest are
+  released, the closed chord fires first and the new key starts the next chord.
+- In version 3 an unquoted text, a word after an action, or the same chord twice in one file
+  is an error. Mouse actions use the same words as version 2.
 
 ## Uninstall
 
