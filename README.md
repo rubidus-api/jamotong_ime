@@ -9,24 +9,26 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.28.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.28.0/jamotong-0.28.0.zip)** — extract to a permanent folder, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.29.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.29.0/jamotong-0.29.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
-### Choosing an install mode
+### Where it installs
 
-| | Machine-wide (default) | Per-user |
-|---|---|---|
-| Run | `install.bat` (as administrator) | `install-user.bat` (double-click; one UAC prompt at registration only) |
-| Files | the extracted folder (e.g. `C:\Jamotong`) | `%LocalAppData%\Programs\Jamotong` |
-| Upgrade | `install.bat` again (admin) | `upgrade-user.bat` — **no admin needed** |
-| Removal | `uninstall.bat` (admin) | `uninstall-user.bat` (one UAC prompt) |
-| Best for | shared PCs, multiple accounts | a PC you use alone |
+`install.bat` puts the program in **`C:\Program Files\Jamotong`** — a fixed, machine-wide
+folder that every app, including Store (UWP) apps, can read. Your settings stay per user in
+`%APPDATA%\Jamotong`. The zip you extracted is only the source: delete it after installing.
 
-Windows keeps TSF text-service registration machine-wide, so even the per-user mode needs one UAC
-confirmation on first install and on removal (upgrades need none). Either way, **never move or
-delete the folder while registered** — run the uninstaller first.
+- **Upgrade**: extract the new zip and run its `install.bat` again (as administrator). If
+  anything fails — a file in use, a registration error — the previous version is put back.
+- **Earlier installs** (an extracted folder that was registered in place, or the former
+  per-user copy in `%LocalAppData%\Programs\Jamotong`) are moved over automatically: the
+  registration switches to `Program Files` and the old per-user copy is removed.
+  After such a move the tray icon may show plain "한글" until Explorer restarts — answer **Y**
+  to the restart question at the end, or sign out and in.
+- The release binaries are **not code-signed yet**, so SmartScreen may warn before the first
+  run.
 
 ## Why this IME
 
@@ -86,17 +88,11 @@ delete the folder while registered** — run the uninstaller first.
 
 1. Download the latest zip from
    [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
-   (or build from source: `make stage` produces an installable `dist/` folder).
-2. Extract it and **copy the folder to a permanent location of your choice** — the IME
-   runs directly from this folder, so do not delete it after installing. A typical
-   choice is the standard program location:
-
-   ```
-   C:\Program Files\Jamotong
-   ```
-
-3. Right-click `install.bat` → **"Run as administrator"**.
-4. Press `Win+Space` and select **"Jamotong IME"**. Apps that were already running pick
+   (or build from source: `make stage` produces an installable `dist/` folder) and extract it.
+2. Right-click `install.bat` → **"Run as administrator"**. It copies the program to
+   `C:\Program Files\Jamotong`, registers the 64-bit and 32-bit text services, and checks that
+   both point there.
+3. Press `Win+Space` and select **"Jamotong IME"**. Apps that were already running pick
    up the IME after you restart them; sign out and back in only if it does not appear
    in the list.
 
@@ -490,13 +486,11 @@ table (e.g. the published ARTSEY map).
 
 ## Uninstall
 
-1. Right-click `uninstall.bat` → **"Run as administrator"**.
-   It unregisters the IME, stops jamotong.exe and deletes every binary that is not in
-   use.
-2. If some files were reported **locked**: sign out and back in, then run
-   `uninstall.bat` once more (or just delete the folder). A full reboot is *not*
-   required — an IME DLL stays memory-mapped in every running app that used text input
-   (Explorer, ctfmon, …), and signing out ends those processes.
+1. Run `uninstall.bat` as administrator — from the zip, or the copy in
+   `C:\Program Files\Jamotong`. It unregisters both text services (whatever folder they
+   point at, so older installs are covered too), stops jamotong.exe and deletes the files.
+2. A DLL still loaded in running apps cannot be deleted; it is moved aside and removed at the
+   next sign-in. A reboot is not required.
 3. Your settings remain at `%APPDATA%\Jamotong`; delete that folder too if you do not
    plan to reinstall.
 

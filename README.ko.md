@@ -9,24 +9,23 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.28.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.28.0/jamotong-0.28.0.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.29.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.29.0/jamotong-0.29.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
-### 설치 방식 선택
+### 설치 위치
 
-| | 기계 전체 (기본) | 사용자별 |
-|---|---|---|
-| 실행 | `install.bat` (관리자) | `install-user.bat` (더블클릭 — 등록 순간에만 UAC 1회) |
-| 파일 위치 | 압축 푼 폴더 (예: `C:\Jamotong`) | `%LocalAppData%\Programs\Jamotong` |
-| 업그레이드 | `install.bat` 다시 (관리자) | `upgrade-user.bat` — **관리자 불필요** |
-| 제거 | `uninstall.bat` (관리자) | `uninstall-user.bat` (UAC 1회) |
-| 권장 | 공용 PC, 여러 계정 | 이 PC 를 혼자 쓰는 경우 |
+`install.bat` 은 프로그램을 **`C:\Program Files\Jamotong`** 에 넣습니다 — 모든 앱(Store/UWP 앱 포함)이
+읽을 수 있는 고정된 기계 전체 폴더입니다. 설정은 사용자별로 `%APPDATA%\Jamotong` 에 남습니다. 압축을 푼
+폴더는 원본일 뿐이니 설치 뒤 지워도 됩니다.
 
-Windows 가 TSF 입력기 등록을 기계 전체로 유지하기 때문에 사용자별 설치도 **첫 설치와 제거 때는**
-UAC 확인이 한 번 필요합니다(업그레이드는 불필요). 어느 방식이든 **등록된 상태에서 폴더를 옮기거나
-지우지 마세요** — 먼저 uninstall 을 실행해야 합니다.
+- **업그레이드**: 새 zip 을 풀고 그 `install.bat` 을 다시 관리자 권한으로 실행합니다. 중간에 실패하면(쓰는 중인
+  파일, 등록 오류) 이전 판으로 되돌립니다.
+- **예전 방식의 설치**(압축 폴더 자체를 등록한 경우, 또는 `%LocalAppData%\Programs\Jamotong` 의 사용자별 사본)는
+  자동으로 옮겨집니다: 등록이 `Program Files` 로 바뀌고 옛 사용자별 사본은 지워집니다. 옮긴 직후에는 트레이
+  아이콘이 "한글" 글자로 보일 수 있습니다 — 끝의 탐색기 재시작 질문에 **Y** 를 누르거나 다시 로그인하세요.
+- 릴리스 바이너리는 **아직 코드 서명되지 않아** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다.
 
 ## 장점
 
@@ -70,17 +69,11 @@ UAC 확인이 한 번 필요합니다(업그레이드는 불필요). 어느 방�
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 최신 zip을
-   내려받는다(소스 빌드는 `make stage` → 설치 가능한 `dist/` 폴더 생성).
-2. 압축을 풀고 **폴더째 원하는 영구 위치로 복사**한다 — IME가 이 폴더에서 직접 실행되므로
-   설치 후 지우면 안 된다. 정식 프로그램 위치의 예:
-
-   ```
-   C:\Program Files\Jamotong
-   ```
-
-3. `install.bat`를 우클릭 → **"관리자 권한으로 실행"**.
-4. `Win+Space` → **"Jamotong IME"** 선택. 이미 떠 있던 앱은 재시작해야 IME를 받으며,
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 최신 zip을 내려받아 푼다
+   (소스 빌드는 `make stage` → 설치 가능한 `dist/` 폴더 생성).
+2. `install.bat`를 우클릭 → **"관리자 권한으로 실행"**. 프로그램을 `C:\Program Files\Jamotong` 에 복사하고
+   64비트·32비트 입력기를 등록한 뒤, 둘 다 그 폴더를 가리키는지 확인한다.
+3. `Win+Space` → **"Jamotong IME"** 선택. 이미 떠 있던 앱은 재시작해야 IME를 받으며,
    목록에 안 보일 때만 로그아웃 후 재로그인한다.
 
 ### 설치 직후 기본값
@@ -457,14 +450,10 @@ Hold  jkl = key enter  # 홀드 (0.2초 이상 누르고 있다가 뗌) → Ente
 
 ## 삭제 (언인스톨)
 
-1. `uninstall.bat`를 우클릭 → **"관리자 권한으로 실행"**.
-   IME 등록을 해제하고, 트레이 앱을 종료한 뒤, 잠겨 있지 않은 바이너리를 즉시
-   삭제한다.
-2. 일부 파일이 **locked**로 표시되면: 로그아웃 후 다시 로그인해서
-   `uninstall.bat`를 한 번 더 실행(또는 폴더째 삭제)하면 끝난다. **재부팅은 필요
-   없다** — IME DLL은 텍스트 입력을 쓴 모든 실행 중 앱(탐색기, ctfmon 등)에 매핑돼
-   있어서 그 세션 안에서는 지울 수 없고, 로그아웃하면 그 프로세스들이 모두 종료된다.
-3. 설정은 `%APPDATA%\Jamotong`에 남는다. 재설치 계획이 없으면 그 폴더도 지운다.
+1. `uninstall.bat` 을 관리자 권한으로 실행한다 — zip 안의 것이든 `C:\Program Files\Jamotong` 안의 사본이든.
+   두 입력기 등록을 해제하고(어느 폴더를 가리키든 — 예전 방식 설치도 포함), jamotong.exe 를 끝내고 파일을 지운다.
+2. 실행 중인 앱이 물고 있는 DLL 은 지울 수 없어 옆으로 옮겨 두고, 다음 로그인 때 지운다. 재부팅은 필요 없다.
+3. 설정은 `%APPDATA%\Jamotong` 에 남는다. 다시 설치하지 않을 거라면 그 폴더도 지운다.
 
 ## 빌드
 
