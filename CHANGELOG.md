@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+(비어 있음)
+
+## [0.25.0] - 2026-09-22
+
 ### Added
 - **자판 파생 `Extends` / `Include`**(RFC-0011 P4). 내장 세벌식(`@ko_3bul`)·드보락·QWERTY 나 다른 `.jmt` 에서
   출발해 바뀌는 줄만 적는다. `Key x = -`·`Combine … = -` 로 물려받은 것을 지운다. 한 파일에 `Extends` 한 줄,
