@@ -536,11 +536,28 @@ symbols for registration and unregistration; do not copy a missing header name i
 direction and a different local value in the other.
 
 ### 4.4 Install scripts
-- `install.bat`: check admin rights → unblock files (Mark-of-the-Web) →
-  `regsvr32 app.dll` (64-bit) → `SysWOW64\regsvr32 app32.dll` (32-bit). A sign-out or
-  reboot makes it fully take effect.
-- **DLL file-lock trap** (§10): a TSF DLL is mapped into many processes (`ctfmon` etc.),
-  locking the file. To update: uninstall → **sign out/reboot** → overwrite → install.
+Jamotong's model (field-tested on Windows 11, 2026-09-22):
+- **Install to a fixed machine-wide folder** (`%ProgramFiles%\<name>`), not the folder the
+  zip was extracted to: Store/UWP (AppContainer) hosts can read `Program Files` by inheritance,
+  and a registered extraction folder breaks as soon as the user moves or deletes it.
+- **One transaction**: copy into a staging folder and compare bytes (`fc /B`) → move each old
+  file aside as `<name>.old.<tag>` and move the staged one in → `regsvr32` x64, then
+  `SysWOW64\regsvr32` x86 → **check that both registrations point at the new folder** →
+  commit (delete `*.old.*`). Any failure unregisters the new copy, moves the old files back
+  and re-registers the previous paths. Treat an x86 failure as a failure, or the 64-bit and
+  32-bit registrations drift apart.
+- **The DLL lock is not a reason to reboot**: a DLL mapped in running apps (`ctfmon`,
+  Explorer, ...) cannot be deleted or overwritten, but it **can be renamed**. Rename it aside,
+  put the new file in place; running apps keep the old copy until they exit.
+- **Check the 32-bit registration in the 32-bit view**: `reg query "HKCR\CLSID\{...}\InprocServer32"
+  /ve /reg:32` (and `/reg:64` for the 64-bit one). Without the switch a 64-bit `reg.exe` only
+  sees the 64-bit view.
+- **A delayed clean-up must not delete a reinstall**: if the uninstaller schedules removal of
+  locked leftovers (`RunOnce`), make it delete only `*.old.*` and an *empty* folder
+  (`del ... & rd <dir>` without `/s`), and have the installer delete that entry — a
+  `rd /s /q` scheduled before a reinstall wipes the new install at the next sign-in.
+- **After the registered path moves**, the input indicator keeps showing its cached icon (or a
+  plain language label) until Explorer restarts or the user signs in again.
 
 ---
 

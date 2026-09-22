@@ -3,114 +3,108 @@ setlocal EnableExtensions
 title Jamotong IME - Uninstall
 chcp 65001 >nul 2>&1
 
+rem  Removes the machine-wide install (%ProgramFiles%\Jamotong). It unregisters whatever path is
+rem  actually registered, so an older install (extracted zip folder or the former per-user folder)
+rem  is removed the same way. Owner decision A5 / RFC-0008 W1-05 (2026-09-22).
+
+set "DEST=%ProgramFiles%\Jamotong"
+set "CLSIDKEY=HKCR\CLSID\{C471BCF2-343F-4187-A103-24151C3E20B9}\InprocServer32"
+set "BINS=jamotong.dll jamotong32.dll jamotong.exe"
+
+rem A batch file cannot delete the folder it runs from: run a temporary copy instead.
+if /I "%~dp0"=="%DEST%\" if /I not "%~1"=="--from-temp" (
+  copy /Y "%~f0" "%TEMP%\jamotong-uninstall.bat" >nul
+  "%TEMP%\jamotong-uninstall.bat" --from-temp
+  exit /B %errorlevel%
+)
+
 echo ================================================================
 echo   Jamotong IME - Uninstall
 echo ================================================================
 echo.
-echo  Tip: switch to another IME first (e.g. Microsoft IME, Win+Space)
-echo       so this IME is not the active text service.
+echo  Tip: switch to another input method first (Win+Space).
 echo.
-
-REM ---- Administrator required --------------------------------------
 net session >nul 2>&1
 if not "%errorlevel%"=="0" (
   echo [!] Administrator privileges required.
-  echo     Right-click this file and choose "Run as administrator".
-  echo.
+  echo     Right-click uninstall.bat and choose "Run as administrator".
   pause
   exit /B 1
 )
 
-REM ---- 1) Close jamotong.exe if running (releases the exe) ---------
+set "REG64="
+set "REG32="
+for /f "tokens=2,*" %%A in ('reg query "%CLSIDKEY%" /ve /reg:64 2^>nul ^| find "REG_SZ"') do set "REG64=%%B"
+for /f "tokens=2,*" %%A in ('reg query "%CLSIDKEY%" /ve /reg:32 2^>nul ^| find "REG_SZ"') do set "REG32=%%B"
+
 taskkill /F /IM jamotong.exe >nul 2>&1
 
-REM ---- 2) Unregister TSF DLLs --------------------------------------
-if exist "%~dp0jamotong32.dll" (
-  echo [*] Unregistering 32-bit ...
-  "%SystemRoot%\SysWOW64\regsvr32.exe" /s /u "%~dp0jamotong32.dll"
+rem ---- 1) Unregister what is registered (and the machine-wide copy) ------------------------------
+echo [1/3] Unregistering ...
+if defined REG32 if exist "%REG32%" "%SystemRoot%\SysWOW64\regsvr32.exe" /s /u "%REG32%"
+if exist "%DEST%\jamotong32.dll" "%SystemRoot%\SysWOW64\regsvr32.exe" /s /u "%DEST%\jamotong32.dll"
+if defined REG64 if exist "%REG64%" regsvr32 /s /u "%REG64%"
+if exist "%DEST%\jamotong.dll" regsvr32 /s /u "%DEST%\jamotong.dll"
+reg query "%CLSIDKEY%" /ve /reg:64 >nul 2>&1
+if not errorlevel 1 (
+  echo [FAIL] The 64-bit registration is still there. Switch to another input method
+  echo        ^(Win+Space^), then run this again.
+  pause
+  exit /B 1
 )
-if exist "%~dp0jamotong.dll" (
-  echo [*] Unregistering 64-bit ...
-  regsvr32 /s /u "%~dp0jamotong.dll"
-  if not "%errorlevel%"=="0" (
-    echo.
-    echo [FAIL] Unregister failed ^(code %errorlevel%^).
-    echo   - Switch to another IME ^(Win+Space^), then run this again.
-    echo.
-    pause
-    exit /B 1
-  )
+reg query "%CLSIDKEY%" /ve /reg:32 >nul 2>&1
+if not errorlevel 1 (
+  echo [FAIL] The 32-bit registration is still there. Run this again.
+  pause
+  exit /B 1
 )
-echo    [OK] Unregistered ^(removed from the language list after sign-out^).
+echo      [OK] Unregistered ^(the language list updates after sign-out^).
 
-REM ---- 3) Clean up legacy IMM32 leftovers (old builds only) --------
-if exist "%~dp0jamotong.exe" (
-  "%~dp0jamotong.exe" /uninstallime >nul 2>&1
-)
+rem Legacy IMM32 leftovers from very old builds
+if exist "%DEST%\jamotong.exe" "%DEST%\jamotong.exe" /uninstallime >nul 2>&1
 
-REM ---- 4) Remove binaries (no sign-out needed) ---------------------
-REM  The IME DLL stays memory-mapped in every running app that used text
-REM  input (explorer, ctfmon, browsers, ...), so plain deletion can be
-REM  blocked. NTFS still allows RENAMING a mapped DLL, so anything locked
-REM  is moved aside as *.old.<n>: the folder is immediately ready for a
-REM  new version, and the leftovers become deletable once those apps
-REM  exit (this script and install.bat sweep them on the next run).
-echo [*] Sweeping leftovers from previous runs ...
-del /F /Q "%~dp0*.old.*" >nul 2>&1
-echo [*] Removing binaries ...
-set "MOVED="
-set "LOCKED="
-for %%F in (jamotong.dll jamotong32.dll jamotong.exe) do (
-  if exist "%~dp0%%F" (
-    del /F /Q "%~dp0%%F" >nul 2>&1
-    if exist "%~dp0%%F" (
-      ren "%~dp0%%F" "%%F.old.%RANDOM%%RANDOM%" >nul 2>&1
-      if exist "%~dp0%%F" (
-        set "LOCKED=1"
-        echo    [locked] %%F  - could not delete or rename
-      ) else (
-        set "MOVED=1"
-        echo    [moved aside] %%F  - swept automatically on the next run
-      )
-    ) else (
-      echo    [deleted] %%F
-    )
-  )
+rem ---- 2) Remove files. A DLL still mapped in running apps cannot be deleted but can be renamed:
+rem         such files are moved aside and removed after the next sign-in. ------------------------
+echo [2/3] Removing files ...
+set "LEFT="
+call :clean "%DEST%\"
+if defined REG64 for %%P in ("%REG64%") do (
+  echo %%~dpP | find /I "\AppData\Local\Programs\Jamotong\" >nul && call :clean "%%~dpP"
 )
 
-echo.
-if defined LOCKED (
-  echo ================================================================
-  echo   [OK] Unregistered - one more step to finish
-  echo ================================================================
-  echo   A file could be neither deleted nor renamed ^(unusual - likely
-  echo   an antivirus hold^). Sign out and back in, then run this again.
-) else if defined MOVED (
-  echo ================================================================
-  echo   [OK] Uninstalled - no sign-out needed
-  echo ================================================================
-  echo   Locked binaries were moved aside as *.old.* files. Running
-  echo   apps keep using those copies until they exit; delete the
-  echo   leftovers later ^(or let install/uninstall sweep them^).
-  echo   You can put a new version into this folder right away.
-) else (
-  echo ================================================================
-  echo   [OK] Uninstalled
-  echo ================================================================
-  echo   All binaries are removed. You may delete this folder now.
+rem ---- 3) Remove leftovers at the next sign-in. Only *.old.* files and an EMPTY folder are removed,
+rem         so a reinstall before that sign-in is never touched (install.bat also drops this entry). --
+echo [3/3] Finishing ...
+if defined LEFT (
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v JamotongCleanup /t REG_SZ /f ^
+    /d "cmd /c del /f /q \"%DEST%\*.old.*\" & rd \"%DEST%\"" >nul 2>&1
+  echo      Some files are still in use by running apps; they are removed after the next sign-in.
 )
 echo.
-echo   Your settings remain at %%APPDATA%%\Jamotong
-echo   ^(delete that folder too if you do not plan to reinstall^).
+echo ================================================================
+echo   [OK] Uninstalled
+echo ================================================================
+echo   Your settings remain in %%APPDATA%%\Jamotong ^(delete that folder too if you
+echo   do not plan to reinstall^).
 echo.
-
-REM ---- 5) Optional: restart Explorer to clear the tray icon --------
-REM  Runs de-elevated via runas /trustlevel so the new shell does not
-REM  inherit administrator rights from this script.
 choice /C YN /N /T 20 /D N /M "Restart Explorer now to refresh the tray/icons? [Y/N] (auto-N in 20s) "
 if "%errorlevel%"=="1" (
-  echo [*] Restarting Explorer ...
   taskkill /F /IM explorer.exe >nul 2>&1
   runas /trustlevel:0x20000 "%SystemRoot%\explorer.exe" >nul 2>&1 || start "" "%SystemRoot%\explorer.exe"
 )
 pause
+exit /B 0
+
+:clean
+set "D=%~1"
+if not exist "%D%" exit /B 0
+del /F /Q "%D%*.old.*" >nul 2>&1
+for %%F in (%BINS%) do (
+  if exist "%D%%%F" del /F /Q "%D%%%F" >nul 2>&1
+  if exist "%D%%%F" ren "%D%%%F" "%%F.old.%RANDOM%%RANDOM%" >nul 2>&1
+)
+for %%F in (hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt UNICODE-LICENSE.txt README.md README.ko.md LICENSE COPYRIGHT.md install-user.bat upgrade-user.bat uninstall-user.bat uninstall.bat) do del /F /Q "%D%%%F" >nul 2>&1
+if exist "%D%.staging" rd /S /Q "%D%.staging" >nul 2>&1
+rd "%D%" >nul 2>&1
+if exist "%D%" set "LEFT=1"
+exit /B 0
