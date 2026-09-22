@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.29.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.29.0/jamotong-0.29.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.30.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.30.0/jamotong-0.30.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -237,7 +237,9 @@ RequiresJamotong = 0.24.0            # refuse to load on older Jamotong, with a 
 (up to 16) as `file:line:column: error|warning: message [code]` with a `help:` hint, e.g.
 `my.jmt:2:9: error: Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27) [E-JMT-RANGE]`.
 Warnings do not block loading: an unknown header key (`Athor = …` → *did you mean 'Author'?*),
-an `Abbrev` longer than 4 characters, or a newer `FormatVersion`. An unrecognised line is a
+or an `Abbrev` longer than 4 characters. A **newer `FormatVersion`** than this Jamotong reads is
+an error (`E-JMT-FORMAT-NEWER`): loading only the parts an old version understands would
+silently give a different layout. An unrecognised line is a
 warning in a version-1 file and an **error** from `FormatVersion = 2`, so typos in new files
 cannot silently drop keys.
 
@@ -261,7 +263,10 @@ Include = common-rules.jmt  # paste another file's lines here (several Include l
 
 One `Extends` line per file, at most 4 levels deep; a loop between files and a `Type`
 different from the base are errors. Name/Abbrev are inherited unless you set them; the
-base's `Id`, `Version`, `Author`, … are not. Dubeolsik (`@ko_2bul`) cannot be a base: its
+base's `Id`, `Version`, `Author`, … are not. In a chord layout, a `Chord`/`Hold` that the base
+already defines (same layer, same keys in any order, same tap/hold) **replaces** the inherited
+one; the same chord written twice in *one* file keeps the first and warns `W-JMT-DUP-CHORD`.
+Dubeolsik (`@ko_2bul`) cannot be a base: its
 "final consonant moves to the next syllable" rule lives in the automata, not in a table.
 
 ### Shift level, physical keys and blocks (format version 2)
@@ -404,7 +409,7 @@ Chord jkl = the        # three keys = the whole word "the"
 
 | Syntax | Meaning |
 |---|---|
-| *plain text* | Types the text (max ~23 chars). Escapes: `\n` Enter, `\t` Tab, `\s` space, `\\` backslash. A lone `\b` is Backspace. |
+| *plain text* | Types the text (**at most 23 characters**; longer is an error, not cut). Escapes: `\n` Enter, `\t` Tab, `\s` space, `\\` backslash, `\#` a literal `#`. A lone `\b` is Backspace. A `#` after a space starts a comment, so write `\#` for a `#` after a space (`C#` and a text that *starts* with `#` are fine as they are). |
 | `key <name>` | Presses one special key. See the key-name list below. |
 | `mod <name>` | **One-shot modifier**: the *next* chord/character gets this modifier. Names: `shift ctrl alt gui` (left side) and `rshift rctrl ralt rgui`. |
 | `layer <name>` | **One-shot layer**: only the next chord is looked up in that layer. |
@@ -413,6 +418,9 @@ Chord jkl = the        # three keys = the whole word "the"
 | `mouse move <dx> <dy>` | Move the pointer by (dx, dy) pixels. |
 | `mouse click\|down\|up <left\|right\|middle>` | Mouse button: click = press+release, down/up = halves for dragging. |
 | `mouse wheel <up\|down\|N>` | Scroll (N = raw wheel delta, negative = down). |
+
+After the words an action needs, only a `# comment` may follow — `key a junk`, `mouse move 5 5x` or
+`key f1junk` are errors (they used to be accepted by ignoring the rest). `mouse move` takes -10000…10000.
 
 Key names accepted by `key <name>`:
 

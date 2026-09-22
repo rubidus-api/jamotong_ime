@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.29.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.29.0/jamotong-0.29.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.30.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.30.0/jamotong-0.30.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -208,7 +208,8 @@ RequiresJamotong = 0.24.0            # 이보다 낮은 자모통에서는 알�
 `파일:줄:열: error|warning: 메시지 [코드]` 와 `help:` 도움말로 보고된다. 예:
 `my.jmt:2:9: error: Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27) [E-JMT-RANGE]`.
 경고는 로드를 막지 않는다: 모르는 머리부 키(`Athor = …` → *did you mean 'Author'?*), 4글자를 넘는
-`Abbrev`, 더 새로운 `FormatVersion`. 알아보지 못한 줄은 1판 파일에서는 경고, **`FormatVersion = 2`
+`Abbrev`. 이 자모통이 읽는 것보다 **더 새로운 `FormatVersion`** 은 오류다(`E-JMT-FORMAT-NEWER`) — 옛 판이 아는
+부분만 읽으면 조용히 다른 자판이 되기 때문이다. 알아보지 못한 줄은 1판 파일에서는 경고, **`FormatVersion = 2`
 부터는 오류**다 — 새 파일에서 오타로 글쇠가 조용히 빠지는 일이 없게.
 
 키는 항상 **US QWERTY 기준으로 그 물리 키가 내는 문자**로 지정한다. Shift 포함:
@@ -231,7 +232,9 @@ Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (�
 
 `Extends` 는 파일마다 한 줄, 깊이는 4 단계까지다. 파일끼리 서로를 부르거나 `Type` 이 기반과 다르면
 오류다. `Name`·`Abbrev` 는 따로 적지 않으면 물려받지만 기반의 `Id`·`Version`·`Author` 등은 물려받지
-않는다. 두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
+않는다. 조합(chord) 자판에서 기반이 이미 정의한 `Chord`/`Hold`(같은 층, 순서와 무관한 같은 키, 같은 tap/hold)를
+다시 쓰면 물려받은 것을 **대체**한다. *한 파일 안에서* 같은 조합을 두 번 쓰면 첫 줄을 쓰고 `W-JMT-DUP-CHORD` 로 경고한다.
+두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
 오토마타 안에 있기 때문이다.
 
 ### Shift 면·물리 글쇠·블록 (형식 2판)
@@ -369,7 +372,7 @@ Chord jkl = the        # 세 글쇠 = 단어 "the" 통째로
 
 | 문법 | 의미 |
 |---|---|
-| *일반 텍스트* | 텍스트 입력 (최대 ~23자). 이스케이프: `\n`=Enter, `\t`=Tab, `\s`=스페이스, `\\`=역슬래시. 단독 `\b`=백스페이스. |
+| *일반 텍스트* | 텍스트 입력 (**최대 23자** — 넘으면 자르지 않고 오류). 이스케이프: `\n`=Enter, `\t`=Tab, `\s`=스페이스, `\\`=역슬래시, `\#`=`#` 글자. 단독 `\b`=백스페이스. 공백 뒤의 `#` 부터는 주석이므로, 공백 뒤에 `#` 글자가 필요하면 `\#` 로 쓴다(`C#` 이나 `#` 로 시작하는 텍스트는 그대로 된다). |
 | `key <이름>` | 특수키 하나 입력. 아래 키 이름 목록 참조. |
 | `mod <이름>` | **원샷 모디파이어**: *다음* 조합/문자에 이 모디파이어가 붙는다. 이름: `shift ctrl alt gui`(왼쪽), `rshift rctrl ralt rgui`. |
 | `layer <이름>` | **원샷 레이어**: 다음 조합 한 번만 그 레이어에서 찾는다. |
@@ -378,6 +381,9 @@ Chord jkl = the        # 세 글쇠 = 단어 "the" 통째로
 | `mouse move <dx> <dy>` | 포인터를 (dx, dy)픽셀 상대 이동. |
 | `mouse click\|down\|up <left\|right\|middle>` | 마우스 버튼: click=누름+뗌, down/up=드래그용 반쪽. |
 | `mouse wheel <up\|down\|N>` | 휠 스크롤 (N=원시 델타, 음수=아래). |
+
+동작에 필요한 낱말 뒤에는 `# 주석`만 올 수 있다 — `key a junk`, `mouse move 5 5x`, `key f1junk` 는 오류다(예전엔
+나머지를 무시하고 받아들였다). `mouse move` 는 -10000…10000.
 
 `key <이름>`이 받는 키 이름:
 
