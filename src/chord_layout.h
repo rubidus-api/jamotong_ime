@@ -37,7 +37,7 @@ typedef struct {
     int layer;             // 이 조합이 속한 레이어
     int isHold;            // 1이면 이 조합의 hold 동작 (Hold 지시문). 0이면 tap 동작 (Chord)
     ChordActionType act;
-    wchar_t text[24];      // CA_TEXT
+    wchar_t text[256];     // CA_TEXT (2판은 23자까지, 3판은 줄 한도까지 — RFC-0016 §6.7)
     int vk;                // CA_KEY
     int keyExt;            // CA_KEY 확장키 여부 (화살표·오른쪽 모디파이어·키패드 Enter/÷ 등)
     int mod;               // CA_MOD_ONESHOT 비트마스크 / CA_KEY 시 함께 적용
@@ -45,8 +45,16 @@ typedef struct {
     int p1, p2;            // 마우스 파라미터
 } ChordEntry;
 
+// 3판 조합 판정 정책 (RFC-0016 §7.1)
+#define CHORD_HOLD_INTERRUPT 0   // 상위 조합 가능성이 없어진 뒤 다른 키가 눌리면 hold 확정 (1·2판 동작과 같다)
+#define CHORD_HOLD_TIMEOUT   1   // HoldTermMs 가 지나야 hold
+
 typedef struct ChordLayout {
     wchar_t name[64];
+    int v3;                          // FormatVersion 3 — 3판 문법·판정 (1·2판은 기존 동작 유지, §7.1)
+    int comboTermMs;                 // 3판: 첫 down 뒤 이 시간 안(경계 포함)이면 더 큰 조합을 기다린다
+    int holdTermMs;                  // 3판: tap/hold 판정 시간
+    int holdPolicy;                  // CHORD_HOLD_INTERRUPT / CHORD_HOLD_TIMEOUT
     int keyBit[128];                 // ASCII 산출문자 → 비트(0..31), -1 = 코드 글쇠 아님
     wchar_t layerNames[CL_MAX_LAYERS][32];
     int layerCount;
@@ -68,6 +76,7 @@ typedef struct {
     int curLayer;        // 현재 레이어 (0 = base)
     int oneshotLayer;    // -1 없음, 아니면 다음 조합에만 적용할 레이어
     int oneshotMod;      // 대기 중 원샷 모디파이어 비트마스크
+    bool pendClosed;     // 3판: 형성 중 조합의 첫 글쇠가 떨어져 조합이 닫혔다 (새 글쇠는 다음 조합)
 } ChordKbContext;
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
@@ -75,6 +84,8 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   //
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);
+// 시계 주입 (시험용 가짜 시계). NULL = 기본(GetTickCount). RFC-0016 §7.1: fake clock 으로 판정을 시험한다.
+void ChordKb_SetClock(unsigned long (*now)(void));
 // 조합 경계(포커스·자판 전환)에서 호출: hold 로 눌러 둔 모디파이어에 **반드시** key-up 을 보내고
 // 형성 중·hold·임시 레이어 상태를 비운다. 사용자가 고른 레이어(curLayer)는 유지. 여러 번 불러도 안전.
 void ChordKb_ReleaseAll(ChordKbContext *c);

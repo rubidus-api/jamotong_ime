@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 static void TrimEnds(wchar_t *s) {
     size_t n = wcslen(s);
@@ -217,8 +218,110 @@ static int ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
             for (int k = i - 1; k >= 0 && (body[k] == L' ' || body[k] == L'\t'); k--) body[k] = L'\0';
             break;
         }
-    if (!ExpandText(e->text, sizeof(e->text) / sizeof(e->text[0]), body)) return PA_TEXT_LONG;
+    if (!ExpandText(e->text, 24, body)) return PA_TEXT_LONG;   // 2판 한도 = 23자 (3판은 ParseActionV3)
     return e->text[0] != L'\0' ? PA_OK : PA_BAD;
+}
+
+// ── 3판 동작 (RFC-0016 §4·§6.2, 2026-09-23 오너 "추천대로") ──────────────────────────────────────────
+#define PA_STRING 3   // 문자열 문법 오류 (E-JMT-STRING)
+
+// "…" 문자열: \" \\ \n \t \u{hex}. 잘못된 이스케이프·닫히지 않음·고립 서로게이트·NUL·U+10FFFF 초과는 오류.
+//   *pp 는 여는 따옴표를 가리키고, 성공하면 닫는 따옴표 다음을 가리킨다. out 은 UTF-16.
+static bool ParseQuoted(const wchar_t **pp, wchar_t *out, size_t cap) {
+    const wchar_t *p = *pp;
+    if (*p != L'"') return false;
+    p++;
+    size_t n = 0;
+    for (;;) {
+        wchar_t ch = *p;
+        if (ch == L'\0' || ch == L'\n' || ch == L'\r') return false;       // 닫히지 않음
+        if (ch == L'"') { p++; break; }
+        unsigned long cp;
+        if (ch == L'\\') {
+            wchar_t e2 = p[1];
+            if (e2 == L'"' || e2 == L'\\') { cp = e2; p += 2; }
+            else if (e2 == L'n') { cp = L'\n'; p += 2; }
+            else if (e2 == L't') { cp = L'\t'; p += 2; }
+            else if (e2 == L'u' && p[2] == L'{') {
+                const wchar_t *q = p + 3; cp = 0; int digits = 0;
+                while (digits < 7 && ((*q >= L'0' && *q <= L'9') || (*q >= L'a' && *q <= L'f') || (*q >= L'A' && *q <= L'F'))) {
+                    cp = cp * 16 + (unsigned long)(*q <= L'9' ? *q - L'0' : (*q | 0x20) - L'a' + 10); q++; digits++;
+                }
+                if (!digits || *q != L'}') return false;
+                p = q + 1;
+            } else return false;                                              // 모르는 이스케이프
+        } else { cp = (unsigned long)ch; p++; }
+        if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        if (cp >= 0x10000) {
+            if (n + 2 >= cap) return false;
+            cp -= 0x10000; out[n++] = (wchar_t)(0xD800 + (cp >> 10)); out[n++] = (wchar_t)(0xDC00 + (cp & 0x3FF));
+        } else {
+            if (n + 1 >= cap) return false;
+            out[n++] = (wchar_t)cp;
+        }
+    }
+    out[n] = L'\0';
+    *pp = p;
+    return n > 0;
+}
+static const wchar_t *SkipWs(const wchar_t *p) { while (*p == L' ' || *p == L'\t') p++; return p; }
+static bool AtEnd(const wchar_t *p) { p = SkipWs(p); return *p == L'\0' || *p == L'#'; }
+// name(arg) — 공백 없이. 성공하면 arg 에 담고 true.
+static bool ParenArg(const wchar_t *tok, const wchar_t *name, wchar_t *arg, size_t cap) {
+    size_t k = wcslen(name), n = wcslen(tok);
+    if (wcsncmp(tok, name, k) || tok[k] != L'(' || n < k + 3 || tok[n-1] != L')') return false;
+    size_t a = n - k - 2; if (a >= cap) return false;
+    wmemcpy(arg, tok + k + 1, a); arg[a] = L'\0';
+    return true;
+}
+static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int isHold) {
+    const wchar_t *p = SkipWs(rhs);
+    if (!wcsncmp(p, L"text", 4) && (p[4] == L' ' || p[4] == L'\t' || p[4] == L'"')) {
+        p = SkipWs(p + 4);
+        if (*p != L'"') return PA_BAD;
+        if (!ParseQuoted(&p, e->text, sizeof(e->text) / sizeof(e->text[0]))) return PA_STRING;
+        e->act = CA_TEXT;
+        return AtEnd(p) ? PA_OK : PA_BAD;
+    }
+    wchar_t t[ACT_MAXTOK][32];
+    int n = ActTokens(rhs, t);
+    if (n < 1) return PA_BAD;
+    wchar_t arg[32];
+    if (!_wcsicmp(t[0], L"key")) {                         // key NAME [mods(a,b)]
+        bool ex = false;
+        if (n < 2 || n > 3) return PA_BAD;
+        e->act = CA_KEY; e->vk = KeyNameToVK(t[1], &ex); e->keyExt = ex;
+        if (!e->vk) return PA_BAD;
+        if (n == 3) {
+            if (!ParenArg(t[2], L"mods", arg, 32)) return PA_BAD;
+            for (wchar_t *m = arg; *m; ) {                     // 쉼표로 나눈 이름들 (CRT 마다 다른 wcstok 대신)
+                wchar_t *c = wcschr(m, L',');
+                if (c) *c = L'\0';
+                int bit = ModNameToBit(m);
+                if (!bit) return PA_BAD;
+                e->mod |= bit;
+                if (!c) break;
+                m = c + 1;
+            }
+        }
+        return PA_OK;
+    }
+    if (!_wcsicmp(t[0], L"oneshot") || !_wcsicmp(t[0], L"momentary")) {
+        bool mom = !_wcsicmp(t[0], L"momentary");
+        if (n != 2) return PA_BAD;
+        if (mom != (isHold != 0)) return PA_BAD;           // momentary = Hold 전용, oneshot = Chord 전용 (3판 초기)
+        if (ParenArg(t[1], L"mod", arg, 32)) { e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(arg); return e->mod ? PA_OK : PA_BAD; }
+        if (ParenArg(t[1], L"layer", arg, 32)) { e->act = CA_LAYER_ONESHOT; e->targetLayer = LayerFindOrAdd(cl, arg); return e->targetLayer >= 0 ? PA_OK : PA_BAD; }
+        return PA_BAD;
+    }
+    if (!_wcsicmp(t[0], L"toggle") || !_wcsicmp(t[0], L"switch")) {
+        if (n != 2 || !ParenArg(t[1], L"layer", arg, 32)) return PA_BAD;
+        e->act = !_wcsicmp(t[0], L"toggle") ? CA_LAYER_TOGGLE : CA_LAYER_SWITCH;
+        e->targetLayer = LayerFindOrAdd(cl, arg);
+        return e->targetLayer >= 0 ? PA_OK : PA_BAD;
+    }
+    if (!_wcsicmp(t[0], L"mouse")) return ParseAction(cl, e, rhs);   // 2판 마우스 문법 그대로 (포인터 문법은 P6)
+    return PA_BAD;                                                    // 따옴표 없는 텍스트 등
 }
 
 // 오류를 모두 기록 (RFC-0011 P1) — col 은 1-based.
@@ -255,6 +358,13 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     cl->layerCount = 1;
     int curLayer = 0;
     bool bad = false;   // 잘못된 글쇠/동작 참조 발견 시 파일 전체 거부 (RFC-0004 P1-3)
+    // 3판 여부: 줄에서 직접 본다 (진단 없이 불리는 LoadFromFile 경로도 같게). 기본 판정 설정.
+    for (int li = 0; li < L->n; li++) {
+        const wchar_t *q = L->v[li].text; while (*q == L' ' || *q == L'\t') q++;
+        int fv = 0;
+        if (swscanf(q, L"FormatVersion = %d", &fv) == 1 && fv >= 3) cl->v3 = 1;
+    }
+    cl->comboTermMs = 50; cl->holdTermMs = 200; cl->holdPolicy = CHORD_HOLD_INTERRUPT;
     // 각 조합을 정의한 파일 (상속 덮어쓰기 판정, RFC-0016 §4). 로드마다 따로 — 설정창·입력 스레드가 겹쳐도 안전.
     unsigned char *srcFile = (unsigned char *)calloc(CL_MAX_CHORDS, 1);
     if (!srcFile) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
@@ -287,6 +397,18 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                 else { FAIL(col0 + 4 + (int)i, L"E-JMT-RANGE", L"Key: bit out of range (0..31) or non-ASCII key", L"bits 0..31; a key list takes consecutive bits from the start bit"); break; }
             }
         }
+        else if (cl->v3 && !wcsncmp(p, L"ComboTermMs", 11)) {   // 3판 판정 설정 (§7.1)
+            int v = 0; if (swscanf(p, L"ComboTermMs = %d", &v) != 1 || v < 1 || v > 1000) FAIL(col0, L"E-JMT-RANGE", L"ComboTermMs must be 1..1000", NULL); else cl->comboTermMs = v;
+        }
+        else if (cl->v3 && !wcsncmp(p, L"HoldTermMs", 10)) {
+            int v = 0; if (swscanf(p, L"HoldTermMs = %d", &v) != 1 || v < 1 || v > 5000) FAIL(col0, L"E-JMT-RANGE", L"HoldTermMs must be 1..5000", NULL); else cl->holdTermMs = v;
+        }
+        else if (cl->v3 && !wcsncmp(p, L"HoldPolicy", 10)) {
+            wchar_t v[16] = {0};
+            if (swscanf(p, L"HoldPolicy = %15ls", v) == 1 && !_wcsicmp(v, L"interrupt")) cl->holdPolicy = CHORD_HOLD_INTERRUPT;
+            else if (swscanf(p, L"HoldPolicy = %15ls", v) == 1 && !_wcsicmp(v, L"timeout")) cl->holdPolicy = CHORD_HOLD_TIMEOUT;
+            else FAIL(col0, L"E-JMT-VALUE", L"HoldPolicy must be interrupt or timeout", NULL);
+        }
         else if (swscanf(p, L"Layer %31ls", name) == 1) {
             int idx = LayerFindOrAdd(cl, name);
             if (idx >= 0) curLayer = idx;
@@ -307,7 +429,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                     ChordEntry ne; memset(&ne, 0, sizeof(ne));
                     ne.mask = mask; ne.layer = curLayer; ne.targetLayer = -1; ne.isHold = isHold;
                     TrimEnds(rhs);
-                    int pr = ParseAction(cl, &ne, rhs);
+                    int pr = cl->v3 ? ParseActionV3(cl, &ne, rhs, isHold) : ParseAction(cl, &ne, rhs);
                     if (pr == PA_OK) {
                         // 같은 (layer, mask, tap/hold) — RFC-0016 §4: 상속(다른 파일)은 나중 정의 우선,
                         // 같은 파일 안의 중복은 v1/v2 에선 첫 정의 유지 + 경고 (v3 에선 오류 예정).
@@ -316,13 +438,20 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                             if (cl->chords[j].mask == mask && cl->chords[j].layer == curLayer && cl->chords[j].isHold == isHold) { dup = j; break; }
                         if (dup < 0) { srcFile[cl->chordCount] = (unsigned char)L->v[li].file; cl->chords[cl->chordCount++] = ne; }
                         else if (srcFile[dup] != (unsigned char)L->v[li].file) { cl->chords[dup] = ne; srcFile[dup] = (unsigned char)L->v[li].file; }
+                        else if (cl->v3) FAIL(col0, L"E-JMT-DUP-CHORD", L"same chord defined twice in this file",
+                                              L"remove one of the two lines (in format version 3 this is an error)");
                         else KlayDiag_Add(diag, KLAY_SEV_WARNING, lineno, col0, L"W-JMT-DUP-CHORD",
                                           L"same chord defined twice in this file - the first definition is used",
                                           L"remove one of the two lines");
                     }
+                    else if (pr == PA_STRING)
+                        FAIL(col0, L"E-JMT-STRING", L"bad string: unterminated, unknown escape, NUL, surrogate or too long",
+                             L"write text \"...\" with escapes \\\" \\\\ \\n \\t \\u{hex}");
                     else if (pr == PA_TEXT_LONG)
                         FAIL(col0, L"E-JMT-TEXT-LONG", L"chord text is longer than 23 characters",
                              L"shorten the text (at most 23 characters after \\n, \\t and \\s)");
+                    else if (cl->v3) FAIL(col0, L"E-JMT-ACTION", L"unknown action, or extra/invalid words after it",
+                              L"format 3: text \"...\", key NAME [mods(...)], oneshot mod(x)/layer(x), momentary mod(x)/layer(x) (Hold), toggle/switch layer(x), mouse ...");
                     else FAIL(col0, L"E-JMT-ACTION", L"unknown action, or extra/invalid words after it",
                               L"use text, 'key <name>', 'mod <name>', 'layer <name>' or a mouse action; comments start with #");
                 } else FAIL(col0 + (isHold ? 5 : 6), L"E-JMT-UNDECLARED", L"chord references a key not declared with 'Key'",
@@ -359,6 +488,11 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
 void ChordLayout_Free(ChordLayout *cl) { if (cl) HeapFree(GetProcessHeap(), 0, cl); }
 
 #define CHORD_HOLD_MS 200   // tap/hold 판정 임계 (ms)
+
+// 시계 (RFC-0016 §7.1: 시험은 가짜 시계로 판정을 재현한다)
+static unsigned long DefaultNow(void) { return (unsigned long)GetTickCount(); }
+static unsigned long (*g_now)(void) = DefaultNow;
+void ChordKb_SetClock(unsigned long (*now)(void)) { g_now = now ? now : DefaultNow; }
 
 void ChordKb_Init(ChordKbContext *c) {
     memset(c, 0, sizeof(*c));
@@ -449,10 +583,11 @@ static void SendMouseWheel(int amt) {
     SendInput(1, &in, sizeof(INPUT));
 }
 
-static void ExecChord(ChordKbContext *c, const ChordEntry *e) {
+static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry *e) {
     int mods = e->mod | c->oneshotMod;
     switch (e->act) {
-        case CA_TEXT:   SendText(e->text, c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        // 3판: 문자열에는 대기 중 원샷 수정키를 씌우지 않고 취소한다 (§6.2 — "a" 에 Shift 를 씌워 대문자/단축키로 만들지 않는다)
+        case CA_TEXT:   SendText(e->text, (cl && cl->v3) ? 0 : c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_KEY:    SendVKey(e->vk, mods, e->keyExt); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_MOVE:  SendMouseMove(e->p1, e->p2); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_BTN:   SendMouseBtn(e->p1, e->p2, c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
@@ -471,6 +606,29 @@ void ChordKb_ReleaseAll(ChordKbContext *c) {
     c->curLayer = keep;
 }
 
+// 형성 중 조합을 판정·실행하고 비운다 (모두 해제 때, 또는 3판에서 닫힌 조합 뒤 새 글쇠가 눌렸을 때).
+static void CompletePending(ChordKbContext *c, const ChordLayout *cl) {
+    int layer = EffLayer(c);
+    unsigned m = c->pendMask;
+    unsigned long held = g_now() - c->pendTick;
+    unsigned long holdMs = cl->v3 ? (unsigned long)cl->holdTermMs : CHORD_HOLD_MS;
+    const ChordEntry *tap = FindEntry(cl, m, layer, 0);
+    const ChordEntry *hold = FindEntry(cl, m, layer, 1);
+    const ChordEntry *use = NULL;
+    if (hold && !IsSustained(hold->act) && held >= holdMs) use = hold;  // 길게 → discrete hold
+    else if (tap) use = tap;
+    else if (hold && !IsSustained(hold->act)) use = hold;   // tap 없으면 discrete hold라도
+    if (use) ExecChord(c, cl, use);
+    else c->oneshotLayer = -1;   // 미매치도 원샷 레이어는 소비
+    c->pendMask = 0; c->pendKeys = 0; c->pendClosed = false;
+}
+// 3판: mask 를 포함하는(같거나 더 큰) 선언 조합이 layer 에 있는가 — 있으면 hold 를 서두르지 않는다 (§7.1)
+static bool AnyChordCovers(const ChordLayout *cl, unsigned mask, int layer) {
+    for (int i = 0; i < cl->chordCount; i++)
+        if (cl->chords[i].layer == layer && (cl->chords[i].mask & mask) == mask) return true;
+    return false;
+}
+
 bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t keyChar) {
     if (!cl || keyChar == 0 || keyChar >= 128) return false;
     int bit = cl->keyBit[(int)keyChar];
@@ -479,16 +637,29 @@ bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t 
         if (GetKeyState((int)vk) & 0x8000) return true;   // 진짜 반복
         // keyup 유실로 박힌 유령 키 자가 치유 (chord.c와 동일 근거) — 새 눌림으로 재처리
         c->keyDown[vk] = false;
-        if (c->role[vk] == 1 && c->pendKeys > 0) c->pendKeys--;
+        if (c->role[vk] == 1 && c->pendKeys > 0) c->pendKeys--;   // role 3 (소비될 뗌) 은 셀 것이 없다
         else if (c->role[vk] == 2 && c->holdKeys > 0) c->holdKeys--;
         c->role[vk] = 0;
     }
 
+    unsigned long now = g_now();
+    // 3판 겹친 세대(rolling): 첫 글쇠가 떨어져 닫힌 조합이 있으면 먼저 확정하고, 남은 글쇠의 뗌은 소비한다 (§7.1).
+    if (cl->v3 && c->pendClosed && c->pendMask) {
+        for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 3;
+        CompletePending(c, cl);
+    }
     // 형성 중 조합이 '지속형 hold'(임시 레이어/모디파이어)이고 새 글쇠가 들어오면 → hold 확정(방해 기반).
     // 그 hold 글쇠들은 눌려 있는 동안 레이어/모디파이어를 유지하고, 새 글쇠는 새 조합을 시작한다.
+    //   3판: 조합 시간 안(경계 포함)에 더 큰 선언 조합이 가능하면 기다리고, timeout 정책이면 HoldTermMs 전엔 hold 가 아니다.
     if (c->pendMask) {
         const ChordEntry *he = FindEntry(cl, c->pendMask, EffLayer(c), 1);
-        if (he && IsSustained(he->act)) {
+        bool confirm = he && IsSustained(he->act);
+        if (confirm && cl->v3) {
+            unsigned long el = now - c->pendTick;
+            if (el <= (unsigned long)cl->comboTermMs && AnyChordCovers(cl, c->pendMask | (1u << bit), EffLayer(c))) confirm = false;
+            else if (cl->holdPolicy == CHORD_HOLD_TIMEOUT && el < (unsigned long)cl->holdTermMs) confirm = false;
+        }
+        if (confirm) {
             if (he->act == CA_LAYER_ONESHOT) {
                 if (he->targetLayer >= 0) c->momentaryLayer = he->targetLayer;
             } else {   // CA_MOD_ONESHOT → 모디파이어를 누른 채 유지
@@ -502,7 +673,7 @@ bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t 
     }
 
     if (vk < 256) { c->keyDown[vk] = true; c->role[vk] = 1; }
-    if (c->pendKeys == 0) c->pendTick = GetTickCount();
+    if (c->pendKeys == 0) c->pendTick = now;
     c->pendKeys++;
     c->pendMask |= (1u << bit);
     return true;
@@ -513,6 +684,7 @@ bool ChordKb_KeyUp(ChordKbContext *c, const ChordLayout *cl, UINT vk) {
     c->keyDown[vk] = false;
     int r = c->role[vk]; c->role[vk] = 0;
 
+    if (r == 3) return true;   // 3판: 이미 확정된 조합의 남은 글쇠 — 뗌만 소비
     if (r == 2) {   // 지속형 hold 글쇠 해제
         if (c->holdKeys > 0) c->holdKeys--;
         if (c->holdKeys <= 0) {   // 모든 hold 글쇠 떨어짐 → 임시 레이어/모디파이어 복귀
@@ -522,21 +694,9 @@ bool ChordKb_KeyUp(ChordKbContext *c, const ChordLayout *cl, UINT vk) {
         return true;
     }
 
-    // r == 1: 형성 중 조합 글쇠 해제
+    // r == 1: 형성 중 조합 글쇠 해제. 3판: 첫 해제로 조합이 닫힌다(새 글쇠는 다음 조합). 확정은 모두 해제 때.
+    if (cl->v3) c->pendClosed = true;
     if (c->pendKeys > 0) c->pendKeys--;
-    if (c->pendKeys <= 0) {   // 조합 완성
-        int layer = EffLayer(c);
-        unsigned m = c->pendMask;
-        unsigned long held = (unsigned long)GetTickCount() - c->pendTick;
-        const ChordEntry *tap = FindEntry(cl, m, layer, 0);
-        const ChordEntry *hold = FindEntry(cl, m, layer, 1);
-        const ChordEntry *use = NULL;
-        if (hold && !IsSustained(hold->act) && held >= CHORD_HOLD_MS) use = hold;  // 길게 → discrete hold
-        else if (tap) use = tap;
-        else if (hold && !IsSustained(hold->act)) use = hold;   // tap 없으면 discrete hold라도
-        if (use) ExecChord(c, use);
-        else c->oneshotLayer = -1;   // 미매치도 원샷 레이어는 소비
-        c->pendMask = 0; c->pendKeys = 0;
-    }
+    if (c->pendKeys <= 0) CompletePending(c, cl);   // 조합 완성
     return true;
 }

@@ -146,14 +146,21 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
 
     // 머리부 검사 — 더 새 형식은 거부한다 (RFC-0016 §4, 2026-09-22 채택: RFC-0011 P2 의 "경고 후 최선 로드"를
     // 바꿨다 — 새 형식의 의미를 옛 해석으로 돌리면 조용히 다른 자판이 된다). 더 높은 판을 요구해도 거부.
-    if (m.formatVersion > 2) {
+    if (m.formatVersion > 3) {   // 3판 = RFC-0016 (2026-09-23 채택)
         wchar_t msg[160];
-        swprintf(msg, 160, L"file uses FormatVersion %d - this Jamotong reads up to 2", m.formatVersion);
+        swprintf(msg, 160, L"file uses FormatVersion %d - this Jamotong reads up to 3", m.formatVersion);
         KlayDiag_Add(diag, KLAY_SEV_ERROR, hl0.lnFv, 1, L"E-JMT-FORMAT-NEWER", msg, L"update Jamotong to load this layout");
         KlayLines_Free(&L);
         return false;
     }
-    if (m.requires[0] && Klay_CompareVersion(m.requires, JAMOTONG_VERSION) > 0) {
+    // RFC-0016 §4: 3판 파일은 실제 지원 판을 반드시 적는다 — 옛 자모통이 경고만 하고 다르게 읽는 일을 막는다.
+    if (m.formatVersion >= 3 && !m.requires[0]) {
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, hl0.lnFv, 1, L"E-JMT-REQUIRES-MISSING",
+                     L"a FormatVersion 3 layout must say which Jamotong it needs", L"add 'RequiresJamotong = 0.33.0'");
+        KlayLines_Free(&L);
+        return false;
+    }
+        if (m.requires[0] && Klay_CompareVersion(m.requires, JAMOTONG_VERSION) > 0) {
         wchar_t msg[160];
         swprintf(msg, 160, L"this layout requires Jamotong %ls or newer (this is %ls)", m.requires, JAMOTONG_VERSION);
         KlayDiag_Add(diag, KLAY_SEV_ERROR, hl0.lnReq, 1, L"E-JMT-REQUIRES", msg, L"update Jamotong");
