@@ -1,4 +1,5 @@
 #include "preedit_overlay.h"
+#include "popup_style.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
 #include "ui_element.h"
 #include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
@@ -94,7 +95,7 @@ static void PlaceChip(const RECT *rcCaret, const wchar_t *face) {
     bool underlineCaret = (caretH > 0 && caretH <= UNDERLINE_CARET_MAX_H);
     int lineH;
     if (g_fixedSize > 0) {
-        lineH = g_fixedSize;
+        lineH = Popup_Scale(g_fixedSize, g_hwnd ? Popup_WindowDpi(g_hwnd) : 96);   // 설정값은 100% 기준 (W2-03)
     } else if (underlineCaret) {
         lineH = caretW * 2;                 // 셀 폭으로 줄 높이 근사 (모노스페이스 ≈ 1:2)
         if (lineH < 16) lineH = 16;
@@ -121,9 +122,16 @@ static void PlaceChip(const RECT *rcCaret, const wchar_t *face) {
     }
     // 밑줄형 커서: 칩 바닥을 커서 바로 위에 붙인다(커서·해당 줄을 덮지 않음).
     // 화면 위로 벗어나면 커서 아래로 폴백.
+    // 화면 위로 벗어나면 커서 아래로 폴백. 모니터 작업영역 기준(W2-03 — 전엔 y<0 만 봤다).
     int x = rcCaret->left;
     int y = underlineCaret ? rcCaret->top - h - 1 : rcCaret->top;
-    if (y < 0) y = rcCaret->bottom + 2;
+    RECT work;
+    if (Popup_WorkAreaAt(rcCaret->left, rcCaret->top, &work)) {
+        if (y < work.top) y = rcCaret->bottom + 2;
+        Popup_ClampRect(&work, rcCaret->top, w, h, &x, &y);
+    } else if (y < 0) {
+        y = rcCaret->bottom + 2;
+    }
     g_shownRect = *rcCaret;
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, w, h,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -158,17 +166,22 @@ static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             RECT rc; GetClientRect(hwnd, &rc);
-            HBRUSH bg = CreateSolidBrush(CHIP_BG);
+            // 고대비 테마면 시스템 강조색 쌍으로 (W2-03) — 고정 남색은 일부 테마에서 읽히지 않는다
+            bool hc = Popup_HighContrast();
+            COLORREF cBg = hc ? GetSysColor(COLOR_HIGHLIGHT) : CHIP_BG;
+            COLORREF cText = hc ? GetSysColor(COLOR_HIGHLIGHTTEXT) : CHIP_TEXT;
+            COLORREF cLine = hc ? GetSysColor(COLOR_HIGHLIGHTTEXT) : CHIP_LINE;
+            HBRUSH bg = CreateSolidBrush(cBg);
             FillRect(hdc, &rc, bg);
             DeleteObject(bg);
             if (g_text[0] && g_font) {
                 HFONT of = (HFONT)SelectObject(hdc, g_font);
                 SetBkMode(hdc, TRANSPARENT);
-                SetTextColor(hdc, CHIP_TEXT);
+                SetTextColor(hdc, cText);
                 TextOutW(hdc, PAD_X, PAD_Y, g_text, (int)wcslen(g_text));
                 SelectObject(hdc, of);
                 // 조합 표시 밑줄 (인라인 조합의 관례를 칩 안에서 재현)
-                HPEN pen = CreatePen(PS_SOLID, 1, CHIP_LINE);
+                HPEN pen = CreatePen(PS_SOLID, 1, cLine);
                 HGDIOBJ op = SelectObject(hdc, pen);
                 MoveToEx(hdc, PAD_X, rc.bottom - 2, NULL);
                 LineTo(hdc, rc.right - PAD_X, rc.bottom - 2);

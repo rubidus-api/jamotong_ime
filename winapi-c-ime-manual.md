@@ -1216,6 +1216,19 @@ window (right size, slightly blurry); in an aware host `GetDpiForWindow` feeds o
 Even the thread-scoped call only adds crispness, so it was dropped for simplicity. Process-wide
 calls are legitimate only in **your own process** (the jamotong.exe tray app).
 
+How to apply it to IME popups (candidate list, code input, composition chip; 2026-09-22):
+- `GetDpiForWindow` answers for the window's **current** monitor. Create or move the popup
+  hidden at its target position first, read the DPI, then size it and show it — and read it
+  again on every show, because the next caret may be on another monitor. In an unaware host it
+  returns 96, so 100%-based sizes stay correct there without special cases.
+- Treat user-set sizes (a font size in the settings) as 100% values and scale them the same way.
+- Clamp to the monitor's **work area** (`MonitorFromPoint` + `rcWork`), not to `y < 0`: flip
+  above the caret line when there is no room below.
+- **High contrast**: fixed popup colors can become unreadable. When `SPI_GETHIGHCONTRAST`
+  reports `HCF_HIGHCONTRASTON`, draw with `COLOR_WINDOW`/`COLOR_WINDOWTEXT`/`COLOR_GRAYTEXT`
+  and `COLOR_HIGHLIGHT`/`COLOR_HIGHLIGHTTEXT`; read it at paint time so a theme switch applies
+  on the next paint.
+
 ## 11. Minimal checklist
 
 Minimum parts for a commit-only Korean TSF IME:

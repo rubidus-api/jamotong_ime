@@ -1,4 +1,5 @@
 #include "candidate_ui.h"
+#include "popup_style.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
 #include "hanja_dict.h"   // HunumDict_Find — 후보 옆 훈음(뜻·음) 표시
 #include <stdio.h>
@@ -59,11 +60,15 @@ static HFONT g_candFont = NULL;   // 후보창 글꼴 캐시 (매 WM_PAINT 생�
 
 // 후보창 스타일 — 설정(IME Options)에서 지정. 후보·훈음·페이지 표시·X버튼까지 이 글꼴/크기 하나.
 static wchar_t g_face[32] = L"Malgun Gothic";
-static int     g_fontPx   = 24;
+static int     g_fontPx   = 24;   // 100%(96 DPI) 기준 — 실제 픽셀은 창 DPI 로 배율 (W2-03)
+static UINT    g_dpi      = 96;   // 마지막으로 그린 창의 DPI (DPI 를 모르는 호스트는 늘 96)
 
-// 전 요소가 공유하는 파생 메트릭: 행 높이/여백은 글꼴 크기에서만 나온다.
-#define ROW_H   (g_fontPx + 8)
-#define PAD_TOP 6
+// 전 요소가 공유하는 파생 메트릭: 행 높이/여백은 글꼴 크기에서만 나온다(모두 DPI 배율 — W2-03).
+#define FONT_PX Popup_Scale(g_fontPx, g_dpi)
+#define ROW_H   (FONT_PX + Popup_Scale(8, g_dpi))
+#define PAD_TOP Popup_Scale(6, g_dpi)
+#define TEXT_X  Popup_Scale(10, g_dpi)
+#define XBTN_SZ Popup_Scale(16, g_dpi)   // 우상단 닫기(X) 버튼 한 변
 
 static int  PageItemCount(void);      // 전방 선언 (WndProc 마우스 처리에서 사용)
 static void SelectIndex(int realIdx);
@@ -83,7 +88,7 @@ void CandidateUI_SetStyle(const wchar_t *face, int sizePx) {
 
 static void EnsureCandFont(void) {
     if (!g_candFont)
-        g_candFont = CreateFontW(g_fontPx, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        g_candFont = CreateFontW(FONT_PX, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, g_face);
 }
 
@@ -113,7 +118,7 @@ static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
 // 현재 페이지 내용에 맞는 창 너비 계산 (훈음 길이 반영)
 static int MeasurePageWidth(void) {
     EnsureCandFont();
-    int w = 200;
+    int w = Popup_Scale(200, g_dpi);
     HDC hdc = GetDC(NULL);
     if (hdc) {
         HFONT of = (HFONT)SelectObject(hdc, g_candFont);
@@ -122,19 +127,25 @@ static int MeasurePageWidth(void) {
         for (int i = start; i < end; i++) {
             wchar_t buf[256]; SIZE sz;
             FormatCandLine(i, (i - start) + 1, buf, 256);
-            if (GetTextExtentPoint32W(hdc, buf, (int)wcslen(buf), &sz) && sz.cx + 24 > w) w = sz.cx + 24;
+            if (GetTextExtentPoint32W(hdc, buf, (int)wcslen(buf), &sz) && sz.cx + Popup_Scale(24, g_dpi) > w) w = sz.cx + Popup_Scale(24, g_dpi);
         }
         SelectObject(hdc, of);
         ReleaseDC(NULL, hdc);
     }
-    int cap480 = (g_fontPx * 30 > 480) ? g_fontPx * 30 : 480;   // 폭 상한(글꼴 크기 비례)
+    int cap480 = (FONT_PX * 30 > Popup_Scale(480, g_dpi)) ? FONT_PX * 30 : Popup_Scale(480, g_dpi);   // 폭 상한(글꼴 크기 비례)
     return (w > cap480) ? cap480 : w;
 }
 
 static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     RECT rc;
     GetClientRect(hwnd, &rc);
-    FillRect(hdc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
+    // 평소 색은 그대로(2026-07-24 모양), 고대비 테마면 시스템 색 (W2-03)
+    const PopupColors normal = { GetSysColor(COLOR_WINDOW), RGB(0, 0, 0), RGB(128, 128, 128),
+                                 RGB(160, 160, 160), RGB(203, 224, 252), RGB(0, 0, 0) };
+    PopupColors col; Popup_PickColors(Popup_HighContrast(), &normal, &col);
+    HBRUSH bgb = CreateSolidBrush(col.bg);
+    FillRect(hdc, &rc, bgb);
+    DeleteObject(bgb);
 
     EnsureCandFont();
     HFONT hOldFont = (HFONT)SelectObject(hdc, g_candFont);
@@ -150,12 +161,12 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
         FormatCandLine(i, (i - start) + 1, buf, 256);
         if (i - start == g_sel) {   // 선택 하이라이트 (↑↓로 이동, Enter로 확정)
             RECT hl = { 2, y - 2, rc.right - 2, y + ROW_H - 3 };
-            HBRUSH hb = CreateSolidBrush(RGB(203, 224, 252));
+            HBRUSH hb = CreateSolidBrush(col.selBg);
             FillRect(hdc, &hl, hb);
             DeleteObject(hb);
         }
-        SetTextColor(hdc, RGB(0, 0, 0));
-        TextOutW(hdc, 10, y, buf, (int)wcslen(buf));
+        SetTextColor(hdc, (i - start == g_sel) ? col.selText : col.text);
+        TextOutW(hdc, TEXT_X, y, buf, (int)wcslen(buf));
         y += ROW_H;
     }
 
@@ -163,12 +174,12 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     wchar_t pageBuf[32];
     int totalPages = (g_count + g_perPage - 1) / g_perPage;
     swprintf(pageBuf, 32, L"[%d/%d]", g_page + 1, totalPages);
-    SetTextColor(hdc, RGB(128, 128, 128));
-    TextOutW(hdc, 10, y + 3, pageBuf, (int)wcslen(pageBuf));
+    SetTextColor(hdc, col.dim);
+    TextOutW(hdc, TEXT_X, y + 3, pageBuf, (int)wcslen(pageBuf));
 
     // 우상단 닫기(X) 버튼 — 키보드가 막혀도 마우스로 탈출 가능
-    SetTextColor(hdc, RGB(160, 160, 160));
-    TextOutW(hdc, rc.right - 16, 2, L"\x2715", 1);   // ✕
+    SetTextColor(hdc, col.accent);
+    TextOutW(hdc, rc.right - XBTN_SZ, 2, L"\x2715", 1);   // ✕
 
     SelectObject(hdc, hOldFont);
 }
@@ -179,18 +190,7 @@ static void PlaceCandWindow(void) {
     if (!g_hwndCandi) return;
     int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
     int x = g_anchorX, y = g_anchorY;
-    POINT pt = { x, y };
-    HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi; mi.cbSize = sizeof(mi);
-    if (mon && GetMonitorInfoW(mon, &mi)) {
-        if (x + g_winW > mi.rcWork.right) x = mi.rcWork.right - g_winW;
-        if (x < mi.rcWork.left)           x = mi.rcWork.left;
-        if (y + h > mi.rcWork.bottom) {
-            int above = g_anchorTop - h - 4;   // 캐럿 줄 위로 뒤집기 (조합 줄을 덮지 않음)
-            y = (above >= mi.rcWork.top) ? above : mi.rcWork.bottom - h;
-        }
-        if (y < mi.rcWork.top) y = mi.rcWork.top;
-    }
+    Popup_ClampToMonitor(g_anchorTop, g_winW, h, &x, &y);   // 작업영역 클램프 (세 팝업 공통, W2-03)
     SetWindowPos(g_hwndCandi, HWND_TOPMOST, x, y, g_winW, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
@@ -224,7 +224,6 @@ static void RemoveKbHook(void) {
     if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = NULL; }
 }
 
-#define XBTN_SZ 16   // 우상단 닫기(X) 버튼 한 변
 
 static bool g_inHide = false;   // 우리 Hide 가 부수는 중인가 (소유자 파괴로 끌려가는 경우와 구별)
 
@@ -318,6 +317,13 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
                 return false;
             }
             OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
+        }
+        // 창이 놓인 자리의 DPI 로 글꼴·크기를 맞춘다 (아직 안 보이는 새 창 — 깜빡임 없음, W2-03)
+        UINT dpi = Popup_WindowDpi(g_hwndCandi);
+        if (dpi != g_dpi) {
+            g_dpi = dpi;
+            if (g_candFont) { DeleteObject(g_candFont); g_candFont = NULL; }
+            g_winW = MeasurePageWidth();
         }
         PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
         InvalidateRect(g_hwndCandi, NULL, TRUE);

@@ -1,4 +1,5 @@
 #include "code_input.h"
+#include "popup_style.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
 #include "edit_session.h"   // JamoDiag
 #include "ui_element.h"
@@ -35,8 +36,10 @@ static wchar_t g_hex[8];      // 입력 중 16진수 (최대 6자리)
 static int     g_hexLen = 0;
 static HFONT   g_fontUi = NULL, g_fontBig = NULL;
 
-#define CI_W 300
-#define CI_H 118
+static UINT    g_dpi = 96;       // 창이 놓인 자리의 DPI (W2-03) — 모든 치수는 100% 기준값을 배율
+#define S(px)  Popup_Scale((px), g_dpi)
+#define CI_W   S(300)
+#define CI_H   S(118)
 
 // 코드포인트의 사람이 읽는 이름: 한자면 훈음("집 가")·음("가"), 아니면 유니코드 블록명.
 //   out 은 32자 이상. 빈 문자열이면 표시 생략.
@@ -80,10 +83,10 @@ static unsigned CurCodepoint(void) {
 
 static void EnsureFonts(void) {
     if (!g_fontUi)
-        g_fontUi = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+        g_fontUi = CreateFontW(S(16), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
                                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
     if (!g_fontBig)
-        g_fontBig = CreateFontW(40, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+        g_fontBig = CreateFontW(S(40), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
 }
 
@@ -93,25 +96,31 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             RECT rc; GetClientRect(hwnd, &rc);
-            FillRect(hdc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
+            // 평소 색 그대로, 고대비 테마면 시스템 색 (W2-03)
+            const PopupColors normal = { GetSysColor(COLOR_WINDOW), RGB(0, 0, 0), RGB(128, 128, 128),
+                                         RGB(0, 60, 160), RGB(0, 0, 0), RGB(0, 0, 0) };
+            PopupColors col; Popup_PickColors(Popup_HighContrast(), &normal, &col);
+            HBRUSH bgb = CreateSolidBrush(col.bg);
+            FillRect(hdc, &rc, bgb);
+            DeleteObject(bgb);
             EnsureFonts();
             SetBkMode(hdc, TRANSPARENT);
 
             HFONT of = (HFONT)SelectObject(hdc, g_fontUi);
             wchar_t line[32];
             swprintf(line, 32, L"U+%s_", g_hexLen ? g_hex : L"");
-            SetTextColor(hdc, RGB(0, 0, 0));
-            TextOutW(hdc, 10, 8, line, (int)wcslen(line));
-            SetTextColor(hdc, RGB(128, 128, 128));
-            TextOutW(hdc, 10, CI_H - 22, L"hex 2-6 digits, then Enter", 26);
+            SetTextColor(hdc, col.text);
+            TextOutW(hdc, S(10), S(8), line, (int)wcslen(line));
+            SetTextColor(hdc, col.dim);
+            TextOutW(hdc, S(10), CI_H - S(22), L"hex 2-6 digits, then Enter", 26);
 
             unsigned cp = CurCodepoint();
             // 문자명 (한자면 훈음/음, 아니면 블록명) — hex 아래 회색 한 줄
             if (cp) {
                 wchar_t name[40]; CodepointName(cp, name, 40);
                 if (name[0]) {
-                    SetTextColor(hdc, RGB(90, 90, 90));
-                    TextOutW(hdc, 10, 32, name, (int)wcslen(name));
+                    SetTextColor(hdc, Popup_HighContrast() ? col.text : RGB(90, 90, 90));
+                    TextOutW(hdc, S(10), S(32), name, (int)wcslen(name));
                 }
             }
 
@@ -124,8 +133,8 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
                     unsigned v = cp - 0x10000;
                     prev[0] = (wchar_t)(0xD800 + (v >> 10)); prev[1] = (wchar_t)(0xDC00 + (v & 0x3FF)); prev[2] = 0;
                 }
-                SetTextColor(hdc, RGB(0, 60, 160));
-                TextOutW(hdc, CI_W - 66, 20, prev, (int)wcslen(prev));
+                SetTextColor(hdc, col.accent);
+                TextOutW(hdc, CI_W - S(66), S(20), prev, (int)wcslen(prev));
             }
             SelectObject(hdc, of);
             EndPaint(hwnd, &ps);
@@ -163,7 +172,7 @@ void CodeInput_ShowWindowless(void) {   // 창을 만들지 않고 입력만 받
     g_hexLen = 0; g_hex[0] = L'\0';
 }
 
-void CodeInput_Show(int x, int y) {
+void CodeInput_Show(int x, int y, int caretTop) {
     g_windowless = false;
     g_wlActive = false;
     if (!UiElem_BeginCode()) return;   // RFC-0012 Phase 3 게이트 (재호출 안전)
@@ -176,8 +185,18 @@ void CodeInput_Show(int x, int y) {
         if (!g_hwnd) return;
         OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
     }
+    // 보이지 않는 채로 자리부터 옮겨 그 자리의 DPI 를 읽고, 치수·글꼴을 맞춘 뒤 작업영역 안에 띄운다 (W2-03)
+    SetWindowPos(g_hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    UINT dpi = Popup_WindowDpi(g_hwnd);
+    if (dpi != g_dpi) {
+        g_dpi = dpi;
+        if (g_fontUi)  { DeleteObject(g_fontUi);  g_fontUi = NULL; }
+        if (g_fontBig) { DeleteObject(g_fontBig); g_fontBig = NULL; }
+    }
+    Popup_ClampToMonitor(caretTop, CI_W, CI_H, &x, &y);
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, CI_W, CI_H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(g_hwnd, NULL, TRUE);
+    NotifyWinEvent(EVENT_OBJECT_IME_SHOW, g_hwnd, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W2-03, 후보창과 같게)
 }
 
 bool CodeInput_IsVisible(void) { return g_wlActive || (g_hwnd && IsWindowVisible(g_hwnd)); }
@@ -218,7 +237,10 @@ bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint) {
 void CodeInput_Hide(void) {
     g_wlActive = false;   // 창 없는 모드도 함께 내린다
     UiElem_EndCode();
-    if (g_hwnd) ShowWindow(g_hwnd, SW_HIDE);
+    if (g_hwnd && IsWindowVisible(g_hwnd)) {
+        NotifyWinEvent(EVENT_OBJECT_IME_HIDE, g_hwnd, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W2-03)
+        ShowWindow(g_hwnd, SW_HIDE);
+    }
     g_hexLen = 0; g_hex[0] = L'\0';
 }
 

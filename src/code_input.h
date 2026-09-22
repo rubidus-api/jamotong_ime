@@ -5,7 +5,7 @@
 #include <windows.h>
 #include <stdbool.h>
 
-void CodeInput_Show(int x, int y);          // 팝업 열기 (입력 스레드, lazy 생성)
+void CodeInput_Show(int x, int y, int caretTop);   // 팝업 열기 (입력 스레드, lazy 생성). 아래가 모자라면 caretTop 위로
 bool CodeInput_IsVisible(void);
 // 키 처리. 소비했으면 true. Enter 확정 시 *outCodepoint에 코드포인트(≥0x20)를 담는다(그 외 0).
 bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint);

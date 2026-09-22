@@ -1037,9 +1037,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             if (pfEaten) *pfEaten = TRUE;
             goto kd_done;
         }
-        RECT rc; int x = 100, y = 100;
-        if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
-        CodeInput_Show(x, y);
+        RECT rc; int x = 100, y = 100, top = 96;
+        if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
+        CodeInput_Show(x, y, top);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
@@ -1479,9 +1479,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
                 if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
                 break;
             }
-            RECT rc; int x = 100, y = 100;
-            if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; }
-            CodeInput_Show(x, y);
+            RECT rc; int x = 100, y = 100, top = 96;
+            if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
+            CodeInput_Show(x, y, top);
             break;
         }
         case SC_FN_PASSTHROUGH: {
