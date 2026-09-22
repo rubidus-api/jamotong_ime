@@ -1,4 +1,5 @@
 #include "candidate_ui.h"
+#include "jamo_class.h"   // RFC-0008 W2-05
 #include "hanja_dict.h"   // HunumDict_Find — 후보 옆 훈음(뜻·음) 표시
 #include <stdio.h>
 
@@ -271,8 +272,7 @@ bool CandidateUI_Initialize(void) {
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.lpszClassName = L"JamotongCandidateUI";
-    RegisterClassW(&wc);
-    return true;
+    return Jamo_EnsureClass(&wc);   // W2-05
 }
 
 void CandidateUI_Uninitialize(void) {

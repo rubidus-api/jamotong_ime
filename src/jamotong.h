@@ -190,5 +190,6 @@ typedef struct JamotongClassFactory {
 
 // Global instance count to manage DLL unloading
 extern LONG g_DllRefCount;
+#include "jamo_class.h"   // RFC-0008 W2-05 창 클래스 등록/해제
 
 // g_configLock은 config.h에 선언 (config.c도 접근).

@@ -1,4 +1,5 @@
 #include "preedit_overlay.h"
+#include "jamo_class.h"   // RFC-0008 W2-05
 #include "ui_element.h"
 #include "edit_session.h"   // JamoDiag (JAMO_DIAG 빌드에서만 기록)
 #include <string.h>
@@ -185,18 +186,12 @@ static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
 
 // 클래스 등록(1회). 실패해도 다음 Show에서 재시도하지 않도록 s_tried로 1회만.
 static bool EnsureClass(void) {
-    static bool s_tried = false, s_ok = false;
-    if (!s_tried) {
-        s_tried = true;
-        WNDCLASSW wc = {0};
-        wc.lpfnWndProc = OverlayWndProc;
-        wc.hInstance = g_hInst;
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.lpszClassName = L"JamotongPreeditOverlay";
-        s_ok = RegisterClassW(&wc) != 0;
-        if (!s_ok && GetLastError() == ERROR_CLASS_ALREADY_EXISTS) s_ok = true;
-    }
-    return s_ok;
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = OverlayWndProc;
+    wc.hInstance = g_hInst;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.lpszClassName = L"JamotongPreeditOverlay";
+    return Jamo_EnsureClass(&wc);   // W2-05
 }
 
 void PreeditOverlay_Show(const RECT *rcCaret, const wchar_t *text, const wchar_t *fontFace, int fixedSize) {

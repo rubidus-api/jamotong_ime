@@ -1,4 +1,5 @@
 #include "settings_ui.h"
+#include "jamo_class.h"   // RFC-0008 W2-05
 #include "klay.h"      // Klay_Load — Add 버튼으로 .jmt 자판 불러오기
 #include <commctrl.h>
 #include <stdio.h>
@@ -265,13 +266,14 @@ static LRESULT CALLBACK CaptureProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 // 부모 창을 모달로 잠그고 캡처 팝업을 띄운다. true = 캡처됨(*out 채움).
 static bool CaptureShortcut(HWND parent, ShortcutKey *out) {
     static bool s_reg = false;
-    if (!s_reg) {
+    (void)s_reg;
+    {
         WNDCLASSW wc = {0};
         wc.lpfnWndProc = CaptureProc; wc.hInstance = g_hInst;
         wc.lpszClassName = L"JamotongCaptureClass";
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        RegisterClassW(&wc); s_reg = true;
+        Jamo_EnsureClass(&wc);   // W2-05
     }
     g_capDone = false; g_capPendingMod = 0; g_capResult.vKey = 0; g_capResult.mods = 0;
     RECT pr; GetWindowRect(parent, &pr);
@@ -984,7 +986,7 @@ static DWORD WINAPI SettingsThreadProc(LPVOID lpParam) {
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
-    RegisterClassW(&wc);
+    Jamo_EnsureClass(&wc);   // W2-05
 
     // 트랜잭션 버퍼 복사 (입력 스레드의 자판 전환/설정 적용과 직렬화)
     if (g_pRealConfig) {

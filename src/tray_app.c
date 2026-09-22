@@ -645,7 +645,7 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"JamotongManager";
-    wc.hIcon = LoadIconW(hI, MAKEINTRESOURCEW(1));   // .rc의 프로파일 아이콘
+    wc.hIcon = LoadIconW(hI, MAKEINTRESOURCEW(100));   // jamotong_app.rc 의 아이콘 (W2-08: 예전엔 없는 ID 1)
     RegisterClassW(&wc);
 
     g_hMain = CreateWindowW(L"JamotongManager", L"Jamotong Manager",

@@ -64,10 +64,16 @@ void Compart_Publish(JamotongTextService *obj) {
 static HRESULT STDMETHODCALLTYPE CES_QueryInterface(ITfCompartmentEventSink *pThis, REFIID riid, void **ppv) {
     JamotongTextService *obj = IMPL_TO_OBJ(CES, pThis);
     if (!ppv) return E_INVALIDARG;
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &kIID_ITfCompartmentEventSink_J)) {
-        *ppv = &obj->lpVtblCES; obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); return S_OK;
-    }
-    *ppv = NULL; return E_NOINTERFACE;
+    // RFC-0008 W2-04: IUnknown 은 TIP 의 정식 포인터 — 모든 QI 를 TIP 에 맡긴다.
+    return obj->lpVtblTIP->QueryInterface((ITfTextInputProcessor*)obj, riid, ppv);
+}
+
+// TIP_QueryInterface 가 부른다: compartment 통지 sink 인터페이스면 채우고 AddRef.
+bool Compart_QueryInterface(JamotongTextService *obj, REFIID riid, void **ppv) {
+    if (!IsEqualIID(riid, &kIID_ITfCompartmentEventSink_J)) return false;
+    *ppv = &obj->lpVtblCES;
+    obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj);
+    return true;
 }
 static ULONG STDMETHODCALLTYPE CES_AddRef(ITfCompartmentEventSink *pThis) {
     JamotongTextService *obj = IMPL_TO_OBJ(CES, pThis);

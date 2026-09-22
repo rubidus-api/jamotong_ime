@@ -12,7 +12,7 @@ CFLAGS = -Wall -Wextra -std=c2x -D_UNICODE -DUNICODE -O2
 LDFLAGS = -shared -static -static-libgcc -s -Wl,--enable-stdcall-fixup -lole32 -loleaut32 -luuid -lcomctl32 -lcomdlg32 -lgdi32 -limm32 -ladvapi32
 
 TARGET = dist/jamotong.dll
-SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/klay_diag.c src/klay_src.c src/func_configure.c src/preedit_overlay.c src/code_input.c src/comp_path.c src/edit_verdict.c src/transition.c src/hanja_txn.c src/comp_inline.c src/comp_state.c src/compartment.c src/preserved_map.c src/preserved.c src/ui_element.c src/ui_client.c
+SRCS = src/dllmain.c src/text_service.c src/register.c src/fsm.c src/layout.c src/edit_session.c src/config.c src/langbar.c src/settings_ui.c src/plugin_loader.c src/hanja_dict.c src/candidate_ui.c src/display_attr.c src/special_char.c src/hangul_layout.c src/chord.c src/chord_layout.c src/klay.c src/klay_diag.c src/klay_src.c src/func_configure.c src/preedit_overlay.c src/code_input.c src/comp_path.c src/edit_verdict.c src/transition.c src/hanja_txn.c src/comp_inline.c src/comp_state.c src/compartment.c src/preserved_map.c src/preserved.c src/ui_element.c src/ui_client.c src/jamo_class.c
 HEADERS = $(wildcard src/*.h)
 
 # src/jamotong.def: DllRegisterServer 등 진입점을 장식 없는 이름으로 export (32비트 regsvr32 필수)
@@ -38,11 +38,12 @@ dist/jamotong32.dll: $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 
 # 트레이 모니터링/설정 앱
 APP_SRCS = src/tray_app.c src/config.c src/layout.c src/fsm.c src/hangul_layout.c \
-           src/chord.c src/chord_layout.c src/klay.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c
+           src/chord.c src/chord_layout.c src/klay.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c src/jamo_class.c
 configapp: dist/jamotong.exe
-dist/jamotong.exe: $(APP_SRCS)
+dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico
 	@mkdir -p dist
-	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32 -ladvapi32
+	$(WINDRES64) -I src src/jamotong_app.rc -O coff -o dist/jamotong_app_res.o
+	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) dist/jamotong_app_res.o -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32 -ladvapi32
 
 # 빌드 산출물 + 재배포 데이터(redist/: 한자 데이터·설치 스크립트·예제 자판)를 dist/에 모아
 # '설치 가능한 폴더'를 만든다. 소스 빌드 사용자는 이 폴더에서 install.bat 실행.

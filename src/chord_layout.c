@@ -146,8 +146,11 @@ static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
         if (!_wcsicmp(verb, L"mouse")) {
             if (!_wcsicmp(a1, L"move")) { e->act = CA_MOUSE_MOVE;
                 // 두 번째 좌표는 rhs에서 재파싱
-                int dx=0, dy=0; swscanf(rhs, L"mouse move %d %d", &dx, &dy); e->p1=dx; e->p2=dy; return true; }
+                int dx=0, dy=0;
+                if (swscanf(rhs, L"mouse move %d %d", &dx, &dy) != 2) return false;   // W2-02: 좌표 둘 다 필요
+                e->p1=dx; e->p2=dy; return true; }
             if (!_wcsicmp(a1, L"click") || !_wcsicmp(a1, L"down") || !_wcsicmp(a1, L"up")) {
+                if (a2[0] && _wcsicmp(a2, L"left") && _wcsicmp(a2, L"right") && _wcsicmp(a2, L"middle")) return false;   // W2-02
                 e->act = CA_MOUSE_BTN;
                 e->p1 = (!_wcsicmp(a2, L"right"))?1 : (!_wcsicmp(a2, L"middle"))?2 : 0;
                 e->p2 = (!_wcsicmp(a1, L"down"))?1 : (!_wcsicmp(a1, L"up"))?2 : 0;
@@ -267,6 +270,15 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         else if (Klay_UnknownLine(diag, p, lineno, col0, kChordDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
     if (diag) diag->curFile = NULL;
+    // W2-02: 참조만 되고 조합이 하나도 없는 레이어 = 대개 이름 오타 (layer nmu). 막지는 않고 알린다.
+    for (int l = 1; !bad && l < cl->layerCount; l++) {
+        bool used = false;
+        for (int i = 0; i < cl->chordCount && !used; i++) if (cl->chords[i].layer == l) used = true;
+        if (!used) {
+            wchar_t msg[160]; swprintf(msg, 160, L"layer '%ls' has no chords", cl->layerNames[l]);
+            KlayDiag_Add(diag, KLAY_SEV_WARNING, 0, 1, L"W-JMT-EMPTY-LAYER", msg, L"check the layer name, or add 'Layer <name>' and its chords");
+        }
+    }
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
     // 정확 크기로 축소 재할당 (RFC-0011 P0): 고정 배열 chords[2048] 전체(≈182KB)를 모든 호스트
     // 프로세스가 지는 대신, 실제 조합 수만큼만. 구조체 선언은 그대로 두되 할당만 줄인다 —

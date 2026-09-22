@@ -29,7 +29,7 @@ BEGIN
             VALUE "FileVersion", "0.27.0"
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
-            VALUE "OriginalFilename", "jamotong.ime"
+            VALUE "OriginalFilename", "jamotong.dll"
             VALUE "ProductName", "Jamotong IME"
             VALUE "ProductVersion", "0.27.0"
         END

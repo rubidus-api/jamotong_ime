@@ -38,31 +38,64 @@ static ITfDisplayAttributeInfoVtbl g_DAIVtbl = {   // non-const: msctf.h's lpVtb
 };
 static ITfDisplayAttributeInfo g_DAI = { &g_DAIVtbl };
 
-// ── IEnumTfDisplayAttributeInfo (singleton; position reset on each Enum call) ────
-static int g_enumPos;   // 0 = the single info not yet returned, 1 = exhausted
+// ── IEnumTfDisplayAttributeInfo — 호출마다 독립 객체 (RFC-0008 W2-01) ─────────────────
+// 예전엔 전역 싱글턴이 위치를 공유해, 두 열거가 겹치면 서로의 위치를 바꿨고 Clone 은 같은 객체를
+// 돌려줬다. 이제 열거자마다 자기 위치와 참조 수를 갖고, Clone 은 같은 위치의 새 객체다.
+typedef struct DAEnum {
+    IEnumTfDisplayAttributeInfoVtbl *lpVtbl;
+    LONG refCount;
+    ULONG pos;   // 0 = 하나뿐인 정보를 아직 안 줌, 1 = 다 줌
+} DAEnum;
+static IEnumTfDisplayAttributeInfoVtbl g_DAEVtbl;
 
+static HRESULT DAEnum_Create(ULONG pos, IEnumTfDisplayAttributeInfo **ppEnum) {
+    DAEnum *e = (DAEnum*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DAEnum));
+    if (!e) { *ppEnum = NULL; return E_OUTOFMEMORY; }
+    e->lpVtbl = &g_DAEVtbl; e->refCount = 1; e->pos = pos;
+    InterlockedIncrement(&g_DllRefCount);   // 살아 있는 동안 DLL 을 내리지 않는다
+    *ppEnum = (IEnumTfDisplayAttributeInfo*)e;
+    return S_OK;
+}
 static HRESULT STDMETHODCALLTYPE DAE_QueryInterface(IEnumTfDisplayAttributeInfo *self, REFIID riid, void **ppv) {
     if (!ppv) return E_INVALIDARG;
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IEnumTfDisplayAttributeInfo)) { *ppv = self; return S_OK; }
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IEnumTfDisplayAttributeInfo)) {
+        *ppv = self; self->lpVtbl->AddRef(self); return S_OK;
+    }
     *ppv = NULL; return E_NOINTERFACE;
 }
-static ULONG STDMETHODCALLTYPE DAE_AddRef(IEnumTfDisplayAttributeInfo *self)  { (void)self; return 1; }
-static ULONG STDMETHODCALLTYPE DAE_Release(IEnumTfDisplayAttributeInfo *self) { (void)self; return 1; }
-static HRESULT STDMETHODCALLTYPE DAE_Clone(IEnumTfDisplayAttributeInfo *self, IEnumTfDisplayAttributeInfo **ppEnum) { if (!ppEnum) return E_INVALIDARG; *ppEnum = self; return S_OK; }
+static ULONG STDMETHODCALLTYPE DAE_AddRef(IEnumTfDisplayAttributeInfo *self) {
+    return (ULONG)InterlockedIncrement(&((DAEnum*)self)->refCount);
+}
+static ULONG STDMETHODCALLTYPE DAE_Release(IEnumTfDisplayAttributeInfo *self) {
+    DAEnum *e = (DAEnum*)self;
+    LONG r = InterlockedDecrement(&e->refCount);
+    if (r == 0) { HeapFree(GetProcessHeap(), 0, e); InterlockedDecrement(&g_DllRefCount); }
+    return (ULONG)r;
+}
+static HRESULT STDMETHODCALLTYPE DAE_Clone(IEnumTfDisplayAttributeInfo *self, IEnumTfDisplayAttributeInfo **ppEnum) {
+    if (!ppEnum) return E_INVALIDARG;
+    return DAEnum_Create(((DAEnum*)self)->pos, ppEnum);
+}
 static HRESULT STDMETHODCALLTYPE DAE_Next(IEnumTfDisplayAttributeInfo *self, ULONG ulCount, ITfDisplayAttributeInfo **rgInfo, ULONG *pcFetched) {
-    (void)self; ULONG fetched = 0;
-    if (ulCount > 0 && rgInfo && g_enumPos == 0) { rgInfo[0] = &g_DAI; g_enumPos = 1; fetched = 1; }
+    DAEnum *e = (DAEnum*)self; ULONG fetched = 0;
+    if (ulCount > 0 && !rgInfo) return E_INVALIDARG;
+    if (ulCount > 0 && e->pos == 0) { rgInfo[0] = &g_DAI; g_DAI.lpVtbl->AddRef(&g_DAI); e->pos = 1; fetched = 1; }
     if (pcFetched) *pcFetched = fetched;
     return (fetched == ulCount) ? S_OK : S_FALSE;
 }
-static HRESULT STDMETHODCALLTYPE DAE_Reset(IEnumTfDisplayAttributeInfo *self) { (void)self; g_enumPos = 0; return S_OK; }
-static HRESULT STDMETHODCALLTYPE DAE_Skip(IEnumTfDisplayAttributeInfo *self, ULONG ulCount) { (void)self; if (ulCount) g_enumPos = 1; return S_OK; }
+static HRESULT STDMETHODCALLTYPE DAE_Reset(IEnumTfDisplayAttributeInfo *self) { ((DAEnum*)self)->pos = 0; return S_OK; }
+static HRESULT STDMETHODCALLTYPE DAE_Skip(IEnumTfDisplayAttributeInfo *self, ULONG ulCount) {
+    DAEnum *e = (DAEnum*)self;
+    if (ulCount == 0) return S_OK;
+    bool had = (e->pos == 0);
+    e->pos = 1;
+    return (had && ulCount == 1) ? S_OK : S_FALSE;   // 건너뛸 항목이 모자라면 S_FALSE
+}
 
 static IEnumTfDisplayAttributeInfoVtbl g_DAEVtbl = {   // non-const: msctf.h's lpVtbl is non-const
     DAE_QueryInterface, DAE_AddRef, DAE_Release,
     DAE_Clone, DAE_Next, DAE_Reset, DAE_Skip
 };
-static IEnumTfDisplayAttributeInfo g_DAE = { &g_DAEVtbl };
 
 // ── ITfDisplayAttributeProvider (implemented on the TIP object) ──────────────────
 static HRESULT STDMETHODCALLTYPE DAP_QueryInterface(ITfDisplayAttributeProvider *pThis, REFIID riid, void **ppv) {
@@ -79,7 +112,7 @@ static ULONG STDMETHODCALLTYPE DAP_Release(ITfDisplayAttributeProvider *pThis) {
 }
 static HRESULT STDMETHODCALLTYPE DAP_EnumDisplayAttributeInfo(ITfDisplayAttributeProvider *pThis, IEnumTfDisplayAttributeInfo **ppEnum) {
     (void)pThis; if (!ppEnum) return E_INVALIDARG;
-    g_enumPos = 0; *ppEnum = &g_DAE; return S_OK;
+    return DAEnum_Create(0, ppEnum);
 }
 static HRESULT STDMETHODCALLTYPE DAP_GetDisplayAttributeInfo(ITfDisplayAttributeProvider *pThis, REFGUID guid, ITfDisplayAttributeInfo **ppInfo) {
     (void)pThis;

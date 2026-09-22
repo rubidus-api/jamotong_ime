@@ -145,6 +145,13 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
                      L"use 1 to 4 characters");
 
     bool ok = false;
+    if (type[0] && _wcsicmp(type, L"static") && _wcsicmp(type, L"chord") && _wcsicmp(type, L"hangul")) {
+        // RFC-0008 W2-02: 예전엔 모르는 Type 이 조용히 hangul 로 읽혔다
+        wchar_t msg[160]; swprintf(msg, 160, L"unknown Type '%ls'", type);
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-TYPE-UNKNOWN", msg, L"Type must be static, hangul or chord");
+        KlayLines_Free(&L);
+        return false;
+    }
     if (!_wcsicmp(type, L"static")) {
         ok = LoadStatic(&L, out, diag);
     } else if (!_wcsicmp(type, L"chord")) {

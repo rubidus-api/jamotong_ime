@@ -22,3 +22,5 @@ void Compart_Detach(JamotongTextService *obj);   // TIP_Deactivate (threadMgr �
 void Compart_Publish(JamotongTextService *obj);
 // 포커스 문맥의 KEYBOARD_DISABLED 를 읽어 obj->ctxKeyboardDisabled 에 캐시(TMES_OnSetFocus 에서).
 void Compart_ReadContextDisabled(JamotongTextService *obj, ITfContext *pic);
+// TIP 의 QueryInterface 가 compartment 통지 sink IID 를 물을 때 (RFC-0008 W2-04). 채웠으면 true.
+bool Compart_QueryInterface(JamotongTextService *obj, REFIID riid, void **ppv);

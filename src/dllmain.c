@@ -18,17 +18,9 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
         DisableThreadLibraryCalls(hinstDLL);
         InitializeCriticalSection(&g_configLock);
     } else if (fdwReason == DLL_PROCESS_DETACH) {
-        // 동적 언로드(FreeLibrary)일 때만 우리가 등록한 윈도 클래스를 해제한다(MSDN: DLL이 등록한
-        // 클래스는 언로드 시 자동 해제되지 않음). 안 하면 WndProc이 언로드된 코드를 가리키는 낡은
-        // 클래스가 남아, DLL이 다른 주소로 재로드된 뒤 RegisterClassW가 조용히 실패하고
-        // CreateWindow가 댕글링 WndProc을 불러 크래시한다. (프로세스 종료 시엔 OS가 정리 — 생략)
-        if (lpvReserved == NULL) {
-            UnregisterClassW(L"JamotongCandidateUI", hinstDLL);
-            UnregisterClassW(L"JamotongSettingsClass", hinstDLL);
-            UnregisterClassW(L"JamotongCaptureClass", hinstDLL);
-            UnregisterClassW(L"JamotongPreeditOverlay", hinstDLL);
-            UnregisterClassW(L"JamotongCodeInput", hinstDLL);
-        }
+        // 창 클래스 해제는 여기서 하지 않는다(RFC-0008 W2-05) — 로더 잠금 안에서 User32 를 부르는 것은
+        // 금지 목록이다. DllCanUnloadNow 가 S_OK 를 돌려줄 때(COM 이 곧 FreeLibrary 한다) 해제한다.
+        (void)lpvReserved;
         DeleteCriticalSection(&g_configLock);
     }
     return TRUE;
@@ -41,6 +33,7 @@ bool Jamotong_HasPendingTimers(void);
 STDAPI DllCanUnloadNow(void) {
     if (g_DllRefCount != 0) return S_FALSE;
     if (Jamotong_HasPendingTimers()) return S_FALSE;
+    Jamo_UnregisterClasses();   // W2-05: 로더 잠금 밖, 인스턴스 0 인 지금
     return S_OK;
 }
 

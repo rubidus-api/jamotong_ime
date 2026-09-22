@@ -1,4 +1,5 @@
 #include "code_input.h"
+#include "jamo_class.h"   // RFC-0008 W2-05
 #include "edit_session.h"   // JamoDiag
 #include "ui_element.h"
 #include "hanja_dict.h"   // 한자 코드포인트 → 훈음/음 이름 표시
@@ -137,18 +138,12 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
 }
 
 static bool EnsureClass(void) {
-    static bool s_tried = false, s_ok = false;
-    if (!s_tried) {
-        s_tried = true;
-        WNDCLASSW wc = {0};
-        wc.lpfnWndProc = CodeInputWndProc;
-        wc.hInstance = g_hInst;
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.lpszClassName = L"JamotongCodeInput";
-        s_ok = RegisterClassW(&wc) != 0;
-        if (!s_ok && GetLastError() == ERROR_CLASS_ALREADY_EXISTS) s_ok = true;
-    }
-    return s_ok;
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = CodeInputWndProc;
+    wc.hInstance = g_hInst;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.lpszClassName = L"JamotongCodeInput";
+    return Jamo_EnsureClass(&wc);   // W2-05: 해제된 뒤에도 다시 등록된다
 }
 
 // 창 없는 모드(UWP 호스트): 상태만 유지하고 그리기는 데스크톱 헬퍼가 한다(RFC-0015 Phase 2).

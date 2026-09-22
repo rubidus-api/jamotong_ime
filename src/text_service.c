@@ -1020,6 +1020,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);
         }
+        EnsureHanjaDicts();   // RFC-0008 W2-10: 코드 입력 줄의 훈음은 사전이 있어야 보인다 (한자를 먼저 안 썼어도)
         // UWP(AppContainer) 호스트에서는 팝업 창이 화면에 나타나지 않는다(HostIsAppContainer 주석).
         //  - 헬퍼가 있으면(RFC-0015 Phase 2) 창 없이 상태만 열고 헬퍼가 그 줄을 그린다 → 평소 UX.
         //  - 헬퍼가 없으면 "먼저 16진수를 치고 이 키" 로 강등한다(0.19.1 동작).
@@ -1463,6 +1464,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
                 FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
                 OutputResultSeq(obj, pic, res, TRUE);
             }
+            EnsureHanjaDicts();   // W2-10 (preserved key 경로도 같다)
             // UWP(AppContainer): 팝업이 화면에 나타나지 않는다 → "16진수를 먼저 치고 이 키" 로 강등.
             // (preserved key 경로. OnKeyDown 쪽 SC_FN_CODE 분기와 같은 동작이어야 한다.)
             if (HostIsAppContainer()) {
@@ -1519,6 +1521,9 @@ static ITfKeyEventSinkVtbl KeyEventSinkVtbl = {
 // ITfTextInputProcessor Implementation
 // ------------------------------------------------------------------
 
+static const GUID kIID_ITfThreadMgrEventSink   = { 0xaa80e80e, 0x2021, 0x11d2, { 0x93, 0xe0, 0x00, 0x60, 0xb0, 0x67, 0xb8, 0x6e } };
+static const GUID kIID_ITfTextEditSink         = { 0x8127d409, 0xccd3, 0x4683, { 0x96, 0x7a, 0xb4, 0x3d, 0x5b, 0x48, 0x2b, 0xf7 } };
+
 static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis, REFIID riid, void **ppvObject) {
     JamotongTextService *obj = (JamotongTextService*)pThis;
     if (!ppvObject) return E_INVALIDARG;
@@ -1536,6 +1541,12 @@ static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis
         *ppvObject = &obj->lpVtblFuncProv;   // 설정 "옵션" 노출
     } else if (IsEqualIID(riid, &IID_ITfFnConfigure_J) || IsEqualIID(riid, &IID_ITfFunction_J)) {
         *ppvObject = &obj->lpVtblFnConfig;   // "옵션" → 설정창
+    } else if (IsEqualIID(riid, &kIID_ITfTextEditSink)) {
+        *ppvObject = &obj->lpVtblTES;        // RFC-0008 W2-04: 한 객체의 모든 인터페이스가 서로 QI 된다
+    } else if (IsEqualIID(riid, &kIID_ITfThreadMgrEventSink)) {
+        *ppvObject = &obj->lpVtblTMES;
+    } else if (Compart_QueryInterface(obj, riid, ppvObject)) {
+        return S_OK;                         // compartment 통지 sink (AddRef 는 그쪽에서)
     } else {
         *ppvObject = NULL;
         return E_NOINTERFACE;
@@ -1566,8 +1577,6 @@ static ULONG STDMETHODCALLTYPE TIP_Release(ITfTextInputProcessor *pThis) {
 //   등 IMM32 브리지)가 우리 조합을 미소유로 보고 세션 후 확정·종료시키는 것으로 보인다.
 //   (msctf.h에 선언만 있고 uuid 라이브러리에 없을 수 있어 IID를 직접 정의)
 static const GUID kIID_ITfSource               = { 0x4ea48a35, 0x60ae, 0x446f, { 0x8f, 0xd6, 0xe6, 0xa8, 0xd8, 0x24, 0x59, 0xf7 } };
-static const GUID kIID_ITfThreadMgrEventSink   = { 0xaa80e80e, 0x2021, 0x11d2, { 0x93, 0xe0, 0x00, 0x60, 0xb0, 0x67, 0xb8, 0x6e } };
-static const GUID kIID_ITfTextEditSink         = { 0x8127d409, 0xccd3, 0x4683, { 0x96, 0x7a, 0xb4, 0x3d, 0x5b, 0x48, 0x2b, 0xf7 } };
 
 static void AdviseTextEditSink(JamotongTextService *obj, ITfContext *pContext);
 
@@ -1575,10 +1584,8 @@ static void AdviseTextEditSink(JamotongTextService *obj, ITfContext *pContext);
 static HRESULT STDMETHODCALLTYPE TES_QueryInterface(ITfTextEditSink *pThis, REFIID riid, void **ppv) {
     JamotongTextService *obj = IMPL_TO_OBJ(TES, pThis);
     if (!ppv) return E_INVALIDARG;
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &kIID_ITfTextEditSink)) {
-        *ppv = &obj->lpVtblTES; obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); return S_OK;
-    }
-    *ppv = NULL; return E_NOINTERFACE;
+    // RFC-0008 W2-04: IUnknown 은 TIP 의 정식 포인터 — 모든 QI 를 TIP 에 맡긴다(동일성·대칭).
+    return obj->lpVtblTIP->QueryInterface((ITfTextInputProcessor*)obj, riid, ppv);
 }
 static ULONG STDMETHODCALLTYPE TES_AddRef(ITfTextEditSink *pThis)  { JamotongTextService *obj = IMPL_TO_OBJ(TES, pThis); return obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); }
 static ULONG STDMETHODCALLTYPE TES_Release(ITfTextEditSink *pThis) { JamotongTextService *obj = IMPL_TO_OBJ(TES, pThis); return obj->lpVtblTIP->Release((ITfTextInputProcessor*)obj); }
@@ -1591,10 +1598,8 @@ static ITfTextEditSinkVtbl g_TESVtbl = { TES_QueryInterface, TES_AddRef, TES_Rel
 static HRESULT STDMETHODCALLTYPE TMES_QueryInterface(ITfThreadMgrEventSink *pThis, REFIID riid, void **ppv) {
     JamotongTextService *obj = IMPL_TO_OBJ(TMES, pThis);
     if (!ppv) return E_INVALIDARG;
-    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &kIID_ITfThreadMgrEventSink)) {
-        *ppv = &obj->lpVtblTMES; obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); return S_OK;
-    }
-    *ppv = NULL; return E_NOINTERFACE;
+    // RFC-0008 W2-04: IUnknown 은 TIP 의 정식 포인터 — 모든 QI 를 TIP 에 맡긴다(동일성·대칭).
+    return obj->lpVtblTIP->QueryInterface((ITfTextInputProcessor*)obj, riid, ppv);
 }
 static ULONG STDMETHODCALLTYPE TMES_AddRef(ITfThreadMgrEventSink *pThis)  { JamotongTextService *obj = IMPL_TO_OBJ(TMES, pThis); return obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); }
 static ULONG STDMETHODCALLTYPE TMES_Release(ITfThreadMgrEventSink *pThis) { JamotongTextService *obj = IMPL_TO_OBJ(TMES, pThis); return obj->lpVtblTIP->Release((ITfTextInputProcessor*)obj); }
@@ -1725,9 +1730,7 @@ static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *pt
     // 한자/훈음 사전은 여기서 로드하지 않는다 — TIP은 텍스트를 쓰는 모든 프로세스에 로드되므로
     // 활성화마다 파일 IO를 하면 낭비. 첫 한자 요청 시 EnsureHanjaDicts()가 1회 로드(RFC-0004 §6.1).
     {
-        static bool s_globalInit = false;
-        if (!s_globalInit)
-            s_globalInit = CandidateUI_Initialize();   // 실패하면 다음 활성화 때 다시 시도 (W1-04)
+        CandidateUI_Initialize();   // 없으면 등록 (W2-05: DllCanUnloadNow 가 해제했을 수 있다)
     }
 
     // 언어 바 아이템 등록
