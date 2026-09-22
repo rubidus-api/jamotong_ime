@@ -1172,6 +1172,15 @@ There is no single boundary-key resend that is guaranteed for every host.
   target **narrow (char) buffers** unless prefixed with `l`. Only MSVCRT treats them as
   wide (an MS quirk), so it happens to work on Windows — write `%l[`/`%lc`/`%ls`
   explicitly (identical behavior on both CRTs, and portable).
+- **Invalid UTF-8 in text files is silent by default**: `_wfopen(..., L"r, ccs=UTF-8")`
+  does not fail on a bad byte. On Windows 11 with the UCRT (MinGW-w64 UCRT build, observed
+  2026-09-22) the bad byte comes back from `fgetws` as U+FFFD with no error; other C runtimes
+  (glibc) stop instead and set the stream's error flag, so the rest of the file is simply
+  missing. Check both: look for U+FFFD in each line, and test `ferror` after the read loop.
+  For whole-file reads, `MultiByteToWideChar(CP_UTF8, 0, ...)` also replaces bad bytes;
+  pass [`MB_ERR_INVALID_CHARS`](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar)
+  to get a failure instead, and compare `fread`'s count with the file size before trusting
+  the buffer.
 - **Window-class ownership**: register classes with the **DLL's hInstance** (registering
   with the EXE instance mismatches owner and WndProc), and **`UnregisterClassW` on dynamic
   unload** (MSDN: DLL classes are not auto-unregistered). Otherwise a reloaded DLL crashes

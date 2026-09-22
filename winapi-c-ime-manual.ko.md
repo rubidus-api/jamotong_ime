@@ -1005,6 +1005,13 @@ if (hr == S_OK) {
 - **wide-scanf 변환 지정자**: C 표준에서 `swscanf`의 `%[`/`%c`/`%s`는 `l` 없이는 **narrow(char) 대상**이다.
   MSVCRT만 MS 특유로 wide 취급해 Windows에선 우연히 돌아간다 — `%l[`/`%lc`/`%ls`로 명시하라
   (양쪽 CRT에서 동일 동작·이식 가능).
+- **텍스트 파일의 잘못된 UTF-8 은 기본적으로 조용하다**: `_wfopen(..., L"r, ccs=UTF-8")` 은 잘못된
+  바이트에서 실패하지 않는다. Windows 11 UCRT(MinGW-w64 UCRT 빌드, 2026-09-22 실측)에서는 그 바이트가
+  `fgetws` 에서 오류 없이 U+FFFD 로 나온다. 다른 C 런타임(glibc)은 대신 읽기를 멈추고 스트림 오류
+  표시를 세워, 파일 나머지가 그냥 사라진다. 둘 다 확인하라: 줄마다 U+FFFD 를 찾고, 읽기 루프 뒤에
+  `ferror` 를 본다. 파일 전체를 읽을 때 `MultiByteToWideChar(CP_UTF8, 0, ...)` 도 잘못된 바이트를
+  바꿔 넣는다 — [`MB_ERR_INVALID_CHARS`](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar)
+  를 주면 실패로 돌아온다. 버퍼를 믿기 전에 `fread` 가 읽은 수와 파일 크기도 비교하라.
 - **윈도 클래스 소유권**: 클래스는 반드시 **DLL의 hInstance**로 등록하고(EXE 인스턴스로 등록하면
   WndProc과 소유자가 어긋남), **동적 언로드 시 `UnregisterClassW`** 하라(MSDN: DLL 클래스는 자동
   해제 안 됨). 안 하면 재로드 후 낡은 WndProc을 가리키는 클래스로 크래시. 해제는 `S_OK`를

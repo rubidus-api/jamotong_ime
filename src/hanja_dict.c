@@ -47,6 +47,53 @@ static void Arena_FreeAll(Arena *arena) {
 }
 
 static Arena g_Arena = {NULL};
+
+// ---------------------------------------------------------
+// 사전 파일 → 와이드 문자열 (RFC-0008 W2-02). 결과는 arena 에 상주.
+//   실패(NULL): 열 수 없음·빈 파일·상한 초과·덜 읽힘·잘못된 UTF-8·홀수 길이 UTF-16·글 가운데 NUL.
+//   반쯤 읽은 사전으로 조용히 돌지 않는다 — 실패하면 사전 없이(한자 기능 꺼짐) 돈다.
+// ---------------------------------------------------------
+#ifndef JAMO_DICT_MAX_BYTES
+#define JAMO_DICT_MAX_BYTES (8L * 1024 * 1024)   // 배포 사전은 0.2MB 미만
+#endif
+#ifndef MB_ERR_INVALID_CHARS
+#define MB_ERR_INVALID_CHARS 0x08
+#endif
+static wchar_t *LoadDictText(const wchar_t *path, Arena *arena, int *pLen) {
+    *pLen = 0;
+    FILE *fp = _wfopen(path, L"rb");
+    if (!fp) return NULL;
+    long fsize = -1;
+    if (fseek(fp, 0, SEEK_END) == 0) fsize = ftell(fp);
+    if (fsize <= 0 || fsize > JAMO_DICT_MAX_BYTES || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return NULL; }
+    unsigned char *raw = (unsigned char*)malloc((size_t)fsize);
+    if (!raw) { fclose(fp); return NULL; }
+    size_t rd = fread(raw, 1, (size_t)fsize, fp);
+    bool bad = (rd != (size_t)fsize) || ferror(fp);
+    fclose(fp);
+    wchar_t *w = NULL; int wlen = 0;
+    if (!bad && rd >= 2 && raw[0] == 0xFF && raw[1] == 0xFE) {           // UTF-16 LE
+        if ((rd - 2) % 2 == 0) {
+            wlen = (int)((rd - 2) / 2);
+            w = (wchar_t*)Arena_Alloc(arena, ((size_t)wlen + 1) * sizeof(wchar_t));
+            if (w) for (int i = 0; i < wlen; i++) w[i] = (wchar_t)(raw[2 + 2*i] | (raw[3 + 2*i] << 8));
+        }
+    } else if (!bad) {                                                   // UTF-8 (BOM 허용)
+        const char *t = (const char*)raw; int n = (int)rd;
+        if (n >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) { t += 3; n -= 3; }
+        wlen = n > 0 ? MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, t, n, NULL, 0) : 0;
+        if (wlen > 0) {
+            w = (wchar_t*)Arena_Alloc(arena, ((size_t)wlen + 1) * sizeof(wchar_t));
+            if (w && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, t, n, w, wlen) != wlen) w = NULL;
+        }
+    }
+    free(raw);
+    if (!w || wlen <= 0) return NULL;
+    w[wlen] = L'\0';
+    if (wcslen(w) != (size_t)wlen) return NULL;                          // 가운데 NUL — 뒤를 잃는다
+    *pLen = wlen;
+    return w;
+}
 static HanjaEntry *g_HanjaDict = NULL;
 static int g_HanjaCount = 0;
 
@@ -62,8 +109,12 @@ static int CompareReading(const void *a, const void *b) {
 }
 
 // 이진 탐색을 위한 정렬 비교기
+//   같은 한글 키면 파일에서 먼저 나온 줄이 앞(키는 모두 한 버퍼 안 — 포인터 순서 = 파일 순서).
 static int CompareHanjaEntry(const void *a, const void *b) {
-    return wcscmp(((HanjaEntry*)a)->hangul, ((HanjaEntry*)b)->hangul);
+    const HanjaEntry *x = (const HanjaEntry*)a, *y = (const HanjaEntry*)b;
+    int c = wcscmp(x->hangul, y->hangul);
+    if (c) return c;
+    return (x->hangul > y->hangul) - (x->hangul < y->hangul);
 }
 
 // ---------------------------------------------------------
@@ -72,60 +123,8 @@ static int CompareHanjaEntry(const void *a, const void *b) {
 bool HanjaDict_Load(const wchar_t *filepath) {
     HanjaDict_Free();
     
-    FILE *fp = _wfopen(filepath, L"rb");
-    if (!fp) return false;
-    
-    fseek(fp, 0, SEEK_END);
-    long fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    
-    if (fsize <= 0) {
-        fclose(fp);
-        return false;
-    }
-    
-    char *rawBuf = (char*)malloc(fsize + 1);
-    if (!rawBuf) {
-        fclose(fp);
-        return false;
-    }
-    
-    size_t readSize = fread(rawBuf, 1, fsize, fp);
-    fclose(fp);
-    rawBuf[readSize] = '\0';
-    
-    wchar_t *wbuf = NULL;
     int wlen = 0;
-    
-    // BOM 체크 및 디코딩
-    if (fsize >= 2 && (unsigned char)rawBuf[0] == 0xFF && (unsigned char)rawBuf[1] == 0xFE) {
-        // UTF-16 LE
-        wlen = (fsize - 2) / 2;
-        wbuf = (wchar_t*)Arena_Alloc(&g_Arena, (wlen + 1) * sizeof(wchar_t));
-        if (wbuf) {
-            memcpy(wbuf, rawBuf + 2, wlen * sizeof(wchar_t));
-            wbuf[wlen] = L'\0';
-        }
-    } else {
-        // UTF-8 (with or without BOM)
-        char *textStart = rawBuf;
-        int textSize = (int)readSize;
-        if (textSize >= 3 && (unsigned char)rawBuf[0] == 0xEF && (unsigned char)rawBuf[1] == 0xBB && (unsigned char)rawBuf[2] == 0xBF) {
-            textStart += 3;
-            textSize -= 3;
-        }
-        wlen = MultiByteToWideChar(CP_UTF8, 0, textStart, textSize, NULL, 0);
-        if (wlen > 0) {
-            wbuf = (wchar_t*)Arena_Alloc(&g_Arena, (wlen + 1) * sizeof(wchar_t));
-            if (wbuf) {
-                MultiByteToWideChar(CP_UTF8, 0, textStart, textSize, wbuf, wlen);
-                wbuf[wlen] = L'\0';
-            }
-        }
-    }
-    
-    free(rawBuf); // 임시 버퍼 즉시 해제
-    
+    wchar_t *wbuf = LoadDictText(filepath, &g_Arena, &wlen);
     if (!wbuf) {
         HanjaDict_Free();
         return false;
@@ -211,6 +210,11 @@ bool HanjaDict_Load(const wchar_t *filepath) {
     // 이진 탐색을 위해 정렬
     if (g_HanjaCount > 0) {
         qsort(g_HanjaDict, g_HanjaCount, sizeof(HanjaEntry), CompareHanjaEntry);
+        // 중복 키: 먼저 나온 줄만 남긴다 (RFC-0008 W2-02 — 전엔 어느 줄이 찾아질지 정해지지 않았다)
+        int w = 0;
+        for (int i = 0; i < g_HanjaCount; i++)
+            if (w == 0 || wcscmp(g_HanjaDict[w-1].hangul, g_HanjaDict[i].hangul) != 0) g_HanjaDict[w++] = g_HanjaDict[i];
+        g_HanjaCount = w;
         
         // 한자 → 대표 독음 역인덱스: 음절 항목(hangul 1글자)에서 각 후보 한자에 그 음을 매핑.
         //   상한 = 전체 후보 수. 첫 매핑만 유지(다음자는 대표 음 하나). 후보창 음 폴백용.
@@ -292,27 +296,15 @@ static HunumEntry *g_Hunum = NULL;
 static int g_HunumCount = 0;
 
 static int CompareHunum(const void *a, const void *b) {
-    return (int)((const HunumEntry*)a)->ch - (int)((const HunumEntry*)b)->ch;
+    const HunumEntry *x = (const HunumEntry*)a, *y = (const HunumEntry*)b;
+    if (x->ch != y->ch) return (x->ch > y->ch) - (x->ch < y->ch);
+    return (x->text > y->text) - (x->text < y->text);   // 같은 글자면 먼저 나온 줄이 앞
 }
 
 bool HunumDict_Load(const wchar_t *filepath) {
     HunumDict_Free();
-    FILE *fp = _wfopen(filepath, L"rb");
-    if (!fp) return false;
-    fseek(fp, 0, SEEK_END); long fsize = ftell(fp); fseek(fp, 0, SEEK_SET);
-    if (fsize <= 0) { fclose(fp); return false; }
-    char *raw = (char*)malloc((size_t)fsize + 1);
-    if (!raw) { fclose(fp); return false; }
-    size_t rd = fread(raw, 1, (size_t)fsize, fp);
-    fclose(fp); raw[rd] = '\0';
-
-    // UTF-8 (BOM 허용) → 와이드 변환 (아레나에 상주)
-    char *text = raw; int tlen = (int)rd;
-    if (tlen >= 3 && (unsigned char)raw[0] == 0xEF && (unsigned char)raw[1] == 0xBB && (unsigned char)raw[2] == 0xBF) { text += 3; tlen -= 3; }
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, text, tlen, NULL, 0);
-    wchar_t *wbuf = (wlen > 0) ? (wchar_t*)Arena_Alloc(&g_HunumArena, ((size_t)wlen + 1) * sizeof(wchar_t)) : NULL;
-    if (wbuf) { MultiByteToWideChar(CP_UTF8, 0, text, tlen, wbuf, wlen); wbuf[wlen] = L'\0'; }
-    free(raw);
+    int wlen = 0;
+    wchar_t *wbuf = LoadDictText(filepath, &g_HunumArena, &wlen);
     if (!wbuf) { HunumDict_Free(); return false; }
 
     int lineCount = 1;
@@ -340,7 +332,13 @@ bool HunumDict_Load(const wchar_t *filepath) {
         if (eof) break;
         curr++;
     }
-    if (g_HunumCount > 0) qsort(g_Hunum, (size_t)g_HunumCount, sizeof(HunumEntry), CompareHunum);
+    if (g_HunumCount > 0) {
+        qsort(g_Hunum, (size_t)g_HunumCount, sizeof(HunumEntry), CompareHunum);
+        int w = 0;                                  // 중복 글자: 먼저 나온 줄만 (W2-02)
+        for (int i = 0; i < g_HunumCount; i++)
+            if (w == 0 || g_Hunum[w-1].ch != g_Hunum[i].ch) g_Hunum[w++] = g_Hunum[i];
+        g_HunumCount = w;
+    }
     return g_HunumCount > 0;
 }
 

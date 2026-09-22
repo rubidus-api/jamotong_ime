@@ -102,8 +102,16 @@ static bool RawAdd(RawLines *r, const wchar_t *s, size_t len) {
 // RFC-0008 W2-02: 255자를 넘는 줄은 예전엔 둘로 쪼개져 두 줄로 읽혔다(뒷조각이 엉뚱한 지시문이 됨).
 // 이제 그 줄 번호를 돌려주고 호출자가 오류로 낸다. 줄 수도 상한(KLAY_MAX_LINES)을 둔다.
 #define KLAY_MAX_LINES 20000
-static bool ReadFileLines(const wchar_t *path, RawLines *r, int *longLine, bool *tooMany) {
-    *longLine = 0; *tooMany = false;
+// 파일에서 읽다 생긴 문제 — 하나라도 있으면 그 파일은 쓰지 않는다 (RFC-0008 W2-02).
+typedef struct {
+    int  longLine;   // 255자를 넘은 첫 줄 (1부터, 0=없음)
+    int  badText;    // U+FFFD(잘못된 UTF-8 이 바뀐 자리)가 든 첫 줄
+    bool tooMany;    // KLAY_MAX_LINES 초과
+    bool readErr;    // 읽다 멈춤 — 입출력 오류 또는 CRT 가 거부한 UTF-8 (남은 줄을 조용히 버리지 않는다)
+} ReadIssues;
+
+static bool ReadFileLines(const wchar_t *path, RawLines *r, ReadIssues *is) {
+    memset(is, 0, sizeof(*is));
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
     if (!fp) return false;
     wchar_t buf[256];
@@ -111,13 +119,15 @@ static bool ReadFileLines(const wchar_t *path, RawLines *r, int *longLine, bool 
     while (ok && fgetws(buf, 256, fp)) {
         size_t n = wcslen(buf);
         if (n == 255 && buf[254] != L'\n') {   // 줄이 버퍼를 넘친다 — 나머지는 버리고 표시
-            if (!*longLine) *longLine = r->n + 1;
+            if (!is->longLine) is->longLine = r->n + 1;
             wint_t c;
             while ((c = fgetwc(fp)) != WEOF && c != L'\n') { }
         }
-        if (r->n >= KLAY_MAX_LINES) { *tooMany = true; break; }
+        if (!is->badText && wcschr(buf, 0xFFFD)) is->badText = r->n + 1;
+        if (r->n >= KLAY_MAX_LINES) { is->tooMany = true; break; }
         ok = RawAdd(r, buf, n);
     }
+    if (ok && !is->tooMany && ferror(fp)) is->readErr = true;
     fclose(fp);
     return ok;
 }
@@ -193,20 +203,24 @@ static bool AddSource(KlayLines *L, const wchar_t *path, const wchar_t *builtin,
         if (!ok) return false;   // 호출자가 진단을 낸다
         swprintf(label, 64, L"@%ls", builtin);
     } else {
-        int longLine = 0; bool tooMany = false;
-        if (!ReadFileLines(path, &raw, &longLine, &tooMany)) {
+        ReadIssues is;
+        if (!ReadFileLines(path, &raw, &is)) {
             KlayDiag_Add(d, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL);
             RawFree(&raw);
             return false;
         }
         lstrcpynW(label, Basename(path), 64);
-        if (longLine || tooMany) {
+        if (is.longLine || is.tooMany || is.badText || is.readErr) {
             int fi = AddFile(L, label);
             const wchar_t *pf = d ? d->curFile : NULL;
             if (d) d->curFile = L->files[fi];
-            if (longLine) KlayDiag_Add(d, KLAY_SEV_ERROR, longLine, 256, L"E-JMT-LINE-LONG", L"line is longer than 255 characters",
-                                       L"split it into several lines (a key list can be written over several Key lines)");
-            if (tooMany) KlayDiag_Add(d, KLAY_SEV_ERROR, 0, 0, L"E-JMT-TOO-LONG", L"file has more than 20000 lines", NULL);
+            if (is.longLine) KlayDiag_Add(d, KLAY_SEV_ERROR, is.longLine, 256, L"E-JMT-LINE-LONG", L"line is longer than 255 characters",
+                                          L"split it into several lines (a key list can be written over several Key lines)");
+            if (is.tooMany) KlayDiag_Add(d, KLAY_SEV_ERROR, 0, 0, L"E-JMT-TOO-LONG", L"file has more than 20000 lines", NULL);
+            if (is.badText) KlayDiag_Add(d, KLAY_SEV_ERROR, is.badText, 0, L"E-JMT-ENCODING", L"line is not valid UTF-8 (or contains U+FFFD)",
+                                         L"save the file as UTF-8");
+            if (is.readErr) KlayDiag_Add(d, KLAY_SEV_ERROR, raw.n + 1, 0, L"E-JMT-READ", L"reading stopped here (read error or invalid UTF-8)",
+                                         L"save the file as UTF-8; the lines after this point were not read");
             if (d) d->curFile = pf;
             RawFree(&raw);
             return false;
