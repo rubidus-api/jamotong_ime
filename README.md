@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.31.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.31.0/jamotong-0.31.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.32.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.32.0/jamotong-0.32.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -322,7 +322,10 @@ Map <key> = <output>      # that key now produces <output>
 Map <keys...> = <outputs...>  # array: same length both sides, paired by position
 ```
 
-Unmapped keys keep their original character. Uppercase/symbol variants are separate
+Unmapped keys keep their original character. `Identity = passthrough` (with no `Map` lines)
+makes a layout that lets every key through untouched, exactly like the built-in QWERTY — that is
+what `--export @en_qwerty` writes. A file that `Extends = @en_qwerty` and adds `Map` lines becomes an
+ordinary remap. Uppercase/symbol variants are separate
 mappings. Key strings cannot contain a space — map the space key with the single form.
 Example (Dvorak top row in one line):
 

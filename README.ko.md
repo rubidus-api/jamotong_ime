@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.31.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.31.0/jamotong-0.31.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.32.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.32.0/jamotong-0.32.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -287,7 +287,9 @@ Map <키> = <출력>          # 그 키가 <출력> 문자를 내게 된다
 Map <키…> = <출력…>        # 배열 지정: 좌우 같은 길이, 위치 대응
 ```
 
-지정하지 않은 키는 원래 문자를 유지한다. 대문자/기호 자리는 각각 따로 지정한다.
+지정하지 않은 키는 원래 문자를 유지한다. `Identity = passthrough`(`Map` 줄 없이)는 모든 키를 손대지 않고 그대로
+통과시키는 자판이다 — 내장 QWERTY 와 똑같고, `--export @en_qwerty` 가 이렇게 쓴다. `Extends = @en_qwerty` 에 `Map` 줄을
+더하면 보통의 리맵 자판이 된다. 대문자/기호 자리는 각각 따로 지정한다.
 키 나열엔 공백을 쓸 수 없으므로 스페이스 키는 단건으로 지정한다.
 예 (드보락 윗줄을 한 줄로):
 
