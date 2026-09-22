@@ -786,14 +786,13 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                                 pa->layoutName = lc.name;   // Apply 전에 Del 하면 이것으로 찾아 뺀다
                             }
                         } else {
-                            // 파서 진단(줄 번호 + 영어 사유)을 그대로 보여준다.
-                            wchar_t msg[320];
-                            if (diag.line > 0)
-                                _snwprintf(msg, 320, L"Failed to load the layout (.jmt) file.\n\nLine %d: %ls",
-                                           diag.line, diag.message);
-                            else
-                                _snwprintf(msg, 320, L"Failed to load the layout (.jmt) file.\n\n%ls",
-                                           diag.message[0] ? diag.message : L"invalid or empty file");
+                            // 파서 진단을 그대로 보여준다 — 줄:열, 코드, 고치는 법, 여러 개 (RFC-0011 P1).
+                            static wchar_t msg[3072], body[2816];
+                            const wchar_t *base = wcsrchr(szFile, L'\\');
+                            Klay_DiagFormat(&diag, base ? base + 1 : szFile, body, 2816);
+                            _snwprintf(msg, 3072, L"Failed to load the layout (.jmt) file.\n\n%ls",
+                                       body[0] ? body : L"invalid or empty file");
+                            msg[3071] = L'\0';
                             MessageBoxW(hwnd, msg, L"Error", MB_ICONERROR);
                         }
                     }

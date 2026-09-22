@@ -27,13 +27,15 @@ static bool ValidIdx(JamoType t, int idx) {
     }
 }
 
-// 첫 오류만 기록(diag NULL 허용). bad=true로 표시.
-#define FAIL(msg) do { if (diag && !bad) { diag->line = lineno; \
-    lstrcpynW(diag->message, (msg), 160); } bad = true; } while (0)
+// 오류를 모두 기록(diag NULL 허용, RFC-0011 P1). bad=true로 표시. col 은 1-based.
+#define FAIL(col, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (col), (code), (msg), (help)); \
+    bad = true; } while (0)
+#define HELP_RANGE L"choseong C0..18, jungseong M0..20, jongseong T1..27 (0 = none cannot be assigned)"
+static const wchar_t *const kHangulDirectives[] = { L"Key", L"Combine", L"Moachigi", NULL };
 
 HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) { if (diag) { diag->line = 0; lstrcpynW(diag->message, L"cannot open file", 160); } return NULL; }
+    if (!fp) { KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL); return NULL; }
 
     HangulLayout *hl = (HangulLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(HangulLayout));
     if (!hl) { fclose(fp); return NULL; }
@@ -49,7 +51,7 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'\0' || *p == L'#') continue;   // 빈 줄/주석
-
+        const int col0 = (int)(p - line) + 1;
         wchar_t typec = 0;
         int a = 0, b = 0, idx = 0, val = 0;
 
@@ -63,34 +65,38 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
             wchar_t lhs[64] = {0};
             int consumed = 0;
             swscanf(p, L"Key %63ls = %n", lhs, &consumed);
-            if (consumed <= 0) { FAIL(L"malformed Key line (missing '=')"); continue; }
+            if (consumed <= 0) { FAIL(col0, L"E-JMT-KEY-SYNTAX", L"malformed Key line (missing '=')", L"write 'Key <keys> = <specs>', e.g. 'Key k = C0'"); continue; }
             const wchar_t *q = p + consumed;
             size_t nk = wcslen(lhs), ki = 0;
+            bool lineErr = false;
             for (; ki < nk; ki++) {
                 while (*q == L' ' || *q == L'\t') q++;
                 if (*q == L'\0' || *q == L'#') break;   // 스펙이 키 수보다 적음 → 아래에서 bad
                 int adv = 0;
+                const int colSpec = (int)(q - line) + 1;
                 if (swscanf(q, L"%lc%d%n", &typec, &idx, &adv) != 2) break;
                 JamoType t = TypeFromChar(typec);
-                if (t == JAMO_NONE) { FAIL(L"Key: type must be C, M or T"); break; }
-                if ((unsigned)lhs[ki] >= 128) { FAIL(L"Key: key must be an ASCII character"); break; }
-                if (!ValidIdx(t, idx)) { FAIL(L"Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27)"); break; }
+                if (t == JAMO_NONE) { lineErr = true; FAIL(colSpec, L"E-JMT-TYPE", L"Key: type must be C, M or T", L"C = choseong, M = jungseong, T = jongseong"); break; }
+                if ((unsigned)lhs[ki] >= 128) { lineErr = true; FAIL(col0 + 4 + (int)ki, L"E-JMT-ASCII", L"Key: key must be an ASCII character", NULL); break; }
+                if (!ValidIdx(t, idx)) { lineErr = true; FAIL(colSpec, L"E-JMT-RANGE", L"Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27)", HELP_RANGE); break; }
                 hl->keymap[(int)lhs[ki]].type = t;
                 hl->keymap[(int)lhs[ki]].index = idx;
                 q += adv;
             }
             while (*q == L' ' || *q == L'\t') q++;
-            if (!bad && (ki != nk || (*q != L'\0' && *q != L'#')))
-                FAIL(L"Key: number of specs must equal number of keys");
+            // 같은 줄에서 이미 스펙 오류를 냈다면 개수 오류는 덧붙이지 않는다
+            if (!lineErr && (ki != nk || (*q != L'\0' && *q != L'#')))
+                FAIL((int)(q - line) + 1, L"E-JMT-COUNT", L"Key: number of specs must equal number of keys", L"one spec per key, e.g. 'Key khj = C0 C2 C11'");
         } else if (swscanf(p, L"Combine %lc %d %d = %d", &typec, &a, &b, &val) == 4) {
             JamoType t = TypeFromChar(typec);
-            if (t == JAMO_NONE) FAIL(L"Combine: type must be C, M or T");
-            else if (!ValidIdx(t, a) || !ValidIdx(t, b) || !ValidIdx(t, val)) FAIL(L"Combine: jamo index out of range");
-            else if (hl->combineCount >= HL_MAX_COMBINE) FAIL(L"too many Combine rules (max 256)");
+            if (t == JAMO_NONE) FAIL(col0 + 8, L"E-JMT-TYPE", L"Combine: type must be C, M or T", L"C = choseong, M = jungseong, T = jongseong");
+            else if (!ValidIdx(t, a) || !ValidIdx(t, b) || !ValidIdx(t, val)) FAIL(col0 + 10, L"E-JMT-RANGE", L"Combine: jamo index out of range", HELP_RANGE);
+            else if (hl->combineCount >= HL_MAX_COMBINE) FAIL(col0, L"E-JMT-LIMIT", L"too many Combine rules (max 256)", NULL);
             else { HangulCombine *c = &hl->combines[hl->combineCount++];
                    c->type = t; c->a = a; c->b = b; c->result = val; }
         }
-        // 알 수 없는 줄은 무시 (향후 확장 여지)
+        else if (KlayHeader_IsKnownKey(p)) { /* 머리부(Type·Abbrev·Id…) — 통합 로더가 읽는다 */ }
+        else if (Klay_UnknownLine(diag, p, lineno, col0, kHangulDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
     fclose(fp);
     if (bad) { HeapFree(GetProcessHeap(), 0, hl); return NULL; }   // 부분 로드 대신 명시적 실패

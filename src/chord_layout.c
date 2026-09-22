@@ -172,12 +172,14 @@ static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
     return e->text[0] != L'\0';
 }
 
-#define FAIL(msg) do { if (diag && !bad) { diag->line = lineno; \
-    lstrcpynW(diag->message, (msg), 160); } bad = true; } while (0)
+// 오류를 모두 기록 (RFC-0011 P1) — col 은 1-based.
+#define FAIL(col, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (col), (code), (msg), (help)); \
+    bad = true; } while (0)
+static const wchar_t *const kChordDirectives[] = { L"Key", L"Layer", L"Chord", L"Hold", NULL };
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) { if (diag) { diag->line = 0; lstrcpynW(diag->message, L"cannot open file", 160); } return NULL; }
+    if (!fp) { KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL); return NULL; }
     ChordLayout *cl = (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
     if (!cl) { fclose(fp); return NULL; }
     wcscpy_s(cl->name, 64, L"chord");
@@ -195,6 +197,7 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
         wchar_t *p = line;
         while (*p==L' '||*p==L'\t') p++;
         if (*p==L'\0' || *p==L'#') continue;
+        const int col0 = (int)(p - line) + 1;
 
         wchar_t name[32] = {0}, keys[32] = {0}, rhs[64] = {0};
         int bit = 0;
@@ -208,16 +211,16 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
             for (size_t i = 0; i < nk; i++) {
                 int b = bit + (int)i;
                 if ((unsigned)keys[i] < 128 && b >= 0 && b < 32) cl->keyBit[(int)keys[i]] = b;
-                else { FAIL(L"Key: bit out of range (0..31) or non-ASCII key"); break; }
+                else { FAIL(col0 + 4 + (int)i, L"E-JMT-RANGE", L"Key: bit out of range (0..31) or non-ASCII key", L"bits 0..31; a key list takes consecutive bits from the start bit"); break; }
             }
         }
         else if (swscanf(p, L"Layer %31ls", name) == 1) {
             int idx = LayerFindOrAdd(cl, name);
             if (idx >= 0) curLayer = idx;
-            else FAIL(L"too many layers (max 16)");
+            else FAIL(col0, L"E-JMT-LIMIT", L"too many layers (max 16)", NULL);
         }
         else if (!wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)) {
-            if (cl->chordCount >= CL_MAX_CHORDS) { FAIL(L"too many chords (max 2048)"); continue; }
+            if (cl->chordCount >= CL_MAX_CHORDS) { FAIL(col0, L"E-JMT-LIMIT", L"too many chords (max 2048)", NULL); continue; }
             int isHold = (p[0] == L'H' || p[0] == L'h');
             const wchar_t *fmt = isHold ? L"Hold %31ls = %63l[^\n]" : L"Chord %31ls = %63l[^\n]";
             if (swscanf(p, fmt, keys, rhs) == 2) {
@@ -233,10 +236,14 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
                     e->mask = mask; e->layer = curLayer; e->targetLayer = -1; e->isHold = isHold;
                     TrimEnds(rhs);
                     if (ParseAction(cl, e, rhs)) cl->chordCount++;
-                    else FAIL(L"unknown action (key/mod/layer name or mouse sub-action)");
-                } else FAIL(L"chord references a key not declared with 'Key'");
-            } else FAIL(L"malformed Chord/Hold line (missing '=')");
+                    else FAIL(col0, L"E-JMT-ACTION", L"unknown action (key/mod/layer name or mouse sub-action)",
+                              L"use text, 'key <name>', 'mod <name>', 'layer <name>' or a mouse action");
+                } else FAIL(col0 + (isHold ? 5 : 6), L"E-JMT-UNDECLARED", L"chord references a key not declared with 'Key'",
+                            L"declare every chord key first, e.g. 'Key j = 0'");
+            } else FAIL(col0, L"E-JMT-KEY-SYNTAX", L"malformed Chord/Hold line (missing '=')", NULL);
         }
+        else if (KlayHeader_IsKnownKey(p)) { /* 머리부 — 통합 로더가 읽는다 */ }
+        else if (Klay_UnknownLine(diag, p, lineno, col0, kChordDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
     fclose(fp);
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
