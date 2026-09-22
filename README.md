@@ -244,6 +244,17 @@ different from the base are errors. Name/Abbrev are inherited unless you set the
 base's `Id`, `Version`, `Author`, … are not. Dubeolsik (`@ko_2bul`) cannot be a base: its
 "final consonant moves to the next syllable" rule lives in the automata, not in a table.
 
+### Authoring in the manager (`jamotong.exe`)
+
+- **File ▸ New copy of a built-in layout** — a complete editable copy of Sebeolsik final, Dvorak or QWERTY.
+- **File ▸ New derived layout** — an `Extends = @…` template: write only what changes.
+- **Tools ▸ Validate layout** — full diagnostics (all errors and warnings, with line:column and help).
+  Relative `Extends`/`Include` paths are resolved from the file's own folder.
+- **Tools ▸ Try this file** — load the file you are editing and type in the box at the bottom,
+  before installing it (static and hangul layouts).
+- **File ▸ Export expanded** — the same as `--expand`; **File ▸ Install to my layouts** — validate
+  and copy to `%APPDATA%\Jamotong\layouts` (asks before replacing).
+
 ### Command-line tools
 
 ```text

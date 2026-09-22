@@ -220,6 +220,16 @@ Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (�
 않는다. 두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
 오토마타 안에 있기 때문이다.
 
+### 관리자 앱(`jamotong.exe`)에서 만들기
+
+- **File ▸ New copy of a built-in layout** — 세벌식 최종·드보락·QWERTY 의 완전한 사본을 편집기로.
+- **File ▸ New derived layout** — `Extends = @…` 틀: 바뀌는 것만 적는다.
+- **Tools ▸ Validate layout** — 전체 진단(오류·경고 모두, 줄:열과 도움말). 상대 `Extends`/`Include`
+  경로는 그 파일의 폴더 기준으로 푼다.
+- **Tools ▸ Try this file** — 편집 중인 파일을 읽어 아래 시험칸에서 쳐 본다(설치 전, static·hangul 자판).
+- **File ▸ Export expanded** — `--expand` 와 같다. **File ▸ Install to my layouts** — 검증 후
+  `%APPDATA%\Jamotong\layouts` 에 복사(바꾸기 전에 묻는다).
+
 ### 명령줄 도구
 
 ```text

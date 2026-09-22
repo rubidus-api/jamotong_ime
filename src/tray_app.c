@@ -35,6 +35,12 @@ static JamotongConfig g_config;
 static FsmContext g_fsm;
 static ChordContext g_chord;
 static HWND g_hMain, g_hEdit, g_hStatus;
+// ── RFC-0011 P5: 저작 도구 — 시험칸과 "이 파일로 시험" ──
+static HWND g_hTry, g_hTryLabel;            // 아래쪽 한 줄 시험칸 (편집 중인 .jmt 를 건드리지 않고 쳐 본다)
+static HWND g_hTarget;                      // 오토마타 출력이 갈 에디트 (g_hEdit 또는 g_hTry)
+static LayoutConfig g_fileLayout;           // Tools ▸ Try this file 로 읽은 자판 (없으면 type=0 / name=NULL)
+static bool g_tryFile = false;              // 시험칸이 편집 중인 파일 자판을 쓰는가
+static WNDPROC g_tryOrigProc;
 static WNDPROC g_editOrigProc;
 static int g_compStart = 0, g_compLen = 0;   // 조합(preedit) 구간 [start, start+len)
 static int g_dpi = 96;
@@ -54,6 +60,14 @@ static wchar_t g_curFile[MAX_PATH] = L"";      // 현재 편집 중인 .jmt 경�
 #define IDM_VALIDATE 1401
 #define IDM_TESTMODE 1402
 #define IDM_ABOUT    1501
+#define IDM_TRYFILE  1403   // RFC-0011 P5
+#define IDM_EXPAND   1106
+#define IDM_INSTALL  1107
+#define IDM_NEW_3BUL 1110
+#define IDM_NEW_DV   1111
+#define IDM_NEW_QW   1112
+#define IDM_DER_3BUL 1113
+#define IDM_DER_DV   1114
 
 // ── QWERTY/모디파이어 헬퍼 (오토마타 테스트용) ──
 static wchar_t GetQwertyChar(WPARAM vk, bool shift) {
@@ -118,19 +132,25 @@ static void ApplyResult(wchar_t commit, wchar_t preedit) {
     if (preedit) rep[n++] = preedit;
     rep[n] = 0;
     if (g_compLen > 0) {
-        SendMessageW(g_hEdit, EM_SETSEL, g_compStart, g_compStart + g_compLen);
+        SendMessageW(g_hTarget, EM_SETSEL, g_compStart, g_compStart + g_compLen);
     } else {
-        DWORD a = 0, b = 0; SendMessageW(g_hEdit, EM_GETSEL, (WPARAM)&a, (LPARAM)&b);
+        DWORD a = 0, b = 0; SendMessageW(g_hTarget, EM_GETSEL, (WPARAM)&a, (LPARAM)&b);
         g_compStart = (int)a;
     }
-    SendMessageW(g_hEdit, EM_REPLACESEL, TRUE, (LPARAM)rep);
+    SendMessageW(g_hTarget, EM_REPLACESEL, TRUE, (LPARAM)rep);
     g_compStart += (commit ? 1 : 0);
     g_compLen = preedit ? 1 : 0;
-    if (g_compLen > 0) SendMessageW(g_hEdit, EM_SETSEL, g_compStart, g_compStart + g_compLen);
-    else { int c = g_compStart; SendMessageW(g_hEdit, EM_SETSEL, c, c); }
+    if (g_compLen > 0) SendMessageW(g_hTarget, EM_SETSEL, g_compStart, g_compStart + g_compLen);
+    else { int c = g_compStart; SendMessageW(g_hTarget, EM_SETSEL, c, c); }
 }
 
 // 키다운 처리(테스트 모드). true=소비(에디트 기본처리 생략), false=에디트에 위임.
+// 오토마타가 쓸 자판: 시험칸에서 "이 파일로 시험" 중이면 그 파일 자판, 아니면 IME 의 현재 자판.
+static LayoutConfig *ActiveLayout(void) {
+    if (g_hTarget == g_hTry && g_tryFile && g_fileLayout.name) return &g_fileLayout;
+    return Config_GetCurrentLayout(&g_config);
+}
+
 static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
     UINT rvk = Config_ResolveVK(vk, lParam);
     if (Config_IsShortcut(&g_config, SC_FN_ROTATE, rvk, Config_CurrentMods())) {
@@ -144,7 +164,7 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
         return false;
     }
     bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    LayoutConfig *L = Config_GetCurrentLayout(&g_config);
+    LayoutConfig *L = ActiveLayout();
     if (!L) return false;
 
     switch (L->type) {
@@ -194,7 +214,12 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
 
 static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     // .jmt 편집 모드에서는 오토마타를 끄고 일반 텍스트 편집(raw)만 한다.
-    if (g_testMode && (m == WM_KEYDOWN || m == WM_SYSKEYDOWN)) {
+    const bool isTry = (h == g_hTry);
+    const bool automata = isTry || g_testMode;   // 시험칸은 언제나 오토마타
+    WNDPROC orig = isTry ? g_tryOrigProc : g_editOrigProc;
+    if (m == WM_SETFOCUS && g_hTarget != h) { g_hTarget = h; g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord); }
+    if (automata && (m == WM_KEYDOWN || m == WM_SYSKEYDOWN)) {
+        g_hTarget = h;
         if (AutomataKeyDown((UINT)w, l)) return 0;
         if ((UINT)w == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) {
             SendMessageW(h, EM_SETSEL, 0, (LPARAM)-1);
@@ -202,8 +227,9 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         MSG mm = { h, m, w, l, 0, { 0, 0 } };
         TranslateMessage(&mm);
-    } else if (g_testMode && (m == WM_KEYUP || m == WM_SYSKEYUP)) {
-        LayoutConfig *L = Config_GetCurrentLayout(&g_config);
+    } else if (automata && (m == WM_KEYUP || m == WM_SYSKEYUP)) {
+        g_hTarget = h;
+        LayoutConfig *L = ActiveLayout();
         if (L && (L->type == LAYOUT_TYPE_KOREAN_FSM || L->type == LAYOUT_TYPE_HANGUL_CUSTOM)) {
             const HangulLayout *hl = (const HangulLayout*)L->pHangulLayout;
             if (hl && hl->moachigi && (UINT)w < 256 && g_chord.keyDown[(UINT)w]) {
@@ -213,14 +239,16 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
         }
     }
-    return CallWindowProcW(g_editOrigProc, h, m, w, l);
+    return CallWindowProcW(orig, h, m, w, l);
 }
 
 static void Relayout(void) {
     if (!g_hMain) return;
     RECT rc; GetClientRect(g_hMain, &rc);
     MoveWindow(g_hStatus, S(10), S(8), rc.right - S(20), S(22), TRUE);
-    MoveWindow(g_hEdit, S(10), S(36), rc.right - S(20), rc.bottom - S(46), TRUE);
+    MoveWindow(g_hEdit, S(10), S(36), rc.right - S(20), rc.bottom - S(46) - S(40), TRUE);
+    MoveWindow(g_hTryLabel, S(10), rc.bottom - S(40) + S(6), S(150), S(22), TRUE);
+    MoveWindow(g_hTry, S(160), rc.bottom - S(40), rc.right - S(170), S(30), TRUE);
 }
 
 // ── 파일 IO (UTF-8 ↔ wide) ──
@@ -292,32 +320,130 @@ static void SetTestMode(bool on) {
     SetFocus(g_hEdit);
 }
 
-// 현재 에디터 내용을 임시 .jmt로 저장 후 Klay_Load 로 검증 — 파서 진단(줄+사유) 표시.
-static void ValidateCurrent(void) {
-    wchar_t tmpDir[MAX_PATH], tmp[MAX_PATH];
-    if (!GetTempPathW(MAX_PATH, tmpDir)) { MessageBoxW(g_hMain, L"No temp path.", L"Validate", MB_ICONERROR); return; }
-    _snwprintf(tmp, MAX_PATH, L"%lsjamotong_validate.jmt", tmpDir);
-    if (!WriteFileUtf8FromEdit(tmp)) { MessageBoxW(g_hMain, L"Could not write a temporary file.", L"Validate", MB_ICONERROR); return; }
+// 현재 에디터 내용을 임시 .jmt 로 저장해 검증한다 (RFC-0011 P1·P5). 임시 파일은 가능하면 **편집 중인 파일과
+// 같은 폴더**에 둔다 — 그래야 `Extends = ./base.jmt`·`Include` 의 상대 경로가 실제와 같게 풀린다.
+// keep != NULL 이면 성공한 자판을 넘겨준다(시험칸용). 보고 창은 show 일 때만.
+static bool CheckEditor(LayoutConfig *keep, bool show, const wchar_t *title) {
+    wchar_t tmp[MAX_PATH] = L"";
+    bool wrote = false;
+    if (g_curFile[0]) {
+        wchar_t dir[MAX_PATH]; wcsncpy(dir, g_curFile, MAX_PATH - 1); dir[MAX_PATH - 1] = L'\0';
+        wchar_t *slash = wcsrchr(dir, L'\\');
+        if (slash) { *slash = L'\0'; _snwprintf(tmp, MAX_PATH, L"%ls\\~jamotong-check.jmt", dir); tmp[MAX_PATH - 1] = L'\0'; wrote = WriteFileUtf8FromEdit(tmp); }
+    }
+    if (!wrote) {
+        wchar_t tmpDir[MAX_PATH];
+        if (!GetTempPathW(MAX_PATH, tmpDir)) { MessageBoxW(g_hMain, L"No temp path.", title, MB_ICONERROR); return false; }
+        _snwprintf(tmp, MAX_PATH, L"%lsjamotong_validate.jmt", tmpDir); tmp[MAX_PATH - 1] = L'\0';
+        if (!WriteFileUtf8FromEdit(tmp)) { MessageBoxW(g_hMain, L"Could not write a temporary file.", title, MB_ICONERROR); return false; }
+    }
     LayoutConfig lc; memset(&lc, 0, sizeof(lc));
-    KlayDiag diag = {0};
-    bool ok = Klay_Load(tmp, &lc, &diag);
+    static KlayDiag diag;
+    KlayMeta meta;
+    bool ok = Klay_LoadEx(tmp, &lc, &diag, &meta);
     DeleteFileW(tmp);
+    const wchar_t *fname = g_curFile[0] ? (wcsrchr(g_curFile, L'\\') ? wcsrchr(g_curFile, L'\\') + 1 : g_curFile) : L"(editor)";
+    static wchar_t body[6144], msg[6400];
+    Klay_DiagFormat(&diag, fname, body, 6144);
     if (ok) {
-        const wchar_t *type = lc.type == LAYOUT_TYPE_STATIC_MAP ? L"static"
-                            : lc.type == LAYOUT_TYPE_CHORD ? L"chord" : L"hangul";
-        wchar_t msg[256];
-        _snwprintf(msg, 256, L"OK — loads as a valid %ls layout.\nName: %ls",
-                   type, lc.name ? lc.name : L"?");
-        msg[255] = L'\0';   // _snwprintf 는 잘릴 때 널을 안 붙인다
-        Config_FreeLayoutResources(&lc);
-        MessageBoxW(g_hMain, msg, L"Validate — OK", MB_ICONINFORMATION);
+        const wchar_t *type = lc.type == LAYOUT_TYPE_STATIC_MAP ? L"static" : lc.type == LAYOUT_TYPE_CHORD ? L"chord" : L"hangul";
+        _snwprintf(msg, 6400, L"OK - loads as a valid %ls layout.\nName: %ls%ls%ls\n\n%ls",
+                   type, lc.name ? lc.name : L"?", meta.version[0] ? L"   Version: " : L"", meta.version, body);
+        msg[6399] = L'\0';
+        if (show) MessageBoxW(g_hMain, msg, title, diag.warnings ? MB_ICONWARNING : MB_ICONINFORMATION);
+        if (keep) *keep = lc; else Config_FreeLayoutResources(&lc);
     } else {
-        wchar_t msg[320];
-        if (diag.line > 0) _snwprintf(msg, 320, L"Invalid layout.\n\nLine %d: %ls", diag.line, diag.message);
-        else _snwprintf(msg, 320, L"Invalid layout.\n\n%ls", diag.message[0] ? diag.message : L"empty or unreadable");
-        MessageBoxW(g_hMain, msg, L"Validate — error", MB_ICONERROR);
+        _snwprintf(msg, 6400, L"Invalid layout.\n\n%ls", body[0] ? body : L"empty or unreadable");
+        msg[6399] = L'\0';
+        MessageBoxW(g_hMain, msg, title, MB_ICONERROR);
     }
     SetFocus(g_hEdit);
+    return ok;
+}
+
+static void ValidateCurrent(void) { CheckEditor(NULL, true, L"Validate"); }
+
+static void CliCollect(const wchar_t *text, void *ctx) {   // 명령 출력을 버퍼에 모은다 (메시지 창용)
+    wchar_t *b = (wchar_t*)ctx;
+    size_t n = wcslen(b);
+    if (n + 1 < 4096) { wcsncpy(b + n, text, 4096 - n - 1); b[4095] = L'\0'; }
+}
+
+// Tools ▸ Try this file: 편집 중인 내용을 자판으로 읽어 아래 시험칸에서 쳐 본다 (설치 전 확인).
+static void TryThisFile(void) {
+    LayoutConfig lc;
+    if (!CheckEditor(&lc, false, L"Try this file")) return;
+    if (lc.type == LAYOUT_TYPE_CHORD) {
+        Config_FreeLayoutResources(&lc);
+        MessageBoxW(g_hMain, L"Chord layouts send real key events and cannot be tried in this box.\n"
+                             L"Install the layout and try it in any application.", L"Try this file", MB_ICONINFORMATION);
+        return;
+    }
+    if (g_fileLayout.name) Config_FreeLayoutResources(&g_fileLayout);
+    g_fileLayout = lc;
+    g_tryFile = true;
+    wchar_t lbl[80];
+    _snwprintf(lbl, 80, L"Try [%ls]:", lc.name ? lc.name : L"file"); lbl[79] = L'\0';
+    SetWindowTextW(g_hTryLabel, lbl);
+    SetWindowTextW(g_hTry, L"");
+    g_hTarget = g_hTry; g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+    SetFocus(g_hTry);
+}
+
+// File ▸ New from built-in / New derived layout: 내장 자판을 편집기로 (RFC-0011 P5·P4).
+static void NewFromBuiltin(const wchar_t *name, bool derive) {
+    static wchar_t text[16384];
+    wchar_t why[200];
+    if (!Klay_BuiltinText(name, text, 16384, why, 200)) { MessageBoxW(g_hMain, why, L"New layout", MB_ICONERROR); return; }
+    if (derive) {
+        const wchar_t *type = (!wcscmp(name, L"ko_3bul")) ? L"hangul" : L"static";
+        _snwprintf(text, 16384,
+            L"# A layout derived from the built-in %ls - write only what changes.\n"
+            L"#   Key x = C0     redefine a key (the later line wins)\n"
+            L"#   Key x = -      remove an inherited key\n"
+            L"FormatVersion = 2\nType = %ls\nExtends = @%ls\nName = my_%ls\nAbbrev = MY\n",
+            name, type, name, name);
+        text[16383] = L'\0';
+    }
+    // 편집기는 \r\n 을 줄바꿈으로 그린다
+    static wchar_t crlf[20000];
+    size_t o = 0;
+    for (size_t i = 0; text[i] && o + 2 < 20000; i++) { if (text[i] == L'\n') crlf[o++] = L'\r'; crlf[o++] = text[i]; }
+    crlf[o] = L'\0';
+    SetEditText(crlf);
+    g_curFile[0] = L'\0';
+    SetTestMode(false);
+}
+
+// File ▸ Export expanded: Extends/Include 를 푼 자립 파일로 저장 (--expand 와 같은 코드).
+static void ExportExpanded(void) {
+    if (!g_curFile[0]) { MessageBoxW(g_hMain, L"Save the layout first - relative Extends/Include paths need its folder.", L"Export expanded", MB_ICONINFORMATION); return; }
+    wchar_t out[MAX_PATH] = L"";
+    if (!BrowseFile(true, out, MAX_PATH)) return;
+    WriteFileUtf8FromEdit(g_curFile);   // 편집 중인 내용을 원본에 먼저 저장
+    const wchar_t *argv[] = { L"jamotong", L"--expand", g_curFile, L"-o", out };
+    static wchar_t log[4096]; log[0] = L'\0';
+    int rc = KlayCli_Run(5, argv, CliCollect, log);
+    MessageBoxW(g_hMain, log[0] ? log : (rc == 0 ? L"Done." : L"Failed."), L"Export expanded", rc == 0 ? MB_ICONINFORMATION : MB_ICONERROR);
+}
+
+// File ▸ Install to my layouts: 검증한 뒤 %APPDATA%\Jamotong\layouts 에 넣는다 (원자적 복사, 덮어쓰기 확인).
+static void InstallToMyLayouts(void) {
+    if (!CheckEditor(NULL, false, L"Install")) return;
+    if (!g_curFile[0]) { MessageBoxW(g_hMain, L"Save the layout to a file first.", L"Install", MB_ICONINFORMATION); return; }
+    if (!WriteFileUtf8FromEdit(g_curFile)) { MessageBoxW(g_hMain, L"Could not save the file.", L"Install", MB_ICONERROR); return; }
+    wchar_t dir[MAX_PATH], dst[MAX_PATH];
+    if (!Config_UserLayoutDir(dir, MAX_PATH)) { MessageBoxW(g_hMain, L"No user layout folder.", L"Install", MB_ICONERROR); return; }
+    const wchar_t *base = wcsrchr(g_curFile, L'\\'); base = base ? base + 1 : g_curFile;
+    _snwprintf(dst, MAX_PATH, L"%ls\\%ls", dir, base); dst[MAX_PATH - 1] = L'\0';
+    if (!_wcsicmp(dst, g_curFile)) { MessageBoxW(g_hMain, L"This file is already in your layout folder.", L"Install", MB_ICONINFORMATION); return; }
+    if (GetFileAttributesW(dst) != INVALID_FILE_ATTRIBUTES &&
+        MessageBoxW(g_hMain, L"A layout with this file name is already installed. Replace it?", L"Install", MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+    if (!Config_CopyFileAtomic(g_curFile, dst)) { MessageBoxW(g_hMain, L"Could not copy the file.", L"Install", MB_ICONERROR); return; }
+    MessageBoxW(g_hMain, L"Installed to %APPDATA%\\Jamotong\\layouts.\n\n"
+                         L"Newly started applications list it (turned off - enable it in Settings > Layouts).",
+                L"Install", MB_ICONINFORMATION);
 }
 
 static void ShowAbout(void) {
@@ -368,19 +494,37 @@ static void OnCommand(int id) {
                            Config_RotateLayout(&g_config); UpdateStatus(); break;
         case IDM_SETTINGS: SettingsUI_Show(&g_config); break;
         case IDM_VALIDATE: ValidateCurrent(); break;
+        case IDM_TRYFILE:  TryThisFile(); break;
+        case IDM_EXPAND:   ExportExpanded(); break;
+        case IDM_INSTALL:  InstallToMyLayouts(); break;
+        case IDM_NEW_3BUL: NewFromBuiltin(L"ko_3bul", false); break;
+        case IDM_NEW_DV:   NewFromBuiltin(L"en_dvorak", false); break;
+        case IDM_NEW_QW:   NewFromBuiltin(L"en_qwerty", false); break;
+        case IDM_DER_3BUL: NewFromBuiltin(L"ko_3bul", true); break;
+        case IDM_DER_DV:   NewFromBuiltin(L"en_dvorak", true); break;
         case IDM_TESTMODE: SetTestMode(!g_testMode); break;
         case IDM_ABOUT:    ShowAbout(); break;
     }
-    if (id != IDM_SETTINGS && id != IDM_ABOUT && id != IDM_VALIDATE) SetFocus(g_hEdit);
+    if (id != IDM_SETTINGS && id != IDM_ABOUT && id != IDM_VALIDATE && id != IDM_TRYFILE) SetFocus(g_hEdit);
 }
 
 static HMENU BuildMenu(void) {
     HMENU bar = CreateMenu();
     HMENU file = CreatePopupMenu(), edit = CreatePopupMenu(),
           lay = CreatePopupMenu(), tools = CreatePopupMenu(), help = CreatePopupMenu();
+    HMENU nb = CreatePopupMenu(), nd = CreatePopupMenu();
+    AppendMenuW(nb, MF_STRING, IDM_NEW_3BUL, L"Sebeolsik final (ko_3bul)");
+    AppendMenuW(nb, MF_STRING, IDM_NEW_DV,   L"Dvorak (en_dvorak)");
+    AppendMenuW(nb, MF_STRING, IDM_NEW_QW,   L"QWERTY (en_qwerty)");
+    AppendMenuW(nd, MF_STRING, IDM_DER_3BUL, L"from Sebeolsik final (Extends = @ko_3bul)");
+    AppendMenuW(nd, MF_STRING, IDM_DER_DV,   L"from Dvorak (Extends = @en_dvorak)");
+    AppendMenuW(file, MF_POPUP, (UINT_PTR)nb, L"New &copy of a built-in layout");
+    AppendMenuW(file, MF_POPUP, (UINT_PTR)nd, L"New &derived layout");
     AppendMenuW(file, MF_STRING, IDM_OPEN,   L"&Open .jmt...\tCtrl+O");
     AppendMenuW(file, MF_STRING, IDM_SAVE,   L"&Save\tCtrl+S");
     AppendMenuW(file, MF_STRING, IDM_SAVEAS, L"Save &As...");
+    AppendMenuW(file, MF_STRING, IDM_EXPAND, L"&Export expanded (no Extends)...");
+    AppendMenuW(file, MF_STRING, IDM_INSTALL, L"&Install to my layouts");
     AppendMenuW(file, MF_SEPARATOR, 0, NULL);
     AppendMenuW(file, MF_STRING, IDM_EXIT,   L"E&xit");
     AppendMenuW(edit, MF_STRING, IDM_SELALL, L"Select &All\tCtrl+A");
@@ -388,6 +532,7 @@ static HMENU BuildMenu(void) {
     AppendMenuW(lay,  MF_STRING, IDM_NEXT,     L"&Next layout");
     AppendMenuW(lay,  MF_STRING, IDM_SETTINGS, L"&Settings...");
     AppendMenuW(tools, MF_STRING, IDM_VALIDATE, L"&Validate layout");
+    AppendMenuW(tools, MF_STRING, IDM_TRYFILE,  L"T&ry this file (in the box below)");
     AppendMenuW(tools, MF_STRING | MF_CHECKED, IDM_TESTMODE, L"&Test input (type Hangul)");
     AppendMenuW(help, MF_STRING, IDM_ABOUT,  L"&About...");
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)file,  L"&File");
@@ -528,6 +673,14 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     SendMessageW(g_hStatus, WM_SETFONT, (WPARAM)s_font, TRUE);
     SendMessageW(g_hEdit, WM_SETFONT, (WPARAM)s_editFont, TRUE);
     g_editOrigProc = (WNDPROC)SetWindowLongPtrW(g_hEdit, GWLP_WNDPROC, (LONG_PTR)EditProc);
+    g_hTryLabel = CreateWindowW(L"STATIC", L"Try (current layout):", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP,
+                                S(10), S(516), S(150), S(22), g_hMain, NULL, hI, NULL);
+    g_hTry = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                             S(160), S(510), S(640), S(30), g_hMain, NULL, hI, NULL);
+    SendMessageW(g_hTryLabel, WM_SETFONT, (WPARAM)s_font, TRUE);
+    SendMessageW(g_hTry, WM_SETFONT, (WPARAM)s_editFont, TRUE);
+    g_tryOrigProc = (WNDPROC)SetWindowLongPtrW(g_hTry, GWLP_WNDPROC, (LONG_PTR)EditProc);
+    g_hTarget = g_hEdit;
 
     // 명령행에 .jmt 경로가 오면 열어서 편집 모드로 (관리 도구답게)
     if (cmd && cmd[0]) {
