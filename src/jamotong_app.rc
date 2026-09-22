@@ -3,8 +3,8 @@
 100 ICON "jamotong.ico"
 
 1 VERSIONINFO
- FILEVERSION 0,27,0,0
- PRODUCTVERSION 0,27,0,0
+ FILEVERSION 0,27,1,0
+ PRODUCTVERSION 0,27,1,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -17,12 +17,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "rubidus-api"
             VALUE "FileDescription", "Jamotong Manager"
-            VALUE "FileVersion", "0.27.0"
+            VALUE "FileVersion", "0.27.1"
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
             VALUE "OriginalFilename", "jamotong.exe"
             VALUE "ProductName", "Jamotong IME"
-            VALUE "ProductVersion", "0.27.0"
+            VALUE "ProductVersion", "0.27.1"
         END
     END
     BLOCK "VarFileInfo"

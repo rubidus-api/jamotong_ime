@@ -1175,7 +1175,20 @@ There is no single boundary-key resend that is guaranteed for every host.
 - **Window-class ownership**: register classes with the **DLL's hInstance** (registering
   with the EXE instance mismatches owner and WndProc), and **`UnregisterClassW` on dynamic
   unload** (MSDN: DLL classes are not auto-unregistered). Otherwise a reloaded DLL crashes
-  through a stale WndProc.
+  through a stale WndProc. Do the unregistering in `DllCanUnloadNow` just before returning
+  `S_OK`, **not in `DllMain(DLL_PROCESS_DETACH)`**: `DllMain` runs under the loader lock,
+  and Microsoft's [DLL best practices](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices)
+  advise against calling User32 there. Pair it with
+  **ensure-on-use registration** (`GetClassInfoW` first, `RegisterClassW` only if missing)
+  at each window creation instead of a one-shot "already registered" flag, so a class that
+  was unregistered while the DLL stayed loaded is registered again.
+- **COM identity across sibling vtables**: a TIP object that exposes several interfaces
+  through separate vtable pointers (key sink, thread-manager sink, text-edit sink,
+  compartment sink, ...) must answer `QueryInterface` identically from every one of them:
+  `IID_IUnknown` always returns the same pointer, and any interface reachable from one
+  vtable is reachable from all the others. The simplest correct form is one object-level
+  QI that every sibling's QI delegates to. A sibling that answers only for itself breaks
+  COM's symmetry/transitivity rules; TSF can then hold two "identities" for one object.
 - **`TF_IAS_NOQUERY` may not fill ppRange**: if you need replacement, get the selection
   range with `TF_IAS_QUERYONLY`, then `ShiftStart`+`SetText` (avoids a NULL dereference).
 - **Lock coverage**: if `OnTestKeyDown` reads config/layout data, it needs **the same lock**

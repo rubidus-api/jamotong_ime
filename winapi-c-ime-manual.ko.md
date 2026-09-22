@@ -1007,7 +1007,18 @@ if (hr == S_OK) {
   (양쪽 CRT에서 동일 동작·이식 가능).
 - **윈도 클래스 소유권**: 클래스는 반드시 **DLL의 hInstance**로 등록하고(EXE 인스턴스로 등록하면
   WndProc과 소유자가 어긋남), **동적 언로드 시 `UnregisterClassW`** 하라(MSDN: DLL 클래스는 자동
-  해제 안 됨). 안 하면 재로드 후 낡은 WndProc을 가리키는 클래스로 크래시.
+  해제 안 됨). 안 하면 재로드 후 낡은 WndProc을 가리키는 클래스로 크래시. 해제는 `S_OK`를
+  돌려주기 직전의 `DllCanUnloadNow`에서 하고, **`DllMain(DLL_PROCESS_DETACH)`에서 하지 마라**:
+  `DllMain`은 로더 잠금 아래에서 돌고, Microsoft의 DLL 모범 사례는 거기서 User32를 부르지 말라고
+  권한다. 등록은 한 번만 하고 "등록됨" 깃발을 세우는 대신 **창을 만들 때마다 확인 후 등록**
+  (`GetClassInfoW`로 먼저 보고 없을 때만 `RegisterClassW`)하라. 그래야 DLL이 올라가 있는 동안
+  클래스가 해제된 경우에도 다시 등록된다.
+- **형제 vtable 사이의 COM 동일성**: 한 TIP 객체가 여러 인터페이스를 서로 다른 vtable 포인터로
+  내놓으면(키 싱크, 스레드 관리자 싱크, 텍스트 편집 싱크, 컴파트먼트 싱크 …) 어느 vtable로 물어도
+  `QueryInterface` 대답이 같아야 한다. `IID_IUnknown`은 언제나 같은 포인터를 돌려주고, 한 vtable에서
+  얻을 수 있는 인터페이스는 다른 vtable에서도 얻을 수 있어야 한다. 가장 간단한 올바른 형태는 객체
+  수준 QI 하나를 두고 형제들의 QI가 모두 그리로 넘기는 것이다. 자기 인터페이스만 답하는 형제는
+  COM의 대칭성·추이성 규칙을 깨고, TSF는 한 객체를 두 "정체"로 붙들 수 있다.
 - **`TF_IAS_NOQUERY`는 ppRange를 안 채울 수 있다**: 교체가 필요하면 `TF_IAS_QUERYONLY`로 선택
   range를 얻어 `ShiftStart`+`SetText` 하라(NULL 역참조 방지).
 - **`VT_EMPTY`의 뜻은 API별로 다르다.** 공통 규칙은 `GetValue` 전에 `VariantInit`, 호출 뒤
@@ -2910,6 +2921,7 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 | `GetAsyncKeyState` (제약이 있는 비동기 현재 상태) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate |
 | `GetClassNameW` (EDIT 클래스 판정) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclassnamew |
 | `UnregisterClassW` (DLL 창 클래스 정리) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unregisterclassw |
+| DLL 모범 사례 (`DllMain`·로더 잠금에서 User32 금지) | https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices |
 | `SendInput` (검증된 비-EDIT 실제 키 경로) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput |
 | `PostMessageW` (검증된 EDIT 경계키 큐) | https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew |
 
