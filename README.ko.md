@@ -200,6 +200,37 @@ RequiresJamotong = 0.24.0            # 이보다 낮은 자모통에서는 알�
 키는 항상 **US QWERTY 기준으로 그 물리 키가 내는 문자**로 지정한다. Shift 포함:
 `k`=K키, `K`=Shift+K, `;` `!` 같은 기호도 그대로 쓴다.
 
+### 자판 파생 — `Extends` / `Include`
+
+다른 자판에서 출발해 바뀌는 것만 적는다:
+
+```ini
+FormatVersion = 2
+Type    = hangul
+Extends = @ko_3bul          # 내장 자판(@ko_3bul, @en_dvorak, @en_qwerty) 또는 ./base.jmt
+Name    = 내 세벌식
+Key 1   = M13               # 글쇠 다시 정하기 (뒤의 줄이 이긴다)
+Key 2   = -                 # '-' = 기반에서 물려받은 글쇠 지우기
+Combine M 8 0 = -           # '-' = 물려받은 결합 규칙 지우기
+Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (여러 줄 가능)
+```
+
+`Extends` 는 파일마다 한 줄, 깊이는 4 단계까지다. 파일끼리 서로를 부르거나 `Type` 이 기반과 다르면
+오류다. `Name`·`Abbrev` 는 따로 적지 않으면 물려받지만 기반의 `Id`·`Version`·`Author` 등은 물려받지
+않는다. 두벌식(`@ko_2bul`)은 기반이 될 수 없다 — "받침이 다음 음절로 넘어가는" 규칙이 표가 아니라
+오토마타 안에 있기 때문이다.
+
+### 명령줄 도구
+
+```text
+jamotong.exe --check  my.jmt [--json]          # 검사만. 종료 코드 0 = 로드됨, 1 = 오류
+jamotong.exe --export @ko_3bul -o ko_3bul.jmt  # 내장 자판을 완전한 .jmt 로 저장
+jamotong.exe --expand my.jmt -o flat.jmt       # Extends/Include 를 풀어 파일 하나로
+```
+
+`--expand` 는 정규형으로 쓴다(주석·줄 순서는 남지 않고, 다시 펼쳐도 같은 파일). `--json` 은 편집기가
+읽을 수 있는 진단을 낸다.
+
 ### Type = static (1:1 리맵)
 
 지시문 하나 — 단건과 **배열** 두 형태:

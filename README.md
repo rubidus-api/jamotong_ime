@@ -224,6 +224,37 @@ cannot silently drop keys.
 Keys are always identified by **the character the physical key produces on a US QWERTY
 base**, including Shift: `k` is the K key, `K` is Shift+K, `;` `!` etc. work too.
 
+### Deriving a layout — `Extends` / `Include`
+
+Start from another layout and write only what changes:
+
+```ini
+FormatVersion = 2
+Type    = hangul
+Extends = @ko_3bul          # a built-in (@ko_3bul, @en_dvorak, @en_qwerty) or ./base.jmt
+Name    = my 3-beol
+Key 1   = M13               # redefine a key (the later line wins)
+Key 2   = -                 # '-' removes a key inherited from the base
+Combine M 8 0 = -           # '-' removes an inherited combination rule
+Include = common-rules.jmt  # paste another file's lines here (several Include lines allowed)
+```
+
+One `Extends` line per file, at most 4 levels deep; a loop between files and a `Type`
+different from the base are errors. Name/Abbrev are inherited unless you set them; the
+base's `Id`, `Version`, `Author`, … are not. Dubeolsik (`@ko_2bul`) cannot be a base: its
+"final consonant moves to the next syllable" rule lives in the automata, not in a table.
+
+### Command-line tools
+
+```text
+jamotong.exe --check  my.jmt [--json]          # validate only; exit 0 = loads, 1 = errors
+jamotong.exe --export @ko_3bul -o ko_3bul.jmt  # write a built-in layout as a complete .jmt
+jamotong.exe --expand my.jmt -o flat.jmt       # resolve Extends/Include into one file
+```
+
+`--expand` writes a canonical file (comments and line order are not kept; expanding it again
+gives the same file). `--json` prints machine-readable diagnostics for editors.
+
 ### Type = static (1:1 remap)
 
 One directive, in single and **array** form:
