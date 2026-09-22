@@ -27,6 +27,7 @@ typedef struct HangulLayout {
 
 // .jmt 파일에서 로드 (heap 할당, 실패 시 NULL). 소유자가 HangulLayout_Free 로 해제.
 HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
+HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   // Extends/Include 푼 줄 (RFC-0011 P4)
 void HangulLayout_Free(HangulLayout *hl);
 
 // (type, a, b) 결합 조회 — 대응 규칙의 result, 없으면 -1. 모아치기 자판은 순서무관으로 (b,a)도 시도.

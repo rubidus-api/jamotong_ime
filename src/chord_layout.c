@@ -178,10 +178,16 @@ static bool ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
 static const wchar_t *const kChordDirectives[] = { L"Key", L"Layer", L"Chord", L"Hold", NULL };
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
-    FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) { KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL); return NULL; }
+    KlayLines L;
+    bool built = KlayLines_Build(&L, path, diag);
+    ChordLayout *cl = built ? ChordLayout_LoadFromLines(&L, diag) : NULL;
+    KlayLines_Free(&L);
+    return cl;
+}
+
+ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     ChordLayout *cl = (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
-    if (!cl) { fclose(fp); return NULL; }
+    if (!cl) return NULL;
     wcscpy_s(cl->name, 64, L"chord");
     for (int i = 0; i < 128; i++) cl->keyBit[i] = -1;
     wcscpy_s(cl->layerNames[0], 32, L"base");
@@ -191,8 +197,10 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     int lineno = 0;
 
     wchar_t line[256];
-    while (fgetws(line, 256, fp)) {
-        lineno++;
+    for (int li = 0; li < L->n; li++) {
+        lstrcpynW(line, L->v[li].text, 256);
+        lineno = L->v[li].line;
+        if (diag) diag->curFile = L->files[L->v[li].file];
         TrimEnds(line);
         wchar_t *p = line;
         while (*p==L' '||*p==L'\t') p++;
@@ -245,7 +253,7 @@ ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
         else if (KlayHeader_IsKnownKey(p)) { /* 머리부 — 통합 로더가 읽는다 */ }
         else if (Klay_UnknownLine(diag, p, lineno, col0, kChordDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
-    fclose(fp);
+    if (diag) diag->curFile = NULL;
     if (bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }   // 부분 로드 대신 명시적 실패
     // 정확 크기로 축소 재할당 (RFC-0011 P0): 고정 배열 chords[2048] 전체(≈182KB)를 모든 호스트
     // 프로세스가 지는 대신, 실제 조합 수만큼만. 구조체 선언은 그대로 두되 할당만 줄인다 —

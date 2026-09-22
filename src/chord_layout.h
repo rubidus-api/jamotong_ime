@@ -71,6 +71,7 @@ typedef struct {
 } ChordKbContext;
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
+ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   // Extends/Include 푼 줄 (RFC-0011 P4)
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);

@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include "config.h"
 #include "ui_server.h"   // RFC-0015 UI 헬퍼 모드
+#include "klay_cli.h"    // RFC-0011 P3 .jmt 저작 도구 명령
+#include <shellapi.h>    // CommandLineToArgvW
 #include "layout.h"
 #include "fsm.h"
 #include "hangul_layout.h"
@@ -433,6 +435,38 @@ static int UninstallIme(void) {
     return 0;
 }
 
+// ── RFC-0011 P3: `jamotong.exe --check/--export/--expand` ─────────────────────────────
+// GUI 서브시스템 exe 라 콘솔이 없다 — 부모(cmd/PowerShell) 콘솔에 붙어 쓴다. 출력이 파일·파이프로
+// 돌려져 있으면 그 핸들에 UTF-8 로 쓴다(콘솔이면 WriteConsoleW 로 한글이 깨지지 않게).
+static HANDLE g_cliOut = NULL;
+static void CliOut(const wchar_t *text, void *ctx) {
+    (void)ctx;
+    if (!g_cliOut || g_cliOut == INVALID_HANDLE_VALUE) return;
+    DWORD mode, n;
+    if (GetConsoleMode(g_cliOut, &mode)) { WriteConsoleW(g_cliOut, text, (DWORD)wcslen(text), &n, NULL); return; }
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, text, -1, NULL, 0, NULL, NULL);
+    if (bytes <= 1) return;
+    char *buf = (char*)malloc((size_t)bytes);
+    if (!buf) return;
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, buf, bytes, NULL, NULL);
+    WriteFile(g_cliOut, buf, (DWORD)(bytes - 1), &n, NULL);
+    free(buf);
+}
+static int RunCli(void) {
+    int argc = 0;
+    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return 2;
+    if (!KlayCli_IsCommand(argc, (const wchar_t *const *)argv)) { LocalFree(argv); return -1; }
+    g_cliOut = GetStdHandle(STD_OUTPUT_HANDLE);   // 돌려진 출력이 있으면 그것을 쓴다
+    if (!g_cliOut || g_cliOut == INVALID_HANDLE_VALUE || GetFileType(g_cliOut) == FILE_TYPE_UNKNOWN) {
+        if (AttachConsole(ATTACH_PARENT_PROCESS))
+            g_cliOut = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    }
+    int rc = KlayCli_Run(argc, (const wchar_t *const *)argv, CliOut, NULL);
+    LocalFree(argv);
+    return rc;
+}
+
 int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     (void)hP;
     g_hInst = hI;
@@ -440,6 +474,10 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     // RFC-0015: UWP 호스트 안의 TIP 은 창을 못 띄운다 → 이 프로세스가 대신 그려 주는 모드.
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
+    if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand"))) {
+        int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
+        if (rc >= 0) return rc;
+    }
 
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     BOOL (WINAPI *pSetCtx)(HANDLE) = (void*)GetProcAddress(u32, "SetProcessDpiAwarenessContext");

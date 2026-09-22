@@ -19,25 +19,29 @@ static void TrimTail(wchar_t *s) {
     size_t n = wcslen(s);
     while (n > 0 && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
-static void Prescan(const wchar_t *path, wchar_t *type, wchar_t *abbrev, KlayMeta *m, HeaderLines *ln, bool full) {
+static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *abbrev, KlayMeta *m, HeaderLines *ln) {
+    // 줄 목록 전체를 훑고 뒤가 이긴다 — 기반 자판(Extends) 줄이 앞, 자기 줄이 뒤다 (RFC-0011 P4).
     type[0] = L'\0'; abbrev[0] = L'\0';
-    FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) return;
-    wchar_t line[256];
-    int lineno = 0;
-    while (fgetws(line, 256, fp)) {
-        lineno++;
+    for (int i = 0; i < L->n; i++) {
+        wchar_t line[256];
+        lstrcpynW(line, L->v[i].text, 256);
         TrimTail(line);
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
-        if (*p == L'#' || *p == L'\0') continue;
-        if (IsBodyDirective(p)) { if (full) continue; break; }
+        if (*p == L'#' || *p == L'\0' || IsBodyDirective(p)) continue;
         wchar_t key[32] = {0};
         int vpos = 0;
         if (swscanf(p, L"%31l[A-Za-z] = %n", key, &vpos) < 1 || vpos == 0) continue;
         const wchar_t *v = p + vpos;
+        const int lineno = L->v[i].line;
+        const bool top = (L->v[i].file == 0);   // 최상위 파일 — 신원·저작 정보는 여기서만 (기반의 것을 물려받지 않는다)
         if      (!wcscmp(key, L"Type"))             lstrcpynW(type, v, 32);
-        else if (!wcscmp(key, L"Abbrev"))           { lstrcpynW(abbrev, v, 16); ln->lnAbbrev = lineno; }
+        else if (!wcscmp(key, L"Abbrev"))           { lstrcpynW(abbrev, v, 16); if (top) ln->lnAbbrev = lineno; }
+        else if (!top) {
+            // 기반 자판이 더 높은 판을 요구하면 그 요구는 파생에도 걸린다
+            if (!wcscmp(key, L"RequiresJamotong") && Klay_CompareVersion(v, m->requires) > 0) { lstrcpynW(m->requires, v, 16); ln->lnReq = lineno; }
+            continue;
+        }
         else if (!wcscmp(key, L"FormatVersion"))    { m->formatVersion = (int)wcstol(v, NULL, 10); ln->lnFv = lineno; }
         else if (!wcscmp(key, L"RequiresJamotong")) { lstrcpynW(m->requires, v, 16); ln->lnReq = lineno; }
         else if (!wcscmp(key, L"Id"))               lstrcpynW(m->id, v, 64);
@@ -48,24 +52,20 @@ static void Prescan(const wchar_t *path, wchar_t *type, wchar_t *abbrev, KlayMet
         else if (!wcscmp(key, L"Description"))      lstrcpynW(m->description, v, 160);
         else if (!wcscmp(key, L"Locale"))           lstrcpynW(m->locale, v, 16);
     }
-    fclose(fp);
 }
 
-// Type = static: Map <키…> = <출력…>
-//   좌변에 키를 여러 개 쓰면 배열 지정 — 좌우 같은 길이, 위치 대응 (예: Map qwe = ',.).
-//   단건(Map q = ')은 길이 1의 특수형. 길이 불일치·범위 밖 키는 파일 거부.
 static const wchar_t *const kStaticDirectives[] = { L"Map", NULL };
 
-static bool LoadStatic(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
-    FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) { KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL); return false; }
+static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
     wchar_t nameBuf[64]; wcscpy_s(nameBuf, 64, L"static");
     wchar_t line[256];
     bool bad = false; int lineno = 0;
     #define SFAIL(col, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (col), (code), (msg), (help)); bad = true; } while (0)
-    while (fgetws(line, 256, fp)) {
-        lineno++;
+    for (int li = 0; li < L->n; li++) {
+        lstrcpynW(line, L->v[li].text, 256);
+        lineno = L->v[li].line;
+        if (diag) diag->curFile = L->files[L->v[li].file];
         TrimTail(line);
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
@@ -94,7 +94,7 @@ static bool LoadStatic(const wchar_t *path, LayoutConfig *out, KlayDiag *diag) {
         if (Klay_UnknownLine(diag, p, lineno, col, kStaticDirectives)) bad = true;
     }
     #undef SFAIL
-    fclose(fp);
+    if (diag) diag->curFile = NULL;
     if (bad) return false;
     out->type = LAYOUT_TYPE_STATIC_MAP;
     out->name = _wcsdup(nameBuf);
@@ -113,11 +113,13 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
     KlayMeta m; memset(&m, 0, sizeof(m)); m.formatVersion = 1;
     HeaderLines hl0 = {0};
     wchar_t type[32] = L"", abbrev[16] = L"";
-    Prescan(path, type, abbrev, &m, &hl0, meta != NULL);
+    memset(out, 0, sizeof(*out));
+    KlayLines L;   // 파일을 한 번 읽고 Extends/Include 를 푼다 (RFC-0011 P4)
+    if (!KlayLines_Build(&L, path, diag)) { KlayLines_Free(&L); return false; }
+    Prescan(&L, type, abbrev, &m, &hl0);
     if (m.formatVersion < 1) m.formatVersion = 1;
     diag->formatVersion = m.formatVersion;
     if (meta) *meta = m;
-    memset(out, 0, sizeof(*out));
 
     // RFC-0011 P2: 머리부 검사 — 더 새 형식은 경고 후 최선 로드, 더 높은 판을 요구하면 거부.
     if (m.formatVersion > 2)
@@ -128,6 +130,7 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
         wchar_t msg[160];
         swprintf(msg, 160, L"this layout requires Jamotong %ls or newer (this is %ls)", m.requires, JAMOTONG_VERSION);
         KlayDiag_Add(diag, KLAY_SEV_ERROR, hl0.lnReq, 1, L"E-JMT-REQUIRES", msg, L"update Jamotong");
+        KlayLines_Free(&L);
         return false;
     }
     if (wcslen(abbrev) > 4)
@@ -137,22 +140,23 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
 
     bool ok = false;
     if (!_wcsicmp(type, L"static")) {
-        ok = LoadStatic(path, out, diag);
+        ok = LoadStatic(&L, out, diag);
     } else if (!_wcsicmp(type, L"chord")) {
-        ChordLayout *cl = ChordLayout_LoadFromFile(path, diag);
+        ChordLayout *cl = ChordLayout_LoadFromLines(&L, diag);
         if (cl) {
             out->type = LAYOUT_TYPE_CHORD; out->pChordLayout = cl;
             out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
             if (out->name) ok = true; else ChordLayout_Free(cl);
         }
     } else {   // 기본: hangul (Type 생략 시)
-        HangulLayout *hl = HangulLayout_LoadFromFile(path, diag);
+        HangulLayout *hl = HangulLayout_LoadFromLines(&L, diag);
         if (hl) {
             out->type = LAYOUT_TYPE_HANGUL_CUSTOM; out->kbdVariant = KBD_SEBEOL; out->pHangulLayout = hl;
             out->name = _wcsdup(hl->name[0] ? hl->name : L"custom");
             if (out->name) ok = true; else HangulLayout_Free(hl);
         }
     }
+    KlayLines_Free(&L);
     if (ok) {
         if (abbrev[0]) lstrcpynW(out->abbrev, abbrev, 8);
         else lstrcpynW(out->abbrev, (out->name && out->name[0]) ? out->name : L"??", 4);   // 앞 3글자 파생

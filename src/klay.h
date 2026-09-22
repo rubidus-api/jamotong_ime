@@ -13,12 +13,15 @@ typedef struct KlayDiagItem {
     wchar_t      code[24];      // 예: E-JMT-RANGE, W-JMT-UNKNOWN-KEY
     wchar_t      message[160];  // 영어 사유
     wchar_t      help[160];     // 고치는 법 (없으면 빈 문자열)
+    wchar_t      file[64];      // 그 줄이 나온 파일 (Extends/Include 로 다른 파일일 수 있다, RFC-0011 P4)
 } KlayDiagItem;
 typedef struct KlayDiag {
     int     line;               // 첫 오류 줄 (호환)
     wchar_t message[160];       // 첫 오류 사유 (호환)
     int     formatVersion;      // 파서 문맥: 머리부의 FormatVersion (없으면 1)
     int     count, errors, warnings;
+    const wchar_t *curFile;     // 파서가 지금 읽는 줄의 파일 이름 (Add 가 항목에 복사)
+    wchar_t topFile[64];        // 최상위 파일 이름 — 형식화 때 이 파일의 항목은 호출자가 준 이름으로
     KlayDiagItem items[KLAY_DIAG_MAX];
 } KlayDiag;
 
@@ -43,6 +46,23 @@ bool KlayHeader_IsKnownKey(const wchar_t *line);
 bool Klay_UnknownLine(KlayDiag *d, const wchar_t *line, int lineno, int col, const wchar_t *const *known);
 // "a.b.c" 판 비교 (-1/0/1). 모자란 자리는 0.
 int Klay_CompareVersion(const wchar_t *a, const wchar_t *b);
+
+// ── 줄 원천 (RFC-0011 P4) ──────────────────────────────────────────────────────────
+// 파일을 한 번 읽어 `Extends`(한 줄, 깊이 4, 순환 거부, 종류 일치)와 `Include` 를 풀어 합친 줄 목록.
+// 기반 자판의 줄이 먼저, 자기 줄이 뒤 — 파서는 "뒤가 이긴다"로 덮어쓴다. `@이름` = 내장 자판.
+#define KLAY_MAX_FILES 12
+typedef struct KlayLine { wchar_t *text; int line; int file; } KlayLine;
+typedef struct KlayLines {
+    KlayLine *v; int n, cap;
+    wchar_t files[KLAY_MAX_FILES][64];
+    int nfiles;
+} KlayLines;
+bool KlayLines_Build(KlayLines *L, const wchar_t *path, KlayDiag *d);
+void KlayLines_Free(KlayLines *L);
+
+// 내장 자판을 완전한 .jmt 텍스트로 (ko_3bul·en_dvorak·en_qwerty). 옮길 수 없으면 false + why.
+//   두벌식(ko_2bul)은 자음이 다음 음절로 넘어가는 규칙이 오토마타 안에 있어 hangul .jmt 로 못 옮긴다.
+bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *why, size_t whyCch);
 
 // 통합 자판 설정파일(.jmt) 로더. 파일 첫머리의 `Type =` 값으로 종류를 정한다:
 //   Type = static   1:1 문자 리맵 (드보락류)          → LAYOUT_TYPE_STATIC_MAP (charMap)

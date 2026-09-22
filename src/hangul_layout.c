@@ -34,25 +34,39 @@ static bool ValidIdx(JamoType t, int idx) {
 static const wchar_t *const kHangulDirectives[] = { L"Key", L"Combine", L"Moachigi", NULL };
 
 HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
-    FILE *fp = _wfopen(path, L"r, ccs=UTF-8");
-    if (!fp) { KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 0, L"E-JMT-OPEN", L"cannot open file", NULL); return NULL; }
+    KlayLines L;
+    bool built = KlayLines_Build(&L, path, diag);
+    HangulLayout *hl = built ? HangulLayout_LoadFromLines(&L, diag) : NULL;
+    KlayLines_Free(&L);
+    return hl;
+}
 
+// 같은 (종류, a, b) 결합 규칙의 자리 (없으면 -1) — 뒤에 다시 쓴 규칙이 앞의 것을 교체한다 (RFC-0011 P4).
+static int FindCombine(const HangulLayout *hl, JamoType t, int a, int b) {
+    for (int i = 0; i < hl->combineCount; i++)
+        if (hl->combines[i].type == t && hl->combines[i].a == a && hl->combines[i].b == b) return i;
+    return -1;
+}
+
+HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     HangulLayout *hl = (HangulLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(HangulLayout));
-    if (!hl) { fclose(fp); return NULL; }
+    if (!hl) return NULL;
     wcscpy_s(hl->name, 64, L"custom");
     bool bad = false;   // 잘못된 Key/Combine 발견 시 파일 전체 거부
     int lineno = 0;
 
     wchar_t line[256];
-    while (fgetws(line, 256, fp)) {
-        lineno++;
+    for (int li = 0; li < L->n; li++) {
+        lstrcpynW(line, L->v[li].text, 256);
+        lineno = L->v[li].line;
+        if (diag) diag->curFile = L->files[L->v[li].file];
         TrimCrLf(line);
         // 앞 공백 스킵
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'\0' || *p == L'#') continue;   // 빈 줄/주석
         const int col0 = (int)(p - line) + 1;
-        wchar_t typec = 0;
+        wchar_t typec = 0, delc = 0;
         int a = 0, b = 0, idx = 0, val = 0;
 
         if (swscanf(p, L"Name = %63l[^\n]", hl->name) == 1) {
@@ -74,6 +88,12 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
                 if (*q == L'\0' || *q == L'#') break;   // 스펙이 키 수보다 적음 → 아래에서 bad
                 int adv = 0;
                 const int colSpec = (int)(q - line) + 1;
+                if (*q == L'-' && (q[1] == L'\0' || q[1] == L' ' || q[1] == L'\t' || q[1] == L'#')) {
+                    // '-' = 그 글쇠 배정 삭제 (RFC-0011 P4, 기반 자판에서 물려받은 것을 지운다)
+                    if ((unsigned)lhs[ki] < 128) { hl->keymap[(int)lhs[ki]].type = JAMO_NONE; hl->keymap[(int)lhs[ki]].index = 0; }
+                    q++;
+                    continue;
+                }
                 if (swscanf(q, L"%lc%d%n", &typec, &idx, &adv) != 2) break;
                 JamoType t = TypeFromChar(typec);
                 if (t == JAMO_NONE) { lineErr = true; FAIL(colSpec, L"E-JMT-TYPE", L"Key: type must be C, M or T", L"C = choseong, M = jungseong, T = jongseong"); break; }
@@ -92,13 +112,21 @@ HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
             if (t == JAMO_NONE) FAIL(col0 + 8, L"E-JMT-TYPE", L"Combine: type must be C, M or T", L"C = choseong, M = jungseong, T = jongseong");
             else if (!ValidIdx(t, a) || !ValidIdx(t, b) || !ValidIdx(t, val)) FAIL(col0 + 10, L"E-JMT-RANGE", L"Combine: jamo index out of range", HELP_RANGE);
             else if (hl->combineCount >= HL_MAX_COMBINE) FAIL(col0, L"E-JMT-LIMIT", L"too many Combine rules (max 256)", NULL);
-            else { HangulCombine *c = &hl->combines[hl->combineCount++];
-                   c->type = t; c->a = a; c->b = b; c->result = val; }
+            else {
+                int at = FindCombine(hl, t, a, b);   // 같은 규칙을 다시 쓰면 교체 (P4)
+                HangulCombine *c = at >= 0 ? &hl->combines[at] : &hl->combines[hl->combineCount++];
+                c->type = t; c->a = a; c->b = b; c->result = val;
+            }
+        }
+        else if (swscanf(p, L"Combine %lc %d %d = %lc", &typec, &a, &b, &delc) == 4 && delc == L'-') {
+            // Combine T a b = - : 물려받은 결합 규칙 삭제 (P4)
+            int at = FindCombine(hl, TypeFromChar(typec), a, b);
+            if (at >= 0) hl->combines[at] = hl->combines[--hl->combineCount];
         }
         else if (KlayHeader_IsKnownKey(p)) { /* 머리부(Type·Abbrev·Id…) — 통합 로더가 읽는다 */ }
         else if (Klay_UnknownLine(diag, p, lineno, col0, kHangulDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
-    fclose(fp);
+    if (diag) diag->curFile = NULL;
     if (bad) { HeapFree(GetProcessHeap(), 0, hl); return NULL; }   // 부분 로드 대신 명시적 실패
     return hl;
 }

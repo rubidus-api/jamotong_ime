@@ -30,6 +30,7 @@ void KlayDiag_Add(KlayDiag *d, KlaySeverity sev, int line, int col,
     KlayDiagItem *it = &d->items[d->count++];
     it->line = line; it->col = col; it->severity = sev;
     CopyW(it->code, 24, code); CopyW(it->message, 160, msg); CopyW(it->help, 160, help ? help : L"");
+    CopyW(it->file, 64, d->curFile ? d->curFile : L"");
 }
 
 void Klay_DiagFormat(const KlayDiag *d, const wchar_t *file, wchar_t *out, size_t cch) {
@@ -38,7 +39,8 @@ void Klay_DiagFormat(const KlayDiag *d, const wchar_t *file, wchar_t *out, size_
     size_t o = 0;
     for (int i = 0; d && i < d->count && o + 1 < cch; i++) {
         const KlayDiagItem *it = &d->items[i];
-        int n = swprintf(out + o, cch - o, L"%ls:%d:%d: %ls: %ls [%ls]\n", file ? file : L"<file>",
+        const wchar_t *fn = (it->file[0] && wcscmp(it->file, d->topFile) != 0) ? it->file : (file ? file : L"<file>");
+        int n = swprintf(out + o, cch - o, L"%ls:%d:%d: %ls: %ls [%ls]\n", fn,
                          it->line, it->col, it->severity == KLAY_SEV_ERROR ? L"error" : L"warning",
                          it->message, it->code);
         if (n < 0) break;
