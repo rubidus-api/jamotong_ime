@@ -154,6 +154,26 @@ Default keys — every function is configurable and accepts multiple bindings
   then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview
   font/size), *General* (DPI, import/export, reset).
 
+### Remote desktop — Jamotong on both PCs
+
+Compose on **one side only**. Two input methods composing the same keystrokes is not
+supported (it is undefined, not merely untested), and there is no protocol that would let the
+two cooperate.
+
+| You want Hangul composed by | Local PC | Remote PC |
+|---|---|---|
+| the **remote** PC's IME (usual for remote work) | Jamotong in **pass-through mode** (icon shows `--`) — every key, including the layout-switch key, goes through untouched | Jamotong (or any IME) in Hangul mode |
+| the **local** Jamotong | Jamotong in Hangul mode | set the remote input method to **English**, so it inserts the text it receives as-is |
+
+**Signs that both sides are composing:** jamo split into separate letters (`ㅎㅏㄴ` instead of
+`한`), a syllable typed twice, the layout-switch key flipping both PCs at once, or a candidate
+window opening on both screens. Turn on pass-through on the local PC (tray icon, right click)
+or switch the remote PC to English.
+
+Whether the local IME sees keys at all depends on the remote-desktop client and its
+keyboard-capture setting (full screen, "apply Windows key combinations"); that part has not
+been verified for every client. The one-side rule holds either way.
+
 ## Settings file
 
 All settings are stored in a plain-text INI file:
