@@ -38,8 +38,9 @@ void Fsm_Init(FsmContext *ctx) {
 
 FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const HangulLayout *hl) {
     FsmResult res = {0, 0, false};
-    // 직접 종성 자판(세벌식/사용자)은 2벌식식 도깨비불(초성↔종성 문맥 전환)을 쓰지 않는다.
-    bool directJong = (hl != NULL) || (variant == KBD_SEBEOL);
+    // 직접 종성 자판(세벌식, Composition = sebeol 파일)은 2벌식식 도깨비불(초성↔종성 문맥 전환)을 쓰지 않는다.
+    //   RFC-0016 P2: 파일 자판도 Composition = dubeol 이면 내장 두벌식과 같은 전이를 탄다 (전엔 파일 = 늘 직접 종성).
+    bool directJong = hl ? (hl->composition != HL_DUBEOL) : (variant == KBD_SEBEOL);
 
     LayoutResult layoutRes = fsm_map(keyChar, variant, hl);
 
@@ -130,7 +131,11 @@ FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const Ha
 
         case STATE_CHO_JUNG_JONG:
             if (layoutRes.type == JAMO_CHO) {
-                int combined = (!directJong) ? Layout_CombineJong(ctx->jong, layoutRes.index) : -1;
+                int combined = -1;
+                if (!directJong) {   // 2벌식 겹받침: 내장은 고정 표, 파일은 'Combine T <받침> <초성→받침>' 표
+                    if (hl) { int t2 = Layout_ChoToJong(layoutRes.index); combined = (t2 > 0) ? fsm_combineJongPair(ctx->jong, t2, hl) : -1; }
+                    else combined = Layout_CombineJong(ctx->jong, layoutRes.index);
+                }
                 if (combined != -1) {   // 2벌식: 종성+초성 → 겹받침
                     ctx->jong = combined; res.preeditChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
                 } else {   // 새 음절

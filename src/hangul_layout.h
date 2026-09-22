@@ -17,9 +17,16 @@ typedef struct {
     int result;         // 결합 결과 인덱스
 } HangulCombine;
 
+// 조합 모델 (RFC-0016 P2) — Composition = sebeol | dubeol
+#define HL_SEBEOL 0   // 직접 종성: 종성 키가 따로 있다 (기본값, 예전 동작)
+#define HL_DUBEOL 1   // 두벌식: 초성 키가 문맥으로 받침이 되고, 다음 모음이 오면 받침이 다음 음절로 넘어간다.
+                      //   초성→받침 대응과 받침 분리는 표준 현대 한글 규칙(엔진 계약). 겹받침은 파일의
+                      //   'Combine T <받침> <초성을 받침으로 바꾼 번호> = <겹받침>' 표.
+
 typedef struct HangulLayout {
     wchar_t name[64];
     int moachigi;                    // 1=모아치기(순서무관 결합 선언), 0=이어치기(순차)
+    int composition;                 // HL_SEBEOL / HL_DUBEOL
     LayoutResult keymap[128];        // ASCII 산출문자 → {type, index}
     HangulCombine combines[HL_MAX_COMBINE];
     int combineCount;

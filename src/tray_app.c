@@ -68,6 +68,8 @@ static wchar_t g_curFile[MAX_PATH] = L"";      // 현재 편집 중인 .jmt 경�
 #define IDM_NEW_QW   1112
 #define IDM_DER_3BUL 1113
 #define IDM_DER_DV   1114
+#define IDM_NEW_2BUL 1115   // RFC-0016 P2: 두벌식도 파일로
+#define IDM_DER_2BUL 1116
 
 // ── QWERTY/모디파이어 헬퍼 (오토마타 테스트용) ──
 static wchar_t GetQwertyChar(WPARAM vk, bool shift) {
@@ -225,8 +227,8 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SendMessageW(h, EM_SETSEL, 0, (LPARAM)-1);
             return 0;
         }
-        MSG mm = { h, m, w, l, 0, { 0, 0 } };
-        TranslateMessage(&mm);
+        // 여기서 TranslateMessage 를 다시 부르지 않는다: 메시지 루프의 IsDialogMessageW 가 이미 변환해 WM_CHAR 를
+        // 만들었다 — 또 부르면 오토마타가 소비하지 않은 키(영문·스페이스 등)가 두 번 입력된다 (2026-09-23 실기).
     } else if (automata && (m == WM_KEYUP || m == WM_SYSKEYUP)) {
         g_hTarget = h;
         LayoutConfig *L = ActiveLayout();
@@ -396,7 +398,7 @@ static void NewFromBuiltin(const wchar_t *name, bool derive) {
     wchar_t why[200];
     if (!Klay_BuiltinText(name, text, 16384, why, 200)) { MessageBoxW(g_hMain, why, L"New layout", MB_ICONERROR); return; }
     if (derive) {
-        const wchar_t *type = (!wcscmp(name, L"ko_3bul")) ? L"hangul" : L"static";
+        const wchar_t *type = (!wcsncmp(name, L"ko_", 3)) ? L"hangul" : L"static";
         _snwprintf(text, 16384,
             L"# A layout derived from the built-in %ls - write only what changes.\n"
             L"#   Key x = C0     redefine a key (the later line wins)\n"
@@ -497,9 +499,11 @@ static void OnCommand(int id) {
         case IDM_TRYFILE:  TryThisFile(); break;
         case IDM_EXPAND:   ExportExpanded(); break;
         case IDM_INSTALL:  InstallToMyLayouts(); break;
+        case IDM_NEW_2BUL: NewFromBuiltin(L"ko_2bul", false); break;
         case IDM_NEW_3BUL: NewFromBuiltin(L"ko_3bul", false); break;
         case IDM_NEW_DV:   NewFromBuiltin(L"en_dvorak", false); break;
         case IDM_NEW_QW:   NewFromBuiltin(L"en_qwerty", false); break;
+        case IDM_DER_2BUL: NewFromBuiltin(L"ko_2bul", true); break;
         case IDM_DER_3BUL: NewFromBuiltin(L"ko_3bul", true); break;
         case IDM_DER_DV:   NewFromBuiltin(L"en_dvorak", true); break;
         case IDM_TESTMODE: SetTestMode(!g_testMode); break;
@@ -513,9 +517,11 @@ static HMENU BuildMenu(void) {
     HMENU file = CreatePopupMenu(), edit = CreatePopupMenu(),
           lay = CreatePopupMenu(), tools = CreatePopupMenu(), help = CreatePopupMenu();
     HMENU nb = CreatePopupMenu(), nd = CreatePopupMenu();
+    AppendMenuW(nb, MF_STRING, IDM_NEW_2BUL, L"Dubeolsik (ko_2bul)");
     AppendMenuW(nb, MF_STRING, IDM_NEW_3BUL, L"Sebeolsik final (ko_3bul)");
     AppendMenuW(nb, MF_STRING, IDM_NEW_DV,   L"Dvorak (en_dvorak)");
     AppendMenuW(nb, MF_STRING, IDM_NEW_QW,   L"QWERTY (en_qwerty)");
+    AppendMenuW(nd, MF_STRING, IDM_DER_2BUL, L"from Dubeolsik (Extends = @ko_2bul)");
     AppendMenuW(nd, MF_STRING, IDM_DER_3BUL, L"from Sebeolsik final (Extends = @ko_3bul)");
     AppendMenuW(nd, MF_STRING, IDM_DER_DV,   L"from Dvorak (Extends = @en_dvorak)");
     AppendMenuW(file, MF_POPUP, (UINT_PTR)nb, L"New &copy of a built-in layout");

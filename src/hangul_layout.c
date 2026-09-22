@@ -31,7 +31,7 @@ static bool ValidIdx(JamoType t, int idx) {
 #define FAIL(col, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (col), (code), (msg), (help)); \
     bad = true; } while (0)
 #define HELP_RANGE L"choseong C0..18, jungseong M0..20, jongseong T1..27 (0 = none cannot be assigned)"
-static const wchar_t *const kHangulDirectives[] = { L"Key", L"Combine", L"Moachigi", NULL };
+static const wchar_t *const kHangulDirectives[] = { L"Key", L"Combine", L"Moachigi", L"Composition", NULL };
 
 HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
     KlayLines L;
@@ -54,6 +54,7 @@ HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     wcscpy_s(hl->name, 64, L"custom");
     bool bad = false;   // 잘못된 Key/Combine 발견 시 파일 전체 거부
     int lineno = 0;
+    int keyLine[128] = {0}, keyCol[128] = {0}, moaLine = 0;   // 두벌식 검사가 가리킬 자리
 
     wchar_t line[256];
     for (int li = 0; li < L->n; li++) {
@@ -72,7 +73,12 @@ HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         if (swscanf(p, L"Name = %63l[^\n]", hl->name) == 1) {
             TrimCrLf(hl->name);
         } else if (swscanf(p, L"Moachigi = %d", &val) == 1) {
-            hl->moachigi = (val != 0);
+            hl->moachigi = (val != 0); moaLine = lineno;
+        } else if (!wcsncmp(p, L"Composition", 11) && (p[11] == L' ' || p[11] == L'\t' || p[11] == L'=')) {
+            wchar_t v[32] = {0};
+            if (swscanf(p, L"Composition = %31ls", v) == 1 && !_wcsicmp(v, L"dubeol")) hl->composition = HL_DUBEOL;
+            else if (swscanf(p, L"Composition = %31ls", v) == 1 && !_wcsicmp(v, L"sebeol")) hl->composition = HL_SEBEOL;
+            else FAIL(col0, L"E-JMT-VALUE", L"Composition must be dubeol or sebeol", L"dubeol = 2-set (final consonant from context), sebeol = separate final keys");
         } else if (!wcsncmp(p, L"Key ", 4)) {
             // Key <키…> = <타입인덱스 …>  — 좌변 키 나열 = 배열 지정(키 수 = 스펙 수, 위치 대응).
             //   예: Key khj = C0 C2 C11.  단건(Key k = C0)은 길이 1의 특수형. 꼬리 '#' 주석 허용.
@@ -100,6 +106,7 @@ HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                 if (!ValidIdx(t, idx)) { lineErr = true; FAIL(colSpec, L"E-JMT-RANGE", L"Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27)", HELP_RANGE); break; }
                 hl->keymap[(int)lhs[ki]].type = t;
                 hl->keymap[(int)lhs[ki]].index = idx;
+                keyLine[(int)lhs[ki]] = lineno; keyCol[(int)lhs[ki]] = colSpec;
                 q += adv;
             }
             while (*q == L' ' || *q == L'\t') q++;
@@ -126,6 +133,17 @@ HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         else if (Klay_UnknownLine(diag, p, lineno, col0, kHangulDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
     if (diag) diag->curFile = NULL;
+    // 두벌식 검사 (RFC-0016 §5.1): 받침은 초성 키에서 문맥으로 생긴다 — 직접 종성 키는 뜻이 없다. 모아치기와의 조합은 정의하지 않는다.
+    if (!bad && hl->composition == HL_DUBEOL) {
+        if (hl->moachigi) { lineno = moaLine; FAIL(1, L"E-JMT-DUBEOL", L"Composition = dubeol cannot be combined with Moachigi = 1", NULL); }
+        for (int c = 0; c < 128; c++)
+            if (hl->keymap[c].type == JAMO_JONG) {
+                lineno = keyLine[c];
+                FAIL(keyCol[c], L"E-JMT-DUBEOL", L"Composition = dubeol: a key cannot type a final consonant (T) directly",
+                     L"use C keys - dubeol turns them into finals from context");
+                break;
+            }
+    }
     if (bad) { HeapFree(GetProcessHeap(), 0, hl); return NULL; }   // 부분 로드 대신 명시적 실패
     return hl;
 }

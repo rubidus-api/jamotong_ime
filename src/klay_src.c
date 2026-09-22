@@ -42,6 +42,24 @@ bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *wh
         }
         return o + 1 < cch;
     }
+    if (!wcscmp(name, L"ko_2bul")) {   // RFC-0016 P2: 두벌식도 파일로 — 기본값에 기대지 않고 표를 모두 쓴다
+        o = Appendf(out, cch, o, L"FormatVersion = 2\nType = hangul\nComposition = dubeol\nId = jamotong.ko_2bul\nName = ko_2bul\nAbbrev = KO2B\n");
+        for (int c = 33; c < 127; c++) {
+            LayoutResult r = Layout_MapKeyToJamo((wchar_t)c, KBD_DUBEOL);
+            if (r.type == JAMO_NONE) continue;
+            wchar_t t = r.type == JAMO_CHO ? L'C' : r.type == JAMO_JUNG ? L'M' : L'T';
+            o = Appendf(out, cch, o, L"Key %lc = %lc%d\n", (wchar_t)c, t, r.index);
+        }
+        for (int a = 0; a <= 20; a++) for (int b = 0; b <= 20; b++) {
+            int r = Layout_CombineJung(a, b); if (r >= 0) o = Appendf(out, cch, o, L"Combine M %d %d = %d\n", a, b, r);
+        }
+        // 겹받침: 받침 a 뒤에 초성 c 가 오면 — 표는 (a, c 를 받침으로 바꾼 번호) 로 쓴다
+        for (int a = 1; a <= 27; a++) for (int c = 0; c <= 18; c++) {
+            int r = Layout_CombineJong(a, c), t2 = Layout_ChoToJong(c);
+            if (r >= 0 && t2 > 0) o = Appendf(out, cch, o, L"Combine T %d %d = %d\n", a, t2, r);
+        }
+        return o + 1 < cch;
+    }
     if (!wcscmp(name, L"en_dvorak") || !wcscmp(name, L"en_qwerty")) {
         bool dv = !wcscmp(name, L"en_dvorak");
         o = Appendf(out, cch, o, L"FormatVersion = 2\nType = static\nId = jamotong.%ls\nName = %ls\nAbbrev = %ls\n",
@@ -54,10 +72,7 @@ bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *wh
         return o + 1 < cch;
     }
     if (why && whyCch) {
-        if (!wcscmp(name, L"ko_2bul"))
-            swprintf(why, whyCch, L"Dubeolsik moves a final consonant to the next syllable inside the automata - a hangul .jmt cannot express it; start from @ko_3bul or write the keys yourself");
-        else
-            swprintf(why, whyCch, L"built-in layouts that can be used: @ko_3bul, @en_dvorak, @en_qwerty");
+        swprintf(why, whyCch, L"built-in layouts that can be used: @ko_2bul, @ko_3bul, @en_dvorak, @en_qwerty");
     }
     return false;
 }
