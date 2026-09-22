@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.27.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.27.2/jamotong-0.27.2.zip)** — extract to a permanent folder, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.28.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.28.0/jamotong-0.28.0.zip)** — extract to a permanent folder, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -135,6 +135,10 @@ Default keys — every function is configurable and accepts multiple bindings
   Hanja key for the conventional symbol tables.
 - **Unicode input**: press `Ctrl+Alt+U`, type a 2–6 digit hex codepoint (live glyph
   preview and character name), press `Enter`.
+- **Popups** (candidate list, Unicode input, composition chip) stay inside the screen's work
+  area — near the bottom or right edge they move left or open above the line. In apps that
+  handle display scaling they follow the monitor's scale (sizes in Settings are at 100%), and
+  with a **high-contrast** theme they use the theme's colors.
 
 > **Inside UWP apps (taskbar search, the Settings app, Store apps) some of this works
 > differently.** Windows does not let an input method show its own windows in those apps, so a

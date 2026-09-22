@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.27.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.27.2/jamotong-0.27.2.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.28.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.28.0/jamotong-0.28.0.zip)** — 압축을 영구 폴더에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -114,6 +114,9 @@ UAC 확인이 한 번 필요합니다(업그레이드는 불필요). 어느 방�
   **음절/단어를 블록 선택하고 한자키**를 눌러도 된다.
 - **특수문자**: 자음 하나(ㅁ, ㅅ, ㅈ 등)를 입력하고 한자키.
 - **유니코드 입력**: `Ctrl+Alt+U` → 16진 2~6자리 입력(글리프 미리보기 + 문자명) → `Enter`.
+- **팝업**(후보창·유니코드 입력·조합 칩)은 화면 작업영역 안에 뜹니다 — 아래나 오른쪽 끝에서는 왼쪽으로
+  밀리거나 줄 위로 올라갑니다. 표시 배율을 처리하는 앱에서는 모니터 배율을 따르고(설정의 크기는 100%
+  기준), **고대비** 테마에서는 테마 색을 씁니다.
 
 > **UWP 앱(작업표시줄 검색, 설정 앱, Store 앱)에서는 조금 다르게 동작합니다.**
 > Windows 가 그런 앱 안에서는 입력기가 자기 창을 띄우지 못하게 막습니다(후보창·팝업이
