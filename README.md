@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.33.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.33.0/jamotong-0.33.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.34.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.34.0/jamotong-0.34.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -533,6 +533,8 @@ Chord j   = text "1"
 
 - **Bigger chords win**: with `Hold jk` and `Chord jkl`, pressing j k l within `ComboTermMs`
   types `the`; the `jk` hold only starts when no bigger chord can still be formed.
+- **Holding still counts**: keep the keys of a `Hold` chord pressed and the layer/modifier turns
+  on after `HoldTermMs` even if you press nothing else.
 - **Rolling**: the first release closes a chord. If a new key goes down before the rest are
   released, the closed chord fires first and the new key starts the next chord.
 - In version 3 an unquoted text, a word after an action, or the same chord twice in one file

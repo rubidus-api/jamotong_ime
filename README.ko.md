@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.33.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.33.0/jamotong-0.33.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.34.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.34.0/jamotong-0.34.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -492,6 +492,7 @@ Chord j   = text "1"
 
 - **더 큰 조합이 이긴다**: `Hold jk` 와 `Chord jkl` 이 함께 있을 때 j k l 을 `ComboTermMs` 안에 누르면 `the` 가 입력된다.
   `jk` 홀드는 더 큰 조합이 더는 만들어질 수 없을 때에야 시작한다.
+- **가만히 있어도 켜진다**: `Hold` 조합의 키를 누른 채 두면 다른 키를 누르지 않아도 `HoldTermMs` 뒤에 레이어/수정키가 켜진다.
 - **굴려 치기(rolling)**: 첫 키를 떼면 조합이 닫힌다. 나머지 키를 떼기 전에 새 키를 누르면 닫힌 조합이 먼저 나가고, 새
   키는 다음 조합을 시작한다.
 - 3판에서는 따옴표 없는 문자열, 동작 뒤의 여분 낱말, 한 파일 안의 같은 조합 두 번이 오류다. 마우스 동작은 2판과 같은
