@@ -23,7 +23,16 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
         swprintf(fullPath, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
         LayoutConfig lc;
         memset(&lc, 0, sizeof(lc));
-        if (!JLay_Load(fullPath, &lc, NULL)) continue;
+        JLayError lerr = JLAY_OK;
+        if (!JLay_Load(fullPath, &lc, &lerr)) {
+            // 조용히 사라지지 않게 남긴다. 이 파일은 관리 앱도 링크하므로(JamoDiag 는 DLL 에만
+            // 있다) 디버거로 바로 보이는 OutputDebugString 을 쓴다.
+            wchar_t line[MAX_PATH + 120];
+            _snwprintf(line, MAX_PATH + 120, L"jamotong: skipping %ls - %ls\n", fd.cFileName, JLay_ErrorText(lerr));
+            line[MAX_PATH + 119] = L'\0';
+            OutputDebugStringW(line);
+            continue;
+        }
         bool dup = false;
         for (int i = 0; i < config->layoutCount; i++) {
             if (config->layouts[i].name && lc.name && wcscmp(config->layouts[i].name, lc.name) == 0) { dup = true; break; }

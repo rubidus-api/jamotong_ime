@@ -157,6 +157,14 @@ static bool ResolveDict(const wchar_t *layoutPath, const wchar_t *file, wchar_t 
 // 사전은 자판 밖에 있으므로, 어느 쪽으로 자판이 들어오든 여기서 한 번 본다 (RFC-0016 P5).
 bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
     if (!sl || !sl->dictFile[0]) return false;
+    // 이름 검사는 **여는 곳**에서 한다. 자판 파일뿐 아니라 구운 자판(.jmb)도 남이 준 파일일 수
+    // 있어서, 그 안에 `..\..\어딘가.jdb` 가 들어 있으면 폴더 밖을 가리키게 된다.
+    if (!Config_IsSafeDictFileName(sl->dictFile)) {
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT",
+                     L"the dictionary must be a plain file name ending in .jdb",
+                     L"no folders in the name - the file lives beside the layout or in the dictionary folder");
+        return false;
+    }
     wchar_t full[MAX_PATH];
     if (!ResolveDict(layoutPath, sl->dictFile, full, MAX_PATH)) {
         wchar_t msg[200];

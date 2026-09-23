@@ -846,7 +846,9 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         args[MAX_PATH * 2 - 1] = L'\0';
                         bool builtOk = RunLayoutBuilder(args, tmpLog, 15000);
                         LayoutConfig lc; memset(&lc, 0, sizeof(lc));
-                        if (builtOk && JLay_Load(tmpJmb, &lc, NULL)) {
+                        bool addOk = builtOk && JLay_Load(tmpJmb, &lc, NULL);
+                        DeleteFileW(tmpJmb);   // 임시 산출물은 읽은 뒤 치운다 (원본은 Apply 때 저장소로)
+                        if (addOk) {
                             lc.enabled = true;
                             g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
                             RefreshLists(hwnd);

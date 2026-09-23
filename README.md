@@ -221,10 +221,16 @@ You rarely need to run these by hand:
 
 **Loading a layout** — either:
 
-- copy the `.jmt` file into `%APPDATA%\Jamotong\layouts` (or next to `jamotong.dll`) and start
-  the manager app once, so it gets built; it is added to the layout list **disabled** at the next
-  IME start (turn it on in Settings → Layouts), or
-- Settings → Layouts → **Add** and pick the file (added enabled).
+- copy the `.jmt` file into `%APPDATA%\Jamotong\layouts` and start the manager app once, so it
+  gets built; it is added to the layout list **disabled** at the next IME start (turn it on in
+  Settings → Layouts), or
+- Settings → Layouts → **Add** and pick the file (added enabled; the manager builds it for you).
+  From a Windows Store app's settings window this cannot start the manager — build the file
+  yourself with `jamotong --build` and copy it into the layout folder instead.
+
+A `.jmt` placed next to `jamotong.dll` (in `C:\Program Files\Jamotong`) is **not** built by the
+manager — that folder needs administrator rights. Re-run `install.bat` as administrator, or run
+`jamotong --build-dir "C:\Program Files\Jamotong"` from an elevated prompt.
 
 At most 8 layouts can be active in the list. The bundled `example.jmt`,
 `example-dvorak.jmt` and `example-artsey.jmt` are commented syntax samples of each type.
@@ -623,7 +629,7 @@ Then the layout file only says which dictionary it uses:
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.39.0
+RequiresJamotong = 0.39.1
 Name             = romaji kana
 Abbrev           = KANA
 Dictionary       = romaji-kana.jdb

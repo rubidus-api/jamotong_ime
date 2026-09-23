@@ -2651,6 +2651,23 @@ static void CandidateContext_Clear(CandidateContext *cc)
 
 ---
 
+### 13.9 자료를 파일로 옮기며 만난 두 함정 (2026-09-23)
+
+**매핑한 사전은 덮어쓸 수 없다.** `jdict.c` 는 사전을 `CreateFileW(..., FILE_SHARE_READ, ...)` 로
+열고 자판이 사는 동안 `CreateFileMappingW` 뷰를 쥔다. 그래서 자판이 쓰이는 동안에는 그 파일에
+쓰려는 시도가 실패한다(PowerShell 은 `IOException`, Win32 는 `ERROR_SHARING_VIOLATION`). 이는
+원하던 성질이다 — 도는 입력기가 읽는 바이트가 발밑에서 바뀌지 않는다. 다만 갱신하는 쪽은 새
+파일을 써서 바꿔 끼워야 하고(제자리 수정 금지), 사전을 일부러 깨뜨려 보는 시험은 입력기가 쥐지
+않은 사본으로 해야 한다.
+
+**`IsDialogMessageW` 는 WM_KEYDOWN 처리 전에 WM_CHAR 를 만들어 둔다.** 대화상자식 메시지 루프
+(`IsDialogMessageW` 뒤 `continue`)는 키를 **넘기기 전에** 변환하므로, 하위 프로시저가 키다운을
+소비하기로 결정한 시점에 문자 메시지는 이미 큐에 있다. 따라서 WM_KEYDOWN 을 소비해도 문자는
+막히지 않는다 — 뒤따라 들어와 오토마타가 방금 쓴 것을 덮는다(한글 `rkrk` 가 `가k`, 순차 자판의
+`ko` 가 `こo`). 고치는 법은 소비한 키를 표시해 두고 뒤따르는 WM_CHAR 하나를 버리는 것이다.
+하위 프로시저에서 `TranslateMessage` 를 다시 부르는 것은 정반대의 잘못이고, 오토마타가 먹지 않은
+키가 두 번 들어간다.
+
 ## 14. 안 쓰고 있던 표준 계약들
 
 *(2026-08-20 조사. 근거 = Microsoft Learn 공식 문서 + 공개 IME 구조 분석. 시험대 =

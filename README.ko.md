@@ -192,9 +192,15 @@ jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 
 
 **자판 로드 방법** — 둘 중 하나:
 
-- `.jmt` 파일을 `%APPDATA%\Jamotong\layouts` (또는 `jamotong.dll` 옆)에 넣고 관리 앱을 한 번
-  띄워 굽게 한다 → 다음 IME 시작 때 목록에 **꺼진 상태로** 추가됨 (설정 → Layouts에서 켜기), 또는
-- 설정 → Layouts → **Add**로 파일 선택 (켜진 상태로 추가).
+- `.jmt` 파일을 `%APPDATA%\Jamotong\layouts` 에 넣고 관리 앱을 한 번 띄워 굽게 한다 → 다음 IME
+  시작 때 목록에 **꺼진 상태로** 추가됨 (설정 → Layouts에서 켜기), 또는
+- 설정 → Layouts → **Add**로 파일 선택 (켜진 상태로 추가 — 관리 앱이 대신 구워 준다).
+  스토어 앱(UWP)의 설정창에서는 관리 앱을 띄울 수 없다. 그럴 땐 `jamotong --build` 로 직접 구워
+  자판 폴더에 넣는다.
+
+`jamotong.dll` 옆(`C:\Program Files\Jamotong`)에 둔 `.jmt` 는 관리 앱이 굽지 **않는다** — 그 폴더는
+관리자 권한이 필요하다. `install.bat` 을 관리자 권한으로 다시 실행하거나, 관리자 명령 프롬프트에서
+`jamotong --build-dir "C:\Program Files\Jamotong"` 을 돌린다.
 
 자판 목록은 최대 8개. 배포판의 `example.jmt`·`example-dvorak.jmt`·`example-artsey.jmt`가
 각 종류의 주석 달린 문법 예제다.
@@ -575,7 +581,7 @@ jamotong --build-dict romaji-kana.jdt -o romaji-kana.jdb
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.39.0
+RequiresJamotong = 0.39.1
 Name             = romaji kana
 Abbrev           = KANA
 Dictionary       = romaji-kana.jdb

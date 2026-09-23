@@ -2902,6 +2902,25 @@ static void CandidateContext_Clear(CandidateContext *cc) {
 
 ---
 
+### 13.9 Two traps found while moving data into files (2026-09-23)
+
+**A dictionary that is mapped cannot be overwritten.** `jdict.c` opens the dictionary with
+`CreateFileW(..., FILE_SHARE_READ, ...)` and keeps a `CreateFileMappingW` view for the life of
+the layout. While a layout is in use, any attempt to write that file fails (`IOException` from
+PowerShell, `ERROR_SHARING_VIOLATION` from Win32). That is the property you want — the bytes a
+running IME reads cannot change under it — but it also means an updater must write a new file
+and swap it, never edit in place, and a test that wants to damage a dictionary has to work on a
+copy the IME is not holding.
+
+**`IsDialogMessageW` produces the WM_CHAR before your WM_KEYDOWN handler runs.** A dialog-style
+message loop (`IsDialogMessageW` then `continue`) translates the key *before* dispatching it, so
+the character message is already queued when the subclass proc decides to consume the key-down.
+Consuming WM_KEYDOWN therefore does **not** suppress the character: it arrives afterwards and
+overwrites what the automaton just wrote (Hangul `rkrk` showed `가k`, a sequence layout's `ko`
+showed `こo`). The fix is to mark the key as consumed and drop exactly one following WM_CHAR.
+Calling `TranslateMessage` again in the subclass is the opposite error and doubles every key
+the automaton did not eat.
+
 ## 14. Standard contracts we were not using
 
 *(Survey of 2026-08-20. Basis: Microsoft Learn docs plus structural analysis of public IMEs.
