@@ -9,10 +9,12 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-0.47.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-0.48.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
-| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-japanese-demo-0.47.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
-| Japanese dictionary pack (full) | [jamotong-japanese-full-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-japanese-full-0.47.0.zip) — the same, 500,000 entries (~5 MB) |
+| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-demo-0.48.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
+| Japanese dictionary pack (full) | [jamotong-japanese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-full-0.48.0.zip) — the same, 500,000 entries (~5 MB) |
+| Chinese dictionary pack (demo) | [jamotong-chinese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-demo-0.48.0.zip) — experimental pinyin input, 50,000 entries (~0.5 MB) |
+| Chinese dictionary pack (full) | [jamotong-chinese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-full-0.48.0.zip) — the same, 470,000 entries (~4 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -727,6 +729,14 @@ files into `%APPDATA%\Jamotong\dicts` and the `.jmt` into `%APPDATA%\Jamotong\la
 start the manager. Type `nihon`, press space, pick 日本. The word data comes from the open-source
 Mozc dictionary; no native speaker has reviewed this profile yet, so it is offered as an
 experiment rather than as finished Japanese support.
+
+**Ready-made Chinese (experimental).** Two more packs bring pinyin input: type pinyin without
+tones, press space, pick the hanzi. `nihao` gives 你好, `zhongguo` gives 中国, `xuexi` gives 学习;
+write `ü` as `v` (`lv` → 率/绿/旅), though the `u` spelling after j, q, x and y works too. The
+readings come from mozillazg's pinyin-data and phrase-pinyin-data and the candidate order from
+jieba's word frequencies, all MIT-licensed. Install it the same way as the Japanese pack. No
+native speaker has reviewed this profile yet, so it is an experiment rather than finished Chinese
+support.
 
 - Limits: the typed side of a sequence dictionary is printable ASCII up to 32 characters, a
   candidate reading is up to 96 bytes of UTF-8, one entry emits up to 64 characters, and a

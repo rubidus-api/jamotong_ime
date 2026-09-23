@@ -9,10 +9,12 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-0.47.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-0.48.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
-| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-japanese-demo-0.47.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
-| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.47.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.47.0/jamotong-japanese-full-0.47.0.zip) — 같은 것, 50만 항목(약 5MB) |
+| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-demo-0.48.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
+| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-full-0.48.0.zip) — 같은 것, 50만 항목(약 5MB) |
+| 중국어 사전 팩 (시범) | [jamotong-chinese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-demo-0.48.0.zip) — 시범 병음 입력, 5만 항목(약 0.5MB) |
+| 중국어 사전 팩 (추가) | [jamotong-chinese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-full-0.48.0.zip) — 같은 것, 47만 항목(약 4MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -668,6 +670,12 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 두 개를 `%APPDATA%\Jamotong\dicts` 에, `.jmt` 를 `%APPDATA%\Jamotong\layouts` 에 넣고 관리 앱을
 실행하면 된다. `nihon` 을 치고 사이띄개를 누르면 日本 이 나온다. 낱말 자료는 오픈소스 Mozc 사전에서
 왔고, 아직 일본어 화자의 확인을 받지 않아 **시범**으로 낸다.
+
+**바로 쓰는 중국어(시범).** 병음 입력 팩 둘이 더 있다. 성조 없이 병음을 치고 사이띄개를 누른 뒤
+한자를 고른다. `nihao` → 你好, `zhongguo` → 中国, `xuexi` → 学习. `ü` 는 `v` 로 친다(`lv` → 率/绿/旅).
+j·q·x·y 뒤의 `u` 철자도 된다. 읽기는 mozillazg 의 pinyin-data·phrase-pinyin-data 에서, 후보 차례는
+jieba 의 낱말 빈도에서 왔고 셋 다 MIT 다. 설치는 일본어 팩과 같다. 아직 중국어 화자의 확인을 받지
+않아 **시범**으로 낸다.
 
 - 한도: 순차 사전의 친 쪽은 볼 수 있는 ASCII 32자까지, 후보 사전의 읽기는 UTF-8 96바이트까지,
   한 항목이 내는 글자는 64자까지, 사전 하나에 50만 항목까지. 32바이트를 넘는 읽기를 쓰는 사전은
