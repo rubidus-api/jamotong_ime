@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.34.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.34.0/jamotong-0.34.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.35.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.35.0/jamotong-0.35.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -527,12 +527,22 @@ Hold  jk  = momentary layer(num)  # while held (Hold only)
 Hold  kl  = momentary mod(lctrl)
 Chord kl  = toggle layer(num)
 Chord j;  = switch layer(base)
+
+Hold  k   = pointer move(0,1) profile(normal)   # while held: move down (slow|normal|fast)
+Chord jk  = pointer click(left)                 # click / down / up / drag-toggle
+Chord k;  = pointer drag-toggle(left)           # press now, release on the next chord
+Hold  jkl = pointer wheel(0,-1) profile(scroll) # while held: scroll down (wheel(1,0) = right)
+Chord kl; = cancel actions                      # stop moving, drop a held drag
 Layer num                         # chords of the num layer
 Chord j   = text "1"
 ```
 
 - **Bigger chords win**: with `Hold jk` and `Chord jkl`, pressing j k l within `ComboTermMs`
   types `the`; the `jk` hold only starts when no bigger chord can still be formed.
+- **Pointer**: a `pointer move`/`wheel` on `Hold` runs while you hold the keys — it speeds up to
+  the profile's limit, opposite directions cancel, diagonals are normalized. On `Chord` the same
+  action happens once (`pointer move(10,0)` = 10 px right). A drag started with `drag-toggle` (here `k;`) is
+  released by the same chord, by `cancel actions`, or automatically when focus or layout changes.
 - **Holding still counts**: keep the keys of a `Hold` chord pressed and the layer/modifier turns
   on after `HoldTermMs` even if you press nothing else.
 - **Rolling**: the first release closes a chord. If a new key goes down before the rest are

@@ -7,6 +7,14 @@
 
 (비어 있음)
 
+## [0.35.0] - 2026-09-23
+
+### Added
+- 3판 조합의 **포인터 동작**(RFC-0016 §6.5): `pointer move(dx,dy) profile(slow|normal|fast)`,
+  `pointer wheel(dx,dy) profile(scroll)`(세로·가로), `pointer click|down|up|drag-toggle(left|right|middle)`,
+  `cancel actions`. `Hold` 에 걸면 누르고 있는 동안 연속으로 움직이고(가속·상한·대각선 정규화·반대 방향 상쇄),
+  `Chord` 에 걸면 한 번 움직인다. `drag-toggle` 로 잡은 드래그는 같은 조합·`cancel actions`·포커스/자판 전환에서 놓는다.
+
 ## [0.34.0] - 2026-09-23
 
 ### Added

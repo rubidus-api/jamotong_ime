@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.34.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.34.0/jamotong-0.34.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.35.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.35.0/jamotong-0.35.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -486,12 +486,21 @@ Hold  jk  = momentary layer(num)  # 누르고 있는 동안 (Hold 전용)
 Hold  kl  = momentary mod(lctrl)
 Chord kl  = toggle layer(num)
 Chord j;  = switch layer(base)
+
+Hold  k   = pointer move(0,1) profile(normal)   # 누르고 있는 동안 아래로 이동 (slow|normal|fast)
+Chord jk  = pointer click(left)                 # click / down / up / drag-toggle
+Chord k;  = pointer drag-toggle(left)           # 지금 누르고, 다음에 같은 조합으로 놓는다
+Hold  jkl = pointer wheel(0,-1) profile(scroll) # 누르고 있는 동안 아래로 스크롤 (wheel(1,0) = 오른쪽)
+Chord kl; = cancel actions                      # 이동 멈춤·잡고 있던 드래그 놓기
 Layer num                         # num 층의 조합
 Chord j   = text "1"
 ```
 
 - **더 큰 조합이 이긴다**: `Hold jk` 와 `Chord jkl` 이 함께 있을 때 j k l 을 `ComboTermMs` 안에 누르면 `the` 가 입력된다.
   `jk` 홀드는 더 큰 조합이 더는 만들어질 수 없을 때에야 시작한다.
+- **포인터**: `Hold` 에 건 `pointer move`/`wheel` 은 누르고 있는 동안 움직인다 — 프로필 상한까지 빨라지고, 반대 방향은
+  상쇄되며, 대각선은 정규화한다. `Chord` 에 걸면 한 번만 움직인다(`pointer move(10,0)` = 오른쪽 10픽셀). `drag-toggle`(예제의 `k;`)로
+  잡은 드래그는 같은 조합으로 놓거나 `cancel actions` 로 놓으며, 포커스나 자판이 바뀌면 자동으로 놓는다.
 - **가만히 있어도 켜진다**: `Hold` 조합의 키를 누른 채 두면 다른 키를 누르지 않아도 `HoldTermMs` 뒤에 레이어/수정키가 켜진다.
 - **굴려 치기(rolling)**: 첫 키를 떼면 조합이 닫힌다. 나머지 키를 떼기 전에 새 키를 누르면 닫힌 조합이 먼저 나가고, 새
   키는 다음 조합을 시작한다.
