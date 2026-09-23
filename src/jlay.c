@@ -68,11 +68,20 @@ static bool ReadHangul(Rd *r, LayoutConfig *out) {
     out->kbdVariant = KBD_SEBEOL;
     return true;
 }
+static ChordLayout *ReadChordTable(Rd *r);   // 아래에서 정의 (순차 자판의 앞단도 같은 표를 쓴다)
+
 static bool ReadChord(Rd *r, LayoutConfig *out) {
+    ChordLayout *cl = ReadChordTable(r);
+    if (!cl) return false;
+    out->pChordLayout = cl;
+    return true;
+}
+
+static ChordLayout *ReadChordTable(Rd *r) {
     // 해제는 ChordLayout_Free(HeapFree) 가 한다. 다 읽은 뒤에는 텍스트 로더처럼 실제 조합 수만큼만
     // 남기고 줄인다 — chords[2048] 전체는 2MB 가 넘고, 그걸 모든 호스트 프로세스가 진다.
     ChordLayout *cl = (ChordLayout *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
-    if (!cl) return false;
+    if (!cl) return NULL;
     GetStr(r, cl->name, 64);
     cl->v3 = GetI32(r);
     cl->comboTermMs = GetI32(r);
@@ -80,11 +89,11 @@ static bool ReadChord(Rd *r, LayoutConfig *out) {
     cl->holdPolicy = GetI32(r);
     for (int i = 0; i < 128; i++) cl->keyBit[i] = GetI16(r);
     int layers = GetI32(r);
-    if (r->bad || layers < 0 || layers > CL_MAX_LAYERS) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad || layers < 0 || layers > CL_MAX_LAYERS) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     cl->layerCount = layers;
     for (int i = 0; i < layers; i++) GetStr(r, cl->layerNames[i], 32);
     int macros = GetI32(r);
-    if (r->bad || macros < 0 || macros > CL_MAX_MACROS) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad || macros < 0 || macros > CL_MAX_MACROS) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     cl->macroCount = macros;
     for (int i = 0; i < macros; i++) {
         GetStr(r, cl->macros[i].name, 32);
@@ -92,7 +101,7 @@ static bool ReadChord(Rd *r, LayoutConfig *out) {
         cl->macros[i].count = GetI32(r);
     }
     int steps = GetI32(r);
-    if (r->bad || steps < 0 || steps > CL_MAX_STEPS) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad || steps < 0 || steps > CL_MAX_STEPS) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     cl->stepCount = steps;
     for (int i = 0; i < steps; i++) {
         ChordMacroStep *s = &cl->steps[i];
@@ -103,11 +112,11 @@ static bool ReadChord(Rd *r, LayoutConfig *out) {
         s->textLen = (unsigned short)Get16(r);
     }
     int textLen = GetI32(r);
-    if (r->bad || textLen < 0 || textLen > CL_MACRO_TEXT) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad || textLen < 0 || textLen > CL_MACRO_TEXT) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     cl->macroTextLen = textLen;
     for (int i = 0; i < textLen; i++) cl->macroText[i] = (wchar_t)Get16(r);
     int chords = GetI32(r);
-    if (r->bad || chords < 0 || chords > CL_MAX_CHORDS) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad || chords < 0 || chords > CL_MAX_CHORDS) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     cl->chordCount = chords;
     for (int i = 0; i < chords; i++) {
         ChordEntry *e = &cl->chords[i];
@@ -133,14 +142,13 @@ static bool ReadChord(Rd *r, LayoutConfig *out) {
             (e->targetLayer < 0 || e->targetLayer >= layers)) r->bad = true;
         if (e->act == CA_MACRO && (e->p1 < 0 || e->p1 >= macros)) r->bad = true;
     }
-    if (r->bad) { HeapFree(GetProcessHeap(), 0, cl); return false; }
+    if (r->bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
     {   // 텍스트 로더와 같은 축소 (RFC-0011 P0)
         size_t need = offsetof(ChordLayout, chords) + (size_t)cl->chordCount * sizeof(ChordEntry);
         ChordLayout *shrunk = (ChordLayout *)HeapAlloc(GetProcessHeap(), 0, need);
         if (shrunk) { memcpy(shrunk, cl, need); HeapFree(GetProcessHeap(), 0, cl); cl = shrunk; }
     }
-    out->pChordLayout = cl;
-    return true;
+    return cl;
 }
 static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError *err) {
     SeqLayout *sl = (SeqLayout *)calloc(1, sizeof(SeqLayout));
@@ -148,7 +156,12 @@ static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError 
     GetStr(r, sl->name, 64);
     GetStr(r, sl->dictFile, 64);
     sl->onUnmatched = GetI32(r);
+    unsigned hasChord = Get32(r);
     if (r->bad || !sl->dictFile[0]) { free(sl); return false; }
+    if (hasChord) {                       // 앞단 조합 인식기 (§6.3)
+        sl->chord = ReadChordTable(r);
+        if (!sl->chord) { free(sl); return false; }
+    }
     if (!SeqLayout_OpenDict(sl, jmbPath, NULL)) {   // 사전은 자판 밖에 있다 — 열고 전수 점검한다
         free(sl);
         *err = JLAY_E_DICT;

@@ -12,8 +12,10 @@
 //   Type = input
 //   Engine = sequence
 //   RequiresJamotong = 0.38.0
-//   Dictionary = romaji-kana.jdb     # 자판 파일 옆 → 사용자 사전 폴더 → 기계 전체 → DLL 옆
+//   Dictionary = romaji-kana.jdb     # 자판 파일 옆 → 사용자 사전 폴더 → 기계 전체
 //   OnUnmatched = flush              # 또는 cancel (기본 flush)
+//   Key jkl; = 0                     # (선택) 앞단 조합 인식기 — §6.3
+//   Chord jk = symbol "k"            #   조합이 먼저 결정하고, 그 symbol 만 엔진으로 간다
 //
 // 규칙 (RFC-0016 §6.3):
 //   - 접두가 겹치면 **최장 일치**를 기다린다. `n` 과 `na` 가 다 있으면 `n` 하나로는 확정하지 않는다.
@@ -28,6 +30,9 @@ enum { SEQ_UNMATCHED_FLUSH = 0, SEQ_UNMATCHED_CANCEL = 1 };
 
 typedef struct SeqLayout {
     wchar_t  name[64];
+    // 앞단 조합 인식기 (RFC-0016 §6.3, 선택). 있으면 조합이 먼저 결정하고 그 `symbol` 만 엔진으로
+    // 들어간다. 없으면 생키가 바로 엔진으로 가는 빠른 경로다. 이 자판이 소유한다(ChordLayout*).
+    void    *chord;
     wchar_t  dictFile[64];       // 자판 파일이 적은 이름 (검사 통과한 것)
     wchar_t  dictPath[260];      // 실제로 연 경로
     int      onUnmatched;        // SEQ_UNMATCHED_*
@@ -67,5 +72,9 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch);
 SeqResult SeqKb_Backspace(SeqState *st, const SeqLayout *sl);
 // preedit 만 취소. 보류가 없으면 eaten=false.
 SeqResult SeqKb_Cancel(SeqState *st);
+// 앞단 조합이 낸 `symbol` 을 엔진에 넣는다 (RFC-0016 §6.3). 한 글자씩 넣은 결과를 합쳐 돌려준다.
+//   엔진이 받지 않는 글자(그 사전으로 시작할 수 없는 글자)는 **친 그대로 확정한다** — symbol 은
+//   글쇠가 아니라 논리 입력이라, 엔진이 안 받는다고 사라지면 안 된다.
+SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym);
 // 경계(자판 전환·포커스 상실·비활성화): 보류한 리터럴을 확정한다.
 SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl);

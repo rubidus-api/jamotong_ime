@@ -3,6 +3,7 @@
 //   (오너 결정 2026-09-23: 자판과 사전을 나눈다 / 자료는 컴파일을 거친다).
 #include "seq_layout.h"
 #include "config.h"      // Config_IsSafeDictFileName / 사전 폴더
+#include "chord_layout.h"   // 앞단 조합 인식기 (RFC-0016 §6.3)
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,6 +85,23 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
     } else {
         FlushBuf(st, sl, buf, &r, false);          // 확정 + 한 번의 재처리
     }
+    lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
+    return r;
+}
+
+SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym) {
+    SeqResult r; memset(&r, 0, sizeof r);
+    if (!sl || !sl->dict || !sym) return r;
+    for (const wchar_t *p = sym; *p; p++) {
+        SeqResult one = SeqKb_Key(st, sl, *p);
+        if (one.committed[0]) Emit(&r, one.committed);
+        if (!one.eaten && !one.committed[0]) {
+            // 엔진이 받지 않는 논리 입력은 그대로 찍는다 (글쇠였다면 응용이 받았을 자리다)
+            wchar_t lit[2] = { *p, 0 };
+            Emit(&r, lit);
+        }
+    }
+    r.eaten = true;   // symbol 은 언제나 우리가 처리한다 (글쇠가 아니라 조합의 결과다)
     lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
     return r;
 }
@@ -205,6 +223,7 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
     bool bad = false;
     #define FAIL(c, code, msg, help) do { KlayDiag_Add(diag, KLAY_SEV_ERROR, lineno, (c), code, msg, help); bad = true; } while (0)
 
+    bool inMacro = false;   // 매크로 블록의 단계 줄은 앞단 조합이 읽는다
     wchar_t line[256];
     for (int li = 0; li < L->n; li++) {
         lstrcpynW(line, L->v[li].text, 256);
@@ -214,6 +233,9 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
         wchar_t *p = line;
         while (*p == L' ' || *p == L'\t') p++;
         if (*p == L'\0' || *p == L'#') continue;
+        if (!wcsncmp(p, L"Macro ", 6)) inMacro = true;
+        else if (!_wcsicmp(p, L"EndMacro")) { inMacro = false; continue; }
+        if (inMacro) continue;
         const int col0 = (int)(p - line) + 1;
 
         if (swscanf(p, L"Name = %63l[^\n]", sl->name) == 1) { TrimEnds(sl->name); continue; }
@@ -250,6 +272,10 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
             continue;
         }
         if (!wcsncmp(p, L"Engine", 6)) continue;        // 통합 로더가 이미 읽었다
+        if (!wcsncmp(p, L"Key ", 4) || !wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)
+            || !wcsncmp(p, L"Layer ", 6) || !wcsncmp(p, L"Macro ", 6) || !_wcsicmp(p, L"EndMacro")
+            || !wcsncmp(p, L"ComboTermMs", 11) || !wcsncmp(p, L"HoldTermMs", 10)
+            || !wcsncmp(p, L"HoldPolicy", 10)) continue;   // 앞단 조합이 읽는 줄 (§6.3)
         if (KlayHeader_IsKnownKey(p)) continue;
         if (Klay_UnknownLine(diag, p, lineno, col0, kSeqDirectives)) bad = true;
     }
@@ -262,6 +288,11 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
         bad = true;
     }
 
+    if (!bad && ChordLayout_LinesHaveChords(L)) {   // §6.3: 앞단 조합 인식기가 있는 자판
+        ChordLayout *cl = ChordLayout_LoadFromLinesEx(L, diag, true);
+        if (cl) sl->chord = cl;
+        else bad = true;
+    }
     if (!bad && !SeqLayout_OpenDict(sl, layoutPath, diag)) bad = true;
 
     if (bad) { SeqLayout_Free(sl); return NULL; }
@@ -293,5 +324,6 @@ SeqLayout *SeqLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag) {
 void SeqLayout_Free(SeqLayout *sl) {
     if (!sl) return;
     if (sl->dict) JDict_Close(sl->dict);
+    if (sl->chord) ChordLayout_Free((ChordLayout *)sl->chord);
     free(sl);
 }

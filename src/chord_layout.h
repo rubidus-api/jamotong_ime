@@ -35,7 +35,11 @@ typedef enum {
     CA_PTR_BTN,         // pointer click/down/up/drag-toggle(btn): p1=버튼, p2=0 click 1 down 2 up 3 drag-toggle
     CA_PTR_WHEEL,       // pointer wheel(dx,dy): Hold = 연속 스크롤, Chord = 한 번 (노치 단위)
     CA_CANCEL,          // cancel actions: 연속 동작 정지·드래그 해제·대기 중 원샷 취소·매크로 취소
-    CA_MACRO            // macro <이름>: 유한한 동작열 실행 (p1 = 매크로 번호)
+    CA_MACRO,           // macro <이름>: 유한한 동작열 실행 (p1 = 매크로 번호)
+    // ── 3판 입력 자판 (RFC-0016 §6.3) — 반드시 끝에 붙인다(구운 자판이 번호를 싣는다) ──
+    CA_SYMBOL           // symbol "...": OS 재주입 없이 **현재 엔진**으로 보내는 논리 입력.
+                        //   입력 자판(`Type = input`)에서만 쓸 수 있고, 만들어진 symbol 은 다시
+                        //   조합 인식기로 돌아가지 않는다(무한 재귀 없음).
 } ChordActionType;
 
 // ── 3판 매크로 (RFC-0016 §6.6): 이름 붙인 정적 동작열. 반복·조건·외부 실행은 없다 ──────────
@@ -111,6 +115,8 @@ typedef struct {
     int curLayer;        // 현재 레이어 (0 = base)
     int oneshotLayer;    // -1 없음, 아니면 다음 조합에만 적용할 레이어
     int oneshotMod;      // 대기 중 원샷 모디파이어 비트마스크
+    void (*symbolSink)(void *ctx, const wchar_t *sym);   // CA_SYMBOL 이 갈 곳 (RFC-0016 §6.3)
+    void  *symbolCtx;
     bool pendClosed;     // 3판: 형성 중 조합의 첫 글쇠가 떨어져 조합이 닫혔다 (새 글쇠는 다음 조합)
     // 3판 연속 포인터 (§6.5): 글쇠마다 제 몫을 기억해 두었다가 그 글쇠를 떼면 그만큼만 뺀다.
     signed char ptrKeyX[256], ptrKeyY[256];   // 이동 방향 (-1/0/1)
@@ -128,9 +134,16 @@ typedef struct {
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
 ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   // Extends/Include 푼 줄 (RFC-0011 P4)
+// 입력 자판(`Type = input`)의 앞단으로 읽는다 (RFC-0016 §6.3): `symbol` 을 허용하고 엔진 지시문은 지나친다.
+ChordLayout *ChordLayout_LoadFromLinesEx(const KlayLines *L, KlayDiag *diag, bool forInput);
+// 줄 목록에 조합 지시문(Key/Chord/Hold/Layer/Macro)이 하나라도 있는가 — 앞단을 둘지 정한다.
+bool ChordLayout_LinesHaveChords(const KlayLines *L);
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);
+// `symbol` 동작이 갈 곳 (RFC-0016 §6.3). 입력 자판에서 입력기가 여기에 엔진을 물린다.
+//   싱크가 없으면 symbol 은 버려진다 — 엔진 없는 자판에서는 파서가 이미 막는다.
+void ChordKb_SetSymbolSink(ChordKbContext *c, void (*sink)(void *ctx, const wchar_t *sym), void *ctx);
 // 시계 주입 (시험용 가짜 시계). NULL = 기본(GetTickCount). RFC-0016 §7.1: fake clock 으로 판정을 시험한다.
 void ChordKb_SetClock(unsigned long (*now)(void));
 // 3판: 키 이벤트 없이 시간만 흘러도 지속형 hold 가 켜진다 (§7.1). 호스트는 ChordKb_NextTickMs 가 돌려준

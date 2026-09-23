@@ -647,6 +647,22 @@ OnUnmatched      = flush     # flush (default): type the pending letters. cancel
   is typed into the document first.
 - The dictionary is looked up beside the layout file, then in `%APPDATA%\Jamotong\dicts`, then in
   `%PROGRAMDATA%\Jamotong\dicts`. The name is a plain file name ending in `.jdb`.
+**A chord front end (optional).** An input layout may also declare chords. Then the chords decide
+first and only what they produce with `symbol` goes into the engine — the same physical key is
+never consumed twice:
+
+```ini
+Key jkl; = 0
+Chord j  = symbol "k"      # logical input for the engine, not a key event
+Chord jk = symbol "a"      # a bigger chord wins
+Chord l  = text "hello"    # text and key actions skip the engine and go out as real input
+Hold j   = momentary layer(num)
+```
+
+A symbol the engine cannot use (no entry starts with it) is typed as it is, so nothing is lost.
+Chord layouts (`Type = chord`) have no engine, so `symbol` there is an error. Everything else in
+a chord layout — layers, tap/hold, pointer actions, macros — works the same in an input layout.
+
 - Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
   characters, and a dictionary holds up to 500,000 entries.
 - **Loading a layout checks its dictionary in full** — the checksum, the key order and the key

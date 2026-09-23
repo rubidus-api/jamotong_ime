@@ -101,6 +101,8 @@ static void WriteSeq(Buf *b, const SeqLayout *sl) {
     PutStr(b, sl->name);
     PutStr(b, sl->dictFile);
     Put32(b, (unsigned)sl->onUnmatched);
+    Put32(b, sl->chord ? 1u : 0u);                     // 앞단 조합 인식기가 있는가 (§6.3)
+    if (sl->chord) WriteChord(b, (const ChordLayout *)sl->chord);
 }
 
 // 원본의 크기·수정시각 (낡음 판정에 쓴다)

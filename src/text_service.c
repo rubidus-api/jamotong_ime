@@ -709,6 +709,15 @@ static void FlushPendingKeyResend(JamotongTextService *obj) {
 static UINT_PTR g_chordTimer = 0;
 static JamotongTextService *g_chordTimerOwner = NULL;
 
+// 지금 자판이 쓰는 조합 표 — 조합 자판이면 그 표, 입력 자판이면 앞단 조합(RFC-0016 §6.3), 없으면 NULL.
+static const ChordLayout *CurrentChordTable(const LayoutConfig *layout) {
+    if (!layout) return NULL;
+    if (layout->type == LAYOUT_TYPE_CHORD) return (const ChordLayout*)layout->pChordLayout;
+    if (layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout)
+        return (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
+    return NULL;
+}
+
 static void ScheduleChordTick(JamotongTextService *obj);
 static void CALLBACK ChordTickProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
     (void)hwnd; (void)msg; (void)time;
@@ -719,7 +728,7 @@ static void CALLBACK ChordTickProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD time)
     if (!obj) return;
     EnterCriticalSection(&g_configLock);
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
-    const ChordLayout *cl = (layout && layout->type == LAYOUT_TYPE_CHORD) ? (const ChordLayout*)layout->pChordLayout : NULL;
+    const ChordLayout *cl = CurrentChordTable(layout);
     if (cl) ChordKb_Tick(&obj->chordKb, cl);
     LeaveCriticalSection(&g_configLock);
     ScheduleChordTick(obj);   // 아직 남은 판정이 있으면 다시 건다
@@ -734,7 +743,7 @@ static void Jamotong_ChordTimerCancel(JamotongTextService *obj) {
 static void ScheduleChordTick(JamotongTextService *obj) {
     EnterCriticalSection(&g_configLock);
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
-    const ChordLayout *cl = (layout && layout->type == LAYOUT_TYPE_CHORD) ? (const ChordLayout*)layout->pChordLayout : NULL;
+    const ChordLayout *cl = CurrentChordTable(layout);
     int ms = cl ? ChordKb_NextTickMs(&obj->chordKb, cl) : 0;
     LeaveCriticalSection(&g_configLock);
     Jamotong_ChordTimerCancel(obj);
@@ -743,6 +752,11 @@ static void ScheduleChordTick(JamotongTextService *obj) {
     g_chordTimer = SetTimer(NULL, 0, (UINT)ms, ChordTickProc);
     if (!g_chordTimer) g_chordTimerOwner = NULL;
 }
+
+// 앞단 조합이 낸 `symbol` 을 엔진에 넣고 문서에 반영한다 (RFC-0016 §6.3).
+//   싱크는 조합 인식기가 부르므로, 지금 어느 문맥에 쓰는지 여기 적어 둔다 (키 이벤트 안에서만 돈다).
+typedef struct { JamotongTextService *obj; ITfContext *pic; } SeqSymbolCtx;
+static void SeqSymbolSink(void *ctx, const wchar_t *sym);
 
 // 순차 변환 자판(RFC-0016 §6.3)의 결과를 문서에 넣는다. 플러그인 자판과 같은 모양이다:
 //   확정 글자는 삽입하고, 아직 보류 중인 입력은 문서가 아니라 캐럿 옆 미리보기 칩으로만 보여준다.
@@ -764,6 +778,15 @@ static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult 
                             obj->config.options.previewFontSize);
     else
         PreeditOverlay_Hide();
+}
+
+static void SeqSymbolSink(void *ctx, const wchar_t *sym) {
+    SeqSymbolCtx *s = (SeqSymbolCtx *)ctx;
+    if (!s || !s->obj || !sym || !sym[0]) return;
+    LayoutConfig *layout = Config_GetCurrentLayout(&s->obj->config);
+    if (!layout || layout->type != LAYOUT_TYPE_SEQUENCE) return;
+    SeqResult r = SeqKb_Symbol(&s->obj->seqKb, (const SeqLayout*)layout->pSeqLayout, sym);
+    if (r.committed[0] || r.composing[0]) SeqApply(s->obj, s->pic, &r);
 }
 
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
@@ -990,6 +1013,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
                 jt = hl ? hl->keymap[(int)qc].type : Layout_MapKeyToJamo(qc, layout->kbdVariant).type;
             if (jt != JAMO_NONE) {
                 if (pfEaten) *pfEaten = TRUE;   // 자모 키만 소비 (자판별로 판정)
+            }
+        } else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE
+                   && layout->pSeqLayout && ((const SeqLayout*)layout->pSeqLayout)->chord) {
+            const ChordLayout *cl = (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
+            bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            wchar_t qc = GetQwertyChar(wParam, isShift);
+            if (cl && qc > 0 && qc < 128 && cl->keyBit[(int)qc] >= 0) {
+                if (pfEaten) *pfEaten = TRUE;   // 앞단 조합의 글쇠 (§6.3)
             }
         } else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
             const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
@@ -1383,6 +1414,18 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
         // 순차 변환 자판: 친 글자열을 표대로 바꾼다 (로마자→가나류). 보류는 미리보기로만 보인다.
         const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        if (sl && sl->chord) {
+            // §6.3: 앞단 조합이 먼저 결정한다. 그 결과 `symbol` 만 엔진으로 들어가고(싱크),
+            // text/key 같은 동작은 예전처럼 실제 입력으로 나간다. 같은 글쇠를 둘이 겹쳐 먹지 않는다.
+            SeqSymbolCtx sctx = { obj, pic };
+            ChordKb_SetSymbolSink(&obj->chordKb, SeqSymbolSink, &sctx);
+            wchar_t keyChar = GetQwertyChar(wParam, isShift);
+            bool eaten = ChordKb_KeyDown(&obj->chordKb, (const ChordLayout*)sl->chord, (UINT)wParam, keyChar);
+            ScheduleChordTick(obj);
+            ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);   // 문맥은 이 키 이벤트 동안만 산다
+            if (eaten && pfEaten) *pfEaten = TRUE;
+            goto kd_done;
+        }
         if (sl) {
             SeqResult r;
             if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
@@ -1554,13 +1597,19 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
         return S_OK;
     }
 
-    // 일반 코드 자판(ARTSEY류): 모두 떨어지면 조합 동작 수행 (SendInput은 함수 내부에서)
+    // 일반 코드 자판(ARTSEY류)과 입력 자판의 앞단 조합: 모두 떨어지면 동작 수행
     if (obj->chordKb.keyDown[wParam]) {
         EnterCriticalSection(&g_configLock);
         LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
-        const ChordLayout *cl = (layout && layout->type == LAYOUT_TYPE_CHORD)
-                                ? (const ChordLayout*)layout->pChordLayout : NULL;
+        const ChordLayout *cl = NULL;
+        SeqSymbolCtx sctx = { obj, pic };
+        if (layout && layout->type == LAYOUT_TYPE_CHORD) cl = (const ChordLayout*)layout->pChordLayout;
+        else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout) {
+            cl = (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
+            if (cl) ChordKb_SetSymbolSink(&obj->chordKb, SeqSymbolSink, &sctx);   // §6.3
+        }
         bool eaten = ChordKb_KeyUp(&obj->chordKb, cl, (UINT)wParam);
+        ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
         LeaveCriticalSection(&g_configLock);
         ScheduleChordTick(obj);
         if (eaten && pfEaten) *pfEaten = TRUE;

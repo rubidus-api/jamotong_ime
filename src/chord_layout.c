@@ -225,6 +225,7 @@ static int ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
 // ── 3판 동작 (RFC-0016 §4·§6.2, 2026-09-23 오너 "추천대로") ──────────────────────────────────────────
 #define PA_STRING 3   // 문자열 문법 오류 (E-JMT-STRING)
 #define PA_MACRO  4   // 모르는 매크로 이름 (E-JMT-MACRO)
+#define PA_SYMBOL 5   // symbol 인데 이 자판에는 엔진이 없다 (E-JMT-SYMBOL)
 
 static const wchar_t *SkipWs(const wchar_t *p) { while (*p == L' ' || *p == L'\t') p++; return p; }
 static bool AtEnd(const wchar_t *p) { p = SkipWs(p); return *p == L'\0' || *p == L'#'; }
@@ -236,8 +237,18 @@ static bool ParenArg(const wchar_t *tok, const wchar_t *name, wchar_t *arg, size
     wmemcpy(arg, tok + k + 1, a); arg[a] = L'\0';
     return true;
 }
-static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int isHold) {
+static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int isHold, bool forInput) {
     const wchar_t *p = SkipWs(rhs);
+    if (!wcsncmp(p, L"symbol", 6) && (p[6] == L' ' || p[6] == L'\t' || p[6] == L'"')) {
+        // §6.3: OS 재주입 없이 현재 엔진으로 보내는 논리 입력. 엔진이 있는 자판에서만 쓴다.
+        p = SkipWs(p + 6);
+        if (*p != L'"') return PA_BAD;
+        if (!Klay_ParseQuoted(&p, e->text, sizeof(e->text) / sizeof(e->text[0]))) return PA_STRING;
+        if (!AtEnd(p)) return PA_BAD;
+        if (!forInput) return PA_SYMBOL;
+        e->act = CA_SYMBOL;
+        return PA_OK;
+    }
     if (!wcsncmp(p, L"text", 4) && (p[4] == L' ' || p[4] == L'\t' || p[4] == L'"')) {
         p = SkipWs(p + 4);
         if (*p != L'"') return PA_BAD;
@@ -375,7 +386,7 @@ static int ParseMacroStep(ChordLayout *cl, ChordMacroStep *st, const wchar_t *li
     }
     // key / pointer 는 조합 동작과 같은 문법을 쓴다
     ChordEntry tmp; memset(&tmp, 0, sizeof tmp); tmp.targetLayer = -1;
-    int rc = ParseActionV3(cl, &tmp, p, 0);
+    int rc = ParseActionV3(cl, &tmp, p, 0, false);   // 매크로 안에서는 symbol 을 쓰지 않는다
     if (rc != PA_OK) return rc == PA_STRING ? PA_STRING : PA_BAD;
     if (tmp.act == CA_KEY) { st->kind = MS_KEY; st->vk = tmp.vk; st->mod = tmp.mod; st->p1 = tmp.keyExt; return PA_OK; }
     if (tmp.act == CA_PTR_MOVE || tmp.act == CA_PTR_BTN || tmp.act == CA_PTR_WHEEL) {
@@ -409,7 +420,23 @@ static bool ChordKeyHead(const wchar_t *p, wchar_t *keys, size_t cch, int *bit, 
     return true;
 }
 
+bool ChordLayout_LinesHaveChords(const KlayLines *L) {
+    for (int i = 0; i < L->n; i++) {
+        const wchar_t *p = L->v[i].text;
+        while (*p == L' ' || *p == L'\t') p++;
+        if (!wcsncmp(p, L"Key ", 4) || !wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)
+            || !wcsncmp(p, L"Layer ", 6) || !wcsncmp(p, L"Macro ", 6)) return true;
+    }
+    return false;
+}
+
 ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
+    return ChordLayout_LoadFromLinesEx(L, diag, false);
+}
+
+// forInput = 입력 자판(`Type = input`)의 앞단으로 읽는다 (RFC-0016 §6.3):
+//   `symbol` 을 허용하고, 순차 엔진의 지시문(Dictionary·OnUnmatched·Engine)은 여기서 지나친다.
+ChordLayout *ChordLayout_LoadFromLinesEx(const KlayLines *L, KlayDiag *diag, bool forInput) {
     ChordLayout *cl = (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
     if (!cl) return NULL;
     wcscpy_s(cl->name, 64, L"chord");
@@ -519,7 +546,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                     ChordEntry ne; memset(&ne, 0, sizeof(ne));
                     ne.mask = mask; ne.layer = curLayer; ne.targetLayer = -1; ne.isHold = isHold;
                     TrimEnds(rhs);
-                    int pr = cl->v3 ? ParseActionV3(cl, &ne, rhs, isHold) : ParseAction(cl, &ne, rhs);
+                    int pr = cl->v3 ? ParseActionV3(cl, &ne, rhs, isHold, forInput) : ParseAction(cl, &ne, rhs);
                     if (pr == PA_OK) {
                         // 같은 (layer, mask, tap/hold) — RFC-0016 §4: 상속(다른 파일)은 나중 정의 우선,
                         // 같은 파일 안의 중복은 v1/v2 에선 첫 정의 유지 + 경고 (v3 에선 오류 예정).
@@ -534,6 +561,9 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                                           L"same chord defined twice in this file - the first definition is used",
                                           L"remove one of the two lines");
                     }
+                    else if (pr == PA_SYMBOL)
+                        FAIL(col0, L"E-JMT-SYMBOL", L"'symbol' needs an input engine",
+                             L"use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine");
                     else if (pr == PA_MACRO)
                         FAIL(col0, L"E-JMT-MACRO", L"no macro with this name",
                              L"define it first with 'Macro <name> ... EndMacro'");
@@ -552,6 +582,8 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
             } else FAIL(col0, L"E-JMT-KEY-SYNTAX", L"malformed Chord/Hold line (missing '=')", NULL);
         }
         else if (KlayHeader_IsKnownKey(p)) { /* 머리부 — 통합 로더가 읽는다 */ }
+        else if (forInput && (!wcsncmp(p, L"Dictionary", 10) || !wcsncmp(p, L"OnUnmatched", 11)
+                              || !wcsncmp(p, L"Engine", 6))) { /* 엔진 쪽이 읽는 줄 (§6.3) */ }
         else if (Klay_UnknownLine(diag, p, lineno, col0, kChordDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
     if (inMacro >= 0) { lineno = macroLine; FAIL(1, L"E-JMT-MACRO", L"Macro block is not closed by 'EndMacro'", NULL); }
@@ -807,7 +839,16 @@ static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry
             c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MACRO:
             MacroStart(c, cl, e->p1); c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_SYMBOL:   // 엔진으로 보내는 논리 입력 — 키 이벤트를 내지 않는다 (§6.3)
+            if (c->symbolSink) c->symbolSink(c->symbolCtx, e->text);
+            c->oneshotMod = 0; c->oneshotLayer = -1; break;
     }
+}
+
+void ChordKb_SetSymbolSink(ChordKbContext *c, void (*sink)(void *ctx, const wchar_t *sym), void *ctx) {
+    if (!c) return;
+    c->symbolSink = sink;
+    c->symbolCtx = ctx;
 }
 
 void ChordKb_ReleaseAll(ChordKbContext *c) {
@@ -815,8 +856,11 @@ void ChordKb_ReleaseAll(ChordKbContext *c) {
     PtrReleaseDrag(c);                             // 소유한 드래그도 놓는다 (§6.5 — 포커스 상실·전환에서 정리)
     MacroCancel(c);                                // 실행 중 매크로도 취소하고 그 수정키를 놓는다 (§6.6)
     int keep = c->curLayer;
+    void (*sink)(void *, const wchar_t *) = c->symbolSink;
+    void *sctx = c->symbolCtx;
     ChordKb_Init(c);
     c->curLayer = keep;
+    c->symbolSink = sink; c->symbolCtx = sctx;   // 싱크는 자판이 아니라 입력기가 건 것이다
 }
 
 // 형성 중 조합을 판정·실행하고 비운다 (모두 해제 때, 또는 3판에서 닫힌 조합 뒤 새 글쇠가 눌렸을 때).
