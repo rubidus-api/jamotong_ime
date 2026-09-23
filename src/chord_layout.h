@@ -86,6 +86,11 @@ void ChordLayout_Free(ChordLayout *cl);
 void ChordKb_Init(ChordKbContext *c);
 // 시계 주입 (시험용 가짜 시계). NULL = 기본(GetTickCount). RFC-0016 §7.1: fake clock 으로 판정을 시험한다.
 void ChordKb_SetClock(unsigned long (*now)(void));
+// 3판: 키 이벤트 없이 시간만 흘러도 지속형 hold 가 켜진다 (§7.1). 호스트는 ChordKb_NextTickMs 가 돌려준
+// 시간 뒤에 ChordKb_Tick 을 부른다. Tick 이 true 면 상태가 바뀌었다(레이어/모디파이어가 켜졌다).
+// 1·2판과 hold 후보가 없는 상태에서는 NextTickMs 가 0 — 타이머가 필요 없는 파일에는 타이머를 만들지 않는다.
+int  ChordKb_NextTickMs(const ChordKbContext *c, const ChordLayout *cl);
+bool ChordKb_Tick(ChordKbContext *c, const ChordLayout *cl);
 // 조합 경계(포커스·자판 전환)에서 호출: hold 로 눌러 둔 모디파이어에 **반드시** key-up 을 보내고
 // 형성 중·hold·임시 레이어 상태를 비운다. 사용자가 고른 레이어(curLayer)는 유지. 여러 번 불러도 안전.
 void ChordKb_ReleaseAll(ChordKbContext *c);

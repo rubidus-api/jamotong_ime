@@ -17,6 +17,7 @@
 #include "ui_ipc.h"    // RFC-0012 Phase 3 UI element 게이트
 #include "transition.h" // RFC-0008 W1-09 조합 경계 전환 정책
 #include "hanja_txn.h"  // RFC-0008 W1-02 한자 변환 트랜잭션 정책
+static void Jamotong_ChordTimerCancel(JamotongTextService *obj);   // 3판 조합 판정 타이머 (RFC-0016 §7.1)
 // ITfTextInputProcessorEx IID (SDK msctf.idl + windows-sys 이중 확인 — RFC-0013 A)
 static const GUID kIID_ITfTextInputProcessorEx = { 0x6e4e2102, 0xf9cd, 0x433d, { 0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07 } };
 extern HINSTANCE g_hInst;   // dllmain.c — DLL 모듈 핸들(사전 경로·윈도 클래스 등록용)
@@ -230,6 +231,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
     } else {
         Transition_FlushComposition(obj, why == TRANS_WHY_FOCUS ? "focus" : "ext-switch");
     }
+    Jamotong_ChordTimerCancel(obj);      // 조합 판정 타이머도 함께 (경계에서 늦은 콜백 금지)
     ChordKb_ReleaseAll(&obj->chordKb);   // 합성 Ctrl/Alt 가 대상 앱에 눌린 채 남지 않게 (W1-09 후반)
     ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상 정리
     CodeInput_Hide();
@@ -693,8 +695,49 @@ static void FlushPendingKeyResend(JamotongTextService *obj) {
     ResendKeyNow(g_pendResendVk, g_pendResendLp, g_pendResendHwnd);
 }
 
+// ── 3판 조합: 키 이벤트 없이 흐르는 시간으로 hold 확정 (RFC-0016 §7.1) ──────────────────────
+//   ChordKb_NextTickMs 가 0 이 아닐 때만 스레드 타이머를 건다. 재전송 타이머와 같은 규칙:
+//   전역 콜백이므로 소유 인스턴스를 기록하고, 그 인스턴스가 내려갈 때 자기 것만 끈다 (W0-02·W0-03).
+static UINT_PTR g_chordTimer = 0;
+static JamotongTextService *g_chordTimerOwner = NULL;
+
+static void ScheduleChordTick(JamotongTextService *obj);
+static void CALLBACK ChordTickProc(HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
+    (void)hwnd; (void)msg; (void)time;
+    KillTimer(NULL, id);
+    if (id != g_chordTimer) return;   // 이미 취소된 타이머의 늦은 콜백
+    g_chordTimer = 0;
+    JamotongTextService *obj = g_chordTimerOwner;
+    if (!obj) return;
+    EnterCriticalSection(&g_configLock);
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    const ChordLayout *cl = (layout && layout->type == LAYOUT_TYPE_CHORD) ? (const ChordLayout*)layout->pChordLayout : NULL;
+    if (cl) ChordKb_Tick(&obj->chordKb, cl);
+    LeaveCriticalSection(&g_configLock);
+    ScheduleChordTick(obj);   // 아직 남은 판정이 있으면 다시 건다
+}
+static void Jamotong_ChordTimerCancel(JamotongTextService *obj) {
+    if (!g_chordTimer) return;
+    if (g_chordTimerOwner && g_chordTimerOwner != obj) return;
+    UINT_PTR t = g_chordTimer;
+    g_chordTimer = 0; g_chordTimerOwner = NULL;
+    KillTimer(NULL, t);
+}
+static void ScheduleChordTick(JamotongTextService *obj) {
+    EnterCriticalSection(&g_configLock);
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    const ChordLayout *cl = (layout && layout->type == LAYOUT_TYPE_CHORD) ? (const ChordLayout*)layout->pChordLayout : NULL;
+    int ms = cl ? ChordKb_NextTickMs(&obj->chordKb, cl) : 0;
+    LeaveCriticalSection(&g_configLock);
+    Jamotong_ChordTimerCancel(obj);
+    if (ms <= 0) return;   // 타이머가 필요 없는 파일·상태에는 타이머를 만들지 않는다
+    g_chordTimerOwner = obj;
+    g_chordTimer = SetTimer(NULL, 0, (UINT)ms, ChordTickProc);
+    if (!g_chordTimer) g_chordTimerOwner = NULL;
+}
+
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
-bool Jamotong_HasPendingTimers(void) { return g_pendResendTimer != 0; }
+bool Jamotong_HasPendingTimers(void) { return g_pendResendTimer != 0 || g_chordTimer != 0; }
 
 static void ScheduleKeyResend(JamotongTextService *obj, WPARAM vk, LPARAM lParam) {
     if (g_pendResendTimer) {   // 이전 보류분은 즉시 방출(순서 유지) 후 새 키를 보류
@@ -1294,6 +1337,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         const ChordLayout *cl = (const ChordLayout*)layout->pChordLayout;
         wchar_t keyChar = GetQwertyChar(wParam, isShift);
         bool eaten = ChordKb_KeyDown(&obj->chordKb, cl, (UINT)wParam, keyChar);
+        ScheduleChordTick(obj);                  // 3판: 가만히 있어도 hold 가 켜지도록 (§7.1)
         if (eaten && pfEaten) *pfEaten = TRUE;   // 코드 글쇠가 아니면 통과(pfEaten=FALSE)
         goto kd_done;
     }
@@ -1442,6 +1486,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
                                 ? (const ChordLayout*)layout->pChordLayout : NULL;
         bool eaten = ChordKb_KeyUp(&obj->chordKb, cl, (UINT)wParam);
         LeaveCriticalSection(&g_configLock);
+        ScheduleChordTick(obj);
         if (eaten && pfEaten) *pfEaten = TRUE;
     }
     return S_OK;
@@ -1762,6 +1807,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
 
     // RFC-0008 W0-02: 보류 중인 경계키 재전송을 지금 방출하고 타이머를 끈다.
     FlushPendingKeyResend(obj);
+    Jamotong_ChordTimerCancel(obj);   // 3판 조합 판정 타이머 (§7.1) — 해제된 코드로 콜백이 들어오지 않게
     UiCandHide(obj);   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
     UiCodeHide(obj);
 

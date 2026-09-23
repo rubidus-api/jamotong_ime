@@ -629,6 +629,19 @@ static bool AnyChordCovers(const ChordLayout *cl, unsigned mask, int layer) {
     return false;
 }
 
+// 지속형 hold 확정: 형성 중 글쇠들을 hold 로 돌리고 레이어/모디파이어를 켠다.
+static void ConfirmSustainedHold(ChordKbContext *c, const ChordEntry *he) {
+    if (he->act == CA_LAYER_ONESHOT) {
+        if (he->targetLayer >= 0) c->momentaryLayer = he->targetLayer;
+    } else {   // CA_MOD_ONESHOT → 모디파이어를 누른 채 유지
+        c->heldMod |= he->mod;
+        SendMods(he->mod, true);
+    }
+    for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 2;   // pend → hold
+    c->holdKeys = c->pendKeys;
+    c->pendMask = 0; c->pendKeys = 0; c->pendClosed = false;
+}
+
 bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t keyChar) {
     if (!cl || keyChar == 0 || keyChar >= 128) return false;
     int bit = cl->keyBit[(int)keyChar];
@@ -659,17 +672,7 @@ bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t 
             if (el <= (unsigned long)cl->comboTermMs && AnyChordCovers(cl, c->pendMask | (1u << bit), EffLayer(c))) confirm = false;
             else if (cl->holdPolicy == CHORD_HOLD_TIMEOUT && el < (unsigned long)cl->holdTermMs) confirm = false;
         }
-        if (confirm) {
-            if (he->act == CA_LAYER_ONESHOT) {
-                if (he->targetLayer >= 0) c->momentaryLayer = he->targetLayer;
-            } else {   // CA_MOD_ONESHOT → 모디파이어를 누른 채 유지
-                c->heldMod |= he->mod;
-                SendMods(he->mod, true);
-            }
-            for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 2;   // pend → hold
-            c->holdKeys = c->pendKeys;
-            c->pendMask = 0; c->pendKeys = 0;
-        }
+        if (confirm) ConfirmSustainedHold(c, he);
     }
 
     if (vk < 256) { c->keyDown[vk] = true; c->role[vk] = 1; }
@@ -698,5 +701,30 @@ bool ChordKb_KeyUp(ChordKbContext *c, const ChordLayout *cl, UINT vk) {
     if (cl->v3) c->pendClosed = true;
     if (c->pendKeys > 0) c->pendKeys--;
     if (c->pendKeys <= 0) CompletePending(c, cl);   // 조합 완성
+    return true;
+}
+
+// ── 3판: 키 이벤트 없이 흐르는 시간 (§7.1) ────────────────────────────────────────────────
+//   형성 중 조합이 지속형 hold 후보이고, 조합 시간과 hold 시간이 모두 지나면 hold 를 켠다.
+//   (조합 시간이 지나야 더 큰 조합 후보가 사라진 것이므로 두 정책 모두 같은 조건을 쓴다.)
+static const ChordEntry *PendingSustainedHold(const ChordKbContext *c, const ChordLayout *cl) {
+    if (!cl || !cl->v3 || !c->pendMask || c->pendClosed) return NULL;
+    const ChordEntry *he = FindEntry(cl, c->pendMask, EffLayer(c), 1);
+    return (he && IsSustained(he->act)) ? he : NULL;
+}
+int ChordKb_NextTickMs(const ChordKbContext *c, const ChordLayout *cl) {
+    if (!PendingSustainedHold(c, cl)) return 0;
+    unsigned long deadline = c->pendTick + (unsigned long)(cl->holdTermMs > cl->comboTermMs ? cl->holdTermMs : cl->comboTermMs) + 1;
+    unsigned long now = g_now();
+    if ((long)(deadline - now) <= 0) return 1;
+    long ms = (long)(deadline - now);
+    return (ms > 60000) ? 60000 : (int)ms;
+}
+bool ChordKb_Tick(ChordKbContext *c, const ChordLayout *cl) {
+    const ChordEntry *he = PendingSustainedHold(c, cl);
+    if (!he) return false;
+    unsigned long el = g_now() - c->pendTick;
+    if (el <= (unsigned long)cl->comboTermMs || el < (unsigned long)cl->holdTermMs) return false;
+    ConfirmSustainedHold(c, he);
     return true;
 }
