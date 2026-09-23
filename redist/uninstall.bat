@@ -103,7 +103,7 @@ for %%F in (%BINS%) do (
   if exist "%D%%%F" del /F /Q "%D%%%F" >nul 2>&1
   if exist "%D%%%F" ren "%D%%%F" "%%F.old.%RANDOM%%RANDOM%" >nul 2>&1
 )
-for %%F in (hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt UNICODE-LICENSE.txt README.md README.ko.md LICENSE COPYRIGHT.md install-user.bat upgrade-user.bat uninstall-user.bat uninstall.bat) do del /F /Q "%D%%%F" >nul 2>&1
+for %%F in (hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt UNICODE-LICENSE.txt README.md README.ko.md LICENSE COPYRIGHT.md jmt-format.md jmt-format.ko.md install-user.bat upgrade-user.bat uninstall-user.bat uninstall.bat) do del /F /Q "%D%%%F" >nul 2>&1
 del /F /Q "%D%*.jmb" >nul 2>&1
 rem built layouts (install.bat compiles the shipped .jmt files) - without this the folder never empties
 if exist "%D%.staging" rd /S /Q "%D%.staging" >nul 2>&1

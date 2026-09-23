@@ -191,8 +191,10 @@ return to factory defaults. Uninstalling does not remove it.
 
 ## Custom keyboard layouts (.jmt)
 
-A `.jmt` file is a plain UTF-8 text file describing a keyboard layout. There are three
-kinds, selected by the `Type =` line:
+A `.jmt` file is a plain UTF-8 text file describing a keyboard layout. This section is the
+introduction; [`jmt-format.md`](jmt-format.md) is the complete reference (every directive, the
+dictionary format, the build commands and every message with its code). There are four kinds,
+selected by the `Type =` line:
 
 | `Type` | Purpose |
 |---|---|
