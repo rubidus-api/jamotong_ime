@@ -69,7 +69,10 @@ static void SendVKey(int vk, int mod, bool ext) {
     SendInput(2, in, sizeof(INPUT));
     if (mod) SendMods(mod, false);
 }
-static void SendText(const wchar_t *s, int mod) {
+static void SendText(ChordKbContext *c, const wchar_t *s, int mod) {
+    // 수식키를 함께 눌러야 하는 경우(1·2판의 with-mods)는 예전 길 그대로 — 문서 삽입에는
+    // 수식키라는 것이 없다. 그 외에는 입력기가 물려 준 문서 편집 경로로 보낸다 (B11 잔여).
+    if (!mod && c && c->textSink) { c->textSink(c->textCtx, s); return; }
     if (mod) SendMods(mod, true);
     for (int i = 0; s[i]; i++) {
         INPUT in[2]; memset(in, 0, sizeof(in));
@@ -179,7 +182,7 @@ static void MacroRun(ChordKbContext *c, const ChordLayout *cl) {
         const ChordMacroStep *st = &cl->steps[m->first + c->macroStep];
         c->macroStep++;
         switch (st->kind) {
-            case MS_TEXT: SendText(cl->macroText + st->textOff, 0); break;
+            case MS_TEXT: SendText(c, cl->macroText + st->textOff, 0); break;
             // with 로 이미 누르고 있는 수정키는 그대로 두고, 이 단계의 mods() 만 씌운다 (이중 누름 금지)
             case MS_KEY:  SendVKey(st->vk, st->mod, st->p1 != 0); break;
             case MS_PTR: {
@@ -209,7 +212,7 @@ static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry
     int mods = e->mod | c->oneshotMod;
     switch (e->act) {
         // 3판: 문자열에는 대기 중 원샷 수정키를 씌우지 않고 취소한다 (§6.2 — "a" 에 Shift 를 씌워 대문자/단축키로 만들지 않는다)
-        case CA_TEXT:   SendText(e->text, (cl && cl->v3) ? 0 : c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_TEXT:   SendText(c, e->text, (cl && cl->v3) ? 0 : c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_KEY:    SendVKey(e->vk, mods, e->keyExt); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_MOVE:  SendMouseMove(e->p1, e->p2); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_BTN:   SendMouseBtn(e->p1, e->p2, c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
@@ -244,6 +247,12 @@ void ChordKb_SetSymbolSink(ChordKbContext *c, void (*sink)(void *ctx, const wcha
     if (!c) return;
     c->symbolSink = sink;
     c->symbolCtx = ctx;
+}
+
+void ChordKb_SetTextSink(ChordKbContext *c, void (*sink)(void *ctx, const wchar_t *s), void *ctx) {
+    if (!c) return;
+    c->textSink = sink;
+    c->textCtx = ctx;
 }
 
 void ChordKb_ReleaseAll(ChordKbContext *c) {

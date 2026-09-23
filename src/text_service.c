@@ -137,13 +137,15 @@ static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
 
 static void ResetComposition(JamotongTextService *obj);
 static bool OutputResultSeq(JamotongTextService *obj, ITfContext *pic, FsmResult res, BOOL isFlush);
+typedef enum { TRANS_WHY_FOCUS, TRANS_WHY_KEY, TRANS_WHY_EXTERNAL } TransWhy;
+static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfContext *pic);
 
 // 무간섭(직접 입력) 모드 토글 — 조합·팝업을 정리하고 레지스트리에 기록·발행한다.
 // 켜져 있는 동안 키 싱크는 해제 단축키 외 모든 키를 통과시킨다(원격 데스크톱 등).
 void Jamotong_SetPassthrough(JamotongTextService *obj, BOOL on) {
-    ResetComposition(obj);   // 인라인 조합 확정·FSM/칩 정리 (모드 경계 = 조합 경계)
-    CodeInput_Hide();
-    CandidateUI_Cancel();
+    // 모드 경계 = 조합 경계. 밖에서 자판이 바뀔 때와 똑같이 접는다 (B3) — 예전에는 여기서만
+    // 타이머·합성 수식키·순차 보류를 안 건드려, 무간섭으로 들어간 뒤에도 남아 있었다.
+    Jamotong_Transition(obj, TRANS_WHY_EXTERNAL, NULL);
     obj->passthrough = on;
     WritePassthroughReg(on);
     Compart_Publish(obj);    // compartment 에도 반영 (RFC-0012 Phase 1; HKCU 는 한 판 병행)
@@ -215,7 +217,25 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
 // 순차 변환 결과를 문서에 넣는다 (정의는 아래 조합 타이머 곁) — 경계 확정에서 먼저 쓴다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
 
-typedef enum { TRANS_WHY_FOCUS, TRANS_WHY_KEY, TRANS_WHY_EXTERNAL } TransWhy;
+static void UiCandHide(JamotongTextService *obj);
+static void UiCodeHide(JamotongTextService *obj);
+
+// ── 입력을 접는 단 하나의 길 (B3) ─────────────────────────────────────────────────
+// 경계는 여럿이다: 자판 전환·포커스 상실·밖에서의 전환·무간섭 모드 토글·Deactivate. 예전에는
+// 경계마다 무엇을 접을지 목록이 조금씩 달라, 어떤 길로 나가면 조합 판정 타이머가 살아 있거나
+// 합성 수식키가 눌린 채 남거나 헬퍼 창이 떠 있었다. **접는 일은 여기 한 곳에만 적는다.**
+//   확정(무엇을 문서에 남길지)은 경계마다 다르므로 부르는 쪽이 먼저 하고, 이 함수는 그 뒤에
+//   남은 상태와 화면을 비운다.
+static void Jamotong_FoldInput(JamotongTextService *obj) {
+    Jamotong_ChordTimerCancel(obj);      // 늦은 콜백 금지 (RFC-0016 §7.1)
+    ChordKb_ReleaseAll(&obj->chordKb);   // 합성 Ctrl/Alt 가 대상 앱에 눌린 채 남지 않게 (W1-09)
+    SeqKb_Init(&obj->seqKb);             // 순차 변환의 보류·읽기
+    ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상
+    CodeInput_Hide();
+    CandidateUI_Cancel();                // 콜백 경유로 pic 참조까지 정리
+    UiCodeHide(obj);                     // UWP 헬퍼가 그린 것들 (RFC-0015)
+    UiCandHide(obj);
+}
 
 static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfContext *pic) {
     if (why == TRANS_WHY_KEY && pic) {
@@ -238,12 +258,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
     } else {
         Transition_FlushComposition(obj, why == TRANS_WHY_FOCUS ? "focus" : "ext-switch");
     }
-    Jamotong_ChordTimerCancel(obj);      // 조합 판정 타이머도 함께 (경계에서 늦은 콜백 금지)
-    ChordKb_ReleaseAll(&obj->chordKb);   // 합성 Ctrl/Alt 가 대상 앱에 눌린 채 남지 않게 (W1-09 후반)
-    SeqKb_Init(&obj->seqKb);             // 순차 변환의 보류 입력도 경계에서 비운다
-    ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상 정리
-    CodeInput_Hide();
-    CandidateUI_Cancel();                // 콜백 경유로 pic 참조까지 정리
+    Jamotong_FoldInput(obj);             // 접는 일은 한 곳에만 (B3)
 }
 
 // 밖(언어바 클릭·표시기·compartment 통지)에서 자판이 바뀔 때. 이름은 기존 호출부 호환.
@@ -812,6 +827,16 @@ static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult 
                             obj->config.options.previewFontSize);
     else
         PreeditOverlay_Hide();
+}
+
+// `text` 동작이 낸 글자열을 **문서 편집 경로**로 넣는다 (B11 잔여). 합성 유니코드 입력은 시스템
+// 입력 큐를 거치므로, 우리가 같은 순간에 넣은 확정 글자와 순서가 엉킬 수 있다. EDIT 계열이면
+// 선택 치환, 그 밖이면 TSF 편집 세션 — 한글 확정이 쓰는 그 길이다. pic 가 없으면(문맥 밖) 싱크를
+// 걸지 않으므로 조합 엔진이 예전처럼 합성 입력으로 보낸다(터미널도 그 길로 산다).
+static void ChordTextSink(void *ctx, const wchar_t *s) {
+    SeqSymbolCtx *c = (SeqSymbolCtx *)ctx;
+    if (!c || !c->obj || !c->pic || !s || !s[0]) return;
+    CommitText(c->obj, c->pic, s);
 }
 
 static void SeqSymbolSink(void *ctx, const wchar_t *sym) {
@@ -1457,10 +1482,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             // text/key 같은 동작은 예전처럼 실제 입력으로 나간다. 같은 글쇠를 둘이 겹쳐 먹지 않는다.
             SeqSymbolCtx sctx = { obj, pic };
             ChordKb_SetSymbolSink(&obj->chordKb, SeqSymbolSink, &sctx);
+            if (pic) ChordKb_SetTextSink(&obj->chordKb, ChordTextSink, &sctx);
             wchar_t keyChar = GetQwertyChar(wParam, isShift);
             bool eaten = ChordKb_KeyDown(&obj->chordKb, (const ChordLayout*)sl->chord, (UINT)wParam, keyChar);
             ScheduleChordTick(obj);
             ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);   // 문맥은 이 키 이벤트 동안만 산다
+            ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);
             if (eaten && pfEaten) *pfEaten = TRUE;
             goto kd_done;
         }
@@ -1690,8 +1717,10 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
             cl = (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
             if (cl) ChordKb_SetSymbolSink(&obj->chordKb, SeqSymbolSink, &sctx);   // §6.3
         }
+        if (cl && pic) ChordKb_SetTextSink(&obj->chordKb, ChordTextSink, &sctx);   // `text` 는 문서로
         bool eaten = ChordKb_KeyUp(&obj->chordKb, cl, (UINT)wParam);
         ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
+        ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);
         LeaveCriticalSection(&g_configLock);
         ScheduleChordTick(obj);
         if (eaten && pfEaten) *pfEaten = TRUE;
@@ -2014,15 +2043,11 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
 
     // RFC-0008 W0-02: 보류 중인 경계키 재전송을 지금 방출하고 타이머를 끈다.
     FlushPendingKeyResend(obj);
-    Jamotong_ChordTimerCancel(obj);   // 3판 조합 판정 타이머 (§7.1) — 해제된 코드로 콜백이 들어오지 않게
-    SeqKb_Init(&obj->seqKb);          // 순차 변환의 보류 입력 (재활성 뒤 유령 입력 방지)
-    UiCandHide(obj);   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
-    UiCodeHide(obj);
 
-    // 진행 중이던 오토마타 상태 정리 (재활성 후 유령 입력 방지) + 팝업 창들 파괴(입력 스레드).
-    // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조와 obj->candCtx.obj(raw 서비스 포인터)를 정리 —
-    // 열린 채 Deactivate되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
-    CandidateUI_Cancel();
+    // 진행 중이던 상태·화면을 접는다 — 자판 전환·무간섭 토글과 **같은 한 곳**을 쓴다 (B3).
+    // 후보창은 Cancel(콜백 경유)로 닫혀 pic 참조와 obj->candCtx.obj(raw 서비스 포인터)까지 정리된다 —
+    // 열린 채 Deactivate 되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
+    Jamotong_FoldInput(obj);
     JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리
     CompTarget_Clear(obj);        // W1-09 대상·보류가 쥔 문맥 참조를 놓는다
     Jamotong_PendingClear(obj);
