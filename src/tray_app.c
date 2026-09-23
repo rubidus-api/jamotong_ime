@@ -244,9 +244,16 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     const bool automata = isTry || g_testMode;   // 시험칸은 언제나 오토마타
     WNDPROC orig = isTry ? g_tryOrigProc : g_editOrigProc;
     if (m == WM_SETFOCUS && g_hTarget != h) { g_hTarget = h; g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord); }
+    // 오토마타가 먹은 글쇠의 WM_CHAR 를 버린다. 메시지 루프의 IsDialogMessageW 는 WM_KEYDOWN 을
+    // 넘기기 **전에** TranslateMessage 로 WM_CHAR 를 큐에 넣는다 — 키다운을 여기서 소비해도 그 문자는
+    // 뒤따라 들어와 상자에 그대로 박힌다(한글이면 조합 글자를 덮어써 '가k' 꼴, 순차 변환이면 바뀐
+    // 글자 뒤에 원문자가 남는다. 실기 2026-09-23). 소비한 키 하나당 한 개만 버린다.
+    static bool s_eatChar = false;
+    if (automata && m == WM_CHAR && s_eatChar) { s_eatChar = false; return 0; }
+    if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN) s_eatChar = false;   // 새 키 — 묵은 표시는 버린다
     if (automata && (m == WM_KEYDOWN || m == WM_SYSKEYDOWN)) {
         g_hTarget = h;
-        if (AutomataKeyDown((UINT)w, l)) return 0;
+        if (AutomataKeyDown((UINT)w, l)) { s_eatChar = true; return 0; }
         if ((UINT)w == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) {
             SendMessageW(h, EM_SETSEL, 0, (LPARAM)-1);
             return 0;

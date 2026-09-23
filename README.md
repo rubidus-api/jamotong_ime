@@ -595,8 +595,10 @@ Sequence "ha"  = emit "\u{306F}"
 - **Pending letters are shown, not inserted.** They appear in the preview chip next to the caret
   (in the manager's test box, as selected text) and only reach the document once they are decided.
 - **Backspace** takes back one pending letter; letters already in the document are left alone.
-  **Esc** drops the pending input. Switching layouts or leaving the window types what was pending.
-- **Space, Enter and Tab belong to the application.** If something was pending, it is typed first.
+  **Esc** drops the pending input. Switching layouts with the layout key types what was pending; a
+  focus change (another window, the language bar) drops it — it was never in the document.
+- **Space, Enter, Tab and the arrow keys belong to the application.** If something was pending, it
+  is typed into the document first.
 - The input side is printable ASCII (up to 8 letters), `emit` takes up to 16 characters with the
   same string escapes as chord layouts. A table holds up to 512 sequences. The same input twice in
   one file is an error; a file that `Extends` another may override the base file's sequences.

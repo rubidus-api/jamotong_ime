@@ -212,6 +212,9 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
 //   ① 남은 음절 확정 — 키 이벤트 안(TRANS_WHY_KEY)이면 동기 출력, 밖이면 기억한 대상에(비동기/EDIT)
 //   ② 모아치기 hold 모디파이어 key-up (실패해도 반드시)  ③ FSM·칩·조합 대상 리셋  ④ 팝업 정리
 // 설정창 적용(Config_ApplyEdited)은 설정 스레드라 여기 오지 않는다 — 설정창이 포커스를 가져갈 때 ①이 이미 돈다.
+// 순차 변환 결과를 문서에 넣는다 (정의는 아래 조합 타이머 곁) — 경계 확정에서 먼저 쓴다.
+static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
+
 typedef enum { TRANS_WHY_FOCUS, TRANS_WHY_KEY, TRANS_WHY_EXTERNAL } TransWhy;
 
 static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfContext *pic) {
@@ -227,11 +230,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
         } else if (cur && cur->type == LAYOUT_TYPE_SEQUENCE) {
             // 순차 변환: 보류한 입력을 잃지 않도록 리터럴로 확정한다 (RFC-0016 §6.3)
             SeqResult r = SeqKb_Flush(&obj->seqKb, (const SeqLayout*)cur->pSeqLayout);
-            if (r.committed[0]) {
-                EditSessionData esd = {0};
-                lstrcpynW(esd.committed, r.committed, 128);
-                RequestEditSessionData(obj, pic, &esd);
-            }
+            if (r.committed[0]) SeqApply(obj, pic, &r);
         } else if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);   // 키 이벤트 안 — 동기 세션 허용
@@ -749,10 +748,16 @@ static void ScheduleChordTick(JamotongTextService *obj) {
 //   확정 글자는 삽입하고, 아직 보류 중인 입력은 문서가 아니라 캐럿 옆 미리보기 칩으로만 보여준다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r) {
     if (!pic) return;
-    EditSessionData esd = {0};
-    lstrcpynW(esd.committed, r->committed, 128);
-    lstrcpynW(esd.composing, r->composing, 128);
-    RequestEditSessionData(obj, pic, &esd);
+    // 한 번의 입력이 낳는 확정 글자는 편집 세션 한 칸(127자)보다 길 수 있다(보류를 한꺼번에
+    // 푸는 경우). 나눠 보내되 한 글자도 잃지 않는다.
+    const wchar_t *p = r->committed;
+    do {
+        EditSessionData esd = {0};
+        lstrcpynW(esd.committed, p, 121);
+        p += wcslen(esd.committed);
+        if (!*p) lstrcpynW(esd.composing, r->composing, 128);
+        RequestEditSessionData(obj, pic, &esd);
+    } while (*p);
     RECT rc;
     if (obj->config.options.showPreview && r->composing[0] && GetCaretScreenRect(obj, &rc))
         PreeditOverlay_Show(&rc, r->composing, obj->config.options.previewFont,
@@ -930,6 +935,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             JamoDiag("TK  vk=%02X ctrl/alt/win flush-in-test commit=U+%04X", (unsigned)wParam, (unsigned)res.commitChar);
             OutputResultSeq(obj, pic, res, TRUE);   // 음절 확정 (통과 전에 동기 완료)
         }
+        if (obj->seqKb.pending[0]) {   // 순차 변환의 보류도 같은 자리에서 확정 (RFC-0016 §6.3)
+            LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+            if (cur && cur->type == LAYOUT_TYPE_SEQUENCE) {
+                SeqResult fr = SeqKb_Flush(&obj->seqKb, (const SeqLayout*)cur->pSeqLayout);
+                SeqApply(obj, pic, &fr);
+            }
+        }
         goto tk_done;   // pfEaten=FALSE — 앱이 단축키를 네이티브로 처리
     }
 
@@ -984,7 +996,10 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             wchar_t qc = GetQwertyChar(wParam, isShift);
             bool pend = obj->seqKb.pending[0] != L'\0';
-            if (SeqKb_WouldEat(&obj->seqKb, sl, qc) || (pend && (wParam == VK_BACK || wParam == VK_ESCAPE))) {
+            // 보류가 있으면 글자가 아닌 글쇠(엔터·탭·화살표·사이띄개)도 예측-소비한다 — 그래야
+            // OnKeyDown 이 불려 보류를 확정하고, 원래 글쇠를 실제 이벤트로 다시 보낼 수 있다
+            // (한글 FSM 의 어절 경계 처리와 같은 규칙, RFC-0008 W0-02).
+            if (SeqKb_WouldEat(&obj->seqKb, sl, qc) || (pend && !IsModifierOrLock(wParam))) {
                 if (pfEaten) *pfEaten = TRUE;
             }
         } else if (layout && layout->type == LAYOUT_TYPE_CHORD) {
@@ -1374,6 +1389,16 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
             else {
                 wchar_t qc = GetQwertyChar(wParam, isShift);
+                if ((qc < 0x21 || qc > 0x7E) && obj->seqKb.pending[0] && !IsModifierOrLock(wParam)) {
+                    // 엔터·탭·화살표·사이띄개처럼 표 밖의 글쇠는 응용의 것이다. 보류를 먼저
+                    // 확정하고, 원래 글쇠는 실제 이벤트로 다시 보낸다 (한글 어절 경계와 같은 길 —
+                    // 편집세션 삽입이 안 통하는 터미널·방향키도 이 길이라야 제대로 산다).
+                    SeqResult fr = SeqKb_Flush(&obj->seqKb, sl);
+                    SeqApply(obj, pic, &fr);
+                    ScheduleKeyResend(obj, wParam, lParam);
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
                 if (!qc) goto kd_done;
                 r = SeqKb_Key(&obj->seqKb, sl, qc);
             }
