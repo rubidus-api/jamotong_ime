@@ -170,6 +170,7 @@ there is something to suggest. Warnings do not stop a load; errors do.
 | `E-DICT-DUP` | this key is defined twice | keep one of the two rows |
 | `E-DICT-EMPTY` | the source has no entries | write one 'keys TAB output' line per entry |
 | `E-DICT-KEY` | the typed side takes printable ASCII without spaces | this is what is pressed on the keyboard |
+| `E-DICT-HEAD` | Name or License is longer than the dictionary can hold (63 characters) | name the licence and point at the file that holds its full text |
 | `E-DICT-KIND` | unknown dictionary Type | Type = sequence |
 | `E-DICT-LIMIT` | too many entries (max 500000) | - |
 | `E-DICT-LINE` | a line is longer than 1023 bytes | one entry per line |

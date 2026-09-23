@@ -1480,8 +1480,10 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
                     }
                     if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
                 }
-                goto kd_done;
+                // 후보가 없었다 — 엔진 상태는 그대로다. 이 글쇠는 응용의 것이므로 아래 경계
+                // 경로로 떨어뜨린다(보류·읽기를 먼저 확정하고 원래 글쇠를 다시 보낸다).
             }
             if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
             else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);

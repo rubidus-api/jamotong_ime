@@ -73,6 +73,13 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
     if (!res) res = &dummy;
     memset(res, 0, sizeof *res);
 
+    // 컴파일러가 거절할 머리부를 쓰지 않는다 — 사전이 실을 수 있는 이름/라이선스는 63글자까지다.
+    if (meta && meta->name && wcslen(meta->name) > 63) { Fail(res, L"the name is longer than 63 characters"); return false; }
+    if (meta && meta->license && wcslen(meta->license) > 63) {
+        Fail(res, L"the licence line is longer than 63 characters - name it and point at the file with the full text");
+        return false;
+    }
+
     FILE *in = _wfopen(srcPath, L"rb");
     if (!in) { Fail(res, L"cannot open the source file"); return false; }
 

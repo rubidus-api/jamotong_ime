@@ -196,6 +196,9 @@ bool SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl) {
 
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
     if (!st || !sl || !sl->cand || !out) return false;
+    // 후보가 없으면 **아무것도 바꾸지 않는다**. 바꿔 놓고 실패하면 그 글쇠(사이띄개)는 응용으로
+    // 가는데 보류는 이미 읽기로 옮겨져, 사이띄개가 친 글자보다 먼저 문서에 들어간다.
+    SeqState before = *st;
     // 보류한 글자를 먼저 읽기로 정착시킨다. `nihon` 의 끝 `n` 처럼 **더 자랄 수 있는 항목**은
     // 변환 글쇠를 누른 순간 경계로 보고 확정해야 한다 — 아니면 `にほん` 이 영영 서지 않는다.
     if (st->pending[0]) {
@@ -205,9 +208,9 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
         FlushBuf(st, sl, buf, &tmp, true);
         // 읽기에 못 들어가고 밖으로 나간 글자가 있으면(읽기가 꽉 찼을 때) 그건 이미 문서의 것이다.
     }
-    if (!st->reading[0]) return false;
+    if (!st->reading[0]) { *st = before; return false; }
     int first = 0, count = 0;
-    if (!JDict_Candidates(sl->cand, st->reading, &first, &count)) return false;
+    if (!JDict_Candidates(sl->cand, st->reading, &first, &count)) { *st = before; return false; }
     memset(out, 0, sizeof *out);
     out->generation = st->generation;
     if (count > SEQ_MAX_CANDS) count = SEQ_MAX_CANDS;
@@ -216,7 +219,7 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
         if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
         if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) out->count++;
     }
-    if (out->count == 0) return false;
+    if (out->count == 0) { *st = before; return false; }
     st->candOpen = true;
     return true;
 }

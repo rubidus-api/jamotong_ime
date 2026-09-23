@@ -102,6 +102,15 @@ static const char *HeadValue(const char *line, const char *key) {
     while (*p == ' ' || *p == '\t') p++;
     return p;
 }
+// 머리부 문자열이 자리에 들어가는가. 들어가지 않으면 **자르지 않고 거절한다** — 잘린 라이선스는
+// 출처를 잃은 라이선스다(실기 2026-09-24: 111자 라이선스가 63자에서 잘려 "…publi" 로 실렸다).
+static bool HeadFits(const char *s, int cap) {
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+        if ((*p & 0xC0) != 0x80 && ++n > cap - 1) return false;
+    return true;
+}
+
 static void Utf8ToW(const char *s, wchar_t *out, int cap) {   // 머리부 문자열(이름 등)용, ASCII 밖은 그대로 두고 자른다
     int n = 0;
     for (const unsigned char *p = (const unsigned char *)s; *p && n < cap - 1; ) {
@@ -169,9 +178,19 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
             }
             continue;
         }
-        if ((v = HeadValue(line, "Name")) != NULL)    { Utf8ToW(v, name, 64); continue; }
-        if ((v = HeadValue(line, "License")) != NULL) { Utf8ToW(v, license, 64); continue; }
-        if ((v = HeadValue(line, "Version")) != NULL) { Utf8ToW(v, version, 32); continue; }
+        if ((v = HeadValue(line, "Name")) != NULL) {
+            if (!HeadFits(v, 64)) { Fail(res, lineno, L"E-DICT-HEAD", L"Name is longer than 63 characters", L"shorten it"); ok = false; break; }
+            Utf8ToW(v, name, 64); continue;
+        }
+        if ((v = HeadValue(line, "License")) != NULL) {
+            if (!HeadFits(v, 64)) { Fail(res, lineno, L"E-DICT-HEAD", L"License is longer than 63 characters",
+                                        L"name the licence and point at the file that holds its full text"); ok = false; break; }
+            Utf8ToW(v, license, 64); continue;
+        }
+        if ((v = HeadValue(line, "Version")) != NULL) {
+            if (!HeadFits(v, 32)) { Fail(res, lineno, L"E-DICT-HEAD", L"Version is longer than 31 characters", L"shorten it"); ok = false; break; }
+            Utf8ToW(v, version, 32); continue;
+        }
         if ((v = HeadValue(line, "Source")) != NULL)  { continue; }   // 출처는 원본에만 남는다
 
         // 자료 줄: 키<탭>값
