@@ -9,10 +9,10 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-0.44.1.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-0.45.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
-| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-japanese-demo-0.44.1.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
-| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-japanese-full-0.44.1.zip) — 같은 것, 50만 항목(약 5MB) |
+| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-japanese-demo-0.45.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
+| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-japanese-full-0.45.0.zip) — 같은 것, 50만 항목(약 5MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -652,7 +652,7 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 `--import-dict` 는 두 칸 TSV(`읽기<탭>표기`)와, 열린 일본어 사전 여럿이 쓰는 다섯 칸 형식
 (`읽기 lid rid 비용 표기`)을 읽는다. 읽기로 정렬하고 같은 읽기 안에서는 비용 순으로 두므로, 가장
 싼(흔한) 후보가 먼저 나온다. `--limit N` 은 싼 것부터 N줄만 남긴다 — 90MB 짜리 사전을 바로
-열리는 크기로 줄이는 방법이다. 읽기는 가나·한글 등 어떤 글자든 되고 UTF-8 32바이트(가나 열 자
+열리는 크기로 줄이는 방법이다. 읽기는 가나·한글 등 어떤 글자든 되고 UTF-8 96바이트(가나 서른두 자
 남짓)까지, 표기는 64글자까지다. 주석·빈 줄·한도를 넘는 줄·UTF-8 이 깨진 줄은 건너뛰고 세어
 알려 준다 — 변환기는 **컴파일러가 거절할 줄을 내놓지 않는다**. 같은 (읽기, 표기)가 여러 번 오면
 (품사만 다른 자료에서 흔하다) 한 번만 남겨 후보창이 중복으로 차지 않게 하고, `--limit` 는 그 뒤에
@@ -669,7 +669,9 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 실행하면 된다. `nihon` 을 치고 사이띄개를 누르면 日本 이 나온다. 낱말 자료는 오픈소스 Mozc 사전에서
 왔고, 아직 일본어 화자의 확인을 받지 않아 **시범**으로 낸다.
 
-- 한도: 친 쪽은 볼 수 있는 ASCII 32자까지, 한 항목이 내는 글자는 64자까지, 사전 하나에 50만 항목까지.
+- 한도: 순차 사전의 친 쪽은 볼 수 있는 ASCII 32자까지, 후보 사전의 읽기는 UTF-8 96바이트까지,
+  한 항목이 내는 글자는 64자까지, 사전 하나에 50만 항목까지. 32바이트를 넘는 읽기를 쓰는 사전은
+  형식 판 2 로 구워지고, 0.44 이하 자모통은 그 사전을 **잘못 읽는 대신 거절**한다.
 - **자판을 읽을 때 사전을 전수로 본다** — 검사합·키 차례·키 글자. 그래서 사전이 깨졌으면 그 자판은
   어느 길로 들어오든 목록에 뜨지 않는다. 읽을 때마다 파일을 한 번 훑는다(10만 항목에 약 7ms).
   `jamotong --check 자판.jmt` 가 똑같은 검사를 하고 쓴 사전 이름을 알려 준다.

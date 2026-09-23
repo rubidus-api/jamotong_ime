@@ -109,10 +109,11 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             key = f[0]; val = f[1]; cost = 0;
         } else { res->skipped++; continue; }
 
-        // 컴파일러가 받는 한도 안에서만: 키는 UTF-8 32바이트(가나 열 자 남짓), 값은 64글자.
+        // 컴파일러가 받는 한도 안에서만: 후보 사전의 읽기는 UTF-8 96바이트, 값은 64글자.
         // 깨진 UTF-8 도 여기서 걸린다(Utf16Len 이 -1).
         int kl = Utf16Len(key), vl = Utf16Len(val);
-        if (kl <= 0 || vl <= 0 || strlen(key) > JDICT_MAX_KEY || vl > JDICT_MAX_VALUE) { res->skipped++; continue; }
+        if (kl <= 0 || vl <= 0 || strlen(key) > (size_t)JDict_MaxKeyBytes(JDICT_KIND_CANDIDATES)
+            || vl > JDICT_MAX_VALUE) { res->skipped++; continue; }
         if (strchr(val, '\t')) { res->skipped++; continue; }
 
         if (n >= cap) {

@@ -17,12 +17,18 @@
 //   색인   count x 12바이트 {u32 keyOff, u32 valOff, u16 keyLen, u16 valLen} — 키 오름차순
 //   키블록 UTF-8 바이트, 값블록 UTF-16LE (런타임이 변환하지 않는다)
 //   이름/라이선스 문자열은 값블록 뒤 꼬리에 UTF-16LE 로 붙는다.
-#define JDICT_FORMAT_VERSION 1
+// 판 2 (오너 결정 A8, 2026-09-24): **후보 사전의 읽기**를 UTF-8 96바이트까지 (가나·한글 32자쯤).
+// 친 쪽(순차 사전)은 그대로 32바이트다. 파일에 적는 판은 **그 파일이 실제로 필요로 하는 판**이다 —
+// 32바이트를 넘는 키가 하나도 없으면 판 1 로 적어, 옛 자모통도 그대로 읽는다. 옛 자모통이 판 2 를
+// 만나면 "더 새 판" 이라고 분명히 거절한다(0.40.0 교훈: 본문이 바뀌면 판을 반드시 올린다).
+#define JDICT_FORMAT_VERSION 2
+#define JDICT_FORMAT_MIN     1
 #define JDICT_KIND_SEQUENCE  1
 // 후보 사전 (RFC-0016 §6.4): 읽기 하나에 후보가 여럿이다 — **같은 키가 여러 줄** 올 수 있고,
 // 원본에 적은 차례가 후보의 차례다. 순차 사전과 달리 중복이 오류가 아니다.
 #define JDICT_KIND_CANDIDATES 2
-#define JDICT_MAX_KEY        32    // 친 글자열 (ASCII)
+#define JDICT_MAX_KEY        32    // 친 글자열 (순차 사전, ASCII 바이트)
+#define JDICT_MAX_KEY_CANDIDATES 96 // 읽기 (후보 사전, UTF-8 바이트 — 가나·한글 서른두 자쯤)
 // 한 사전의 항목 수 한도. 고를 때 파일 전체를 한 번 훑으므로(검사합·차례) 무한정 크면 안 된다 —
 // 50만 항목이면 10MB 안쪽이고 점검이 수십 ms 다.
 #define JDICT_MAX_ENTRIES    500000
@@ -45,6 +51,9 @@ typedef enum JDictError {
 typedef unsigned short jdchar;
 
 typedef struct JDict JDict;
+
+// 이 종류의 사전이 받는 키 길이(UTF-8 바이트). 컴파일러·로더·변환기가 같은 답을 쓴다.
+int JDict_MaxKeyBytes(int kind);
 
 // 사전을 열어 매핑한다. 실패하면 NULL 이고 *err 에 이유. path 는 이미 해석된 전체 경로.
 JDict *JDict_Open(const wchar_t *path, JDictError *err);

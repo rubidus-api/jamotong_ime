@@ -69,6 +69,10 @@ static int LowerBound(const JDict *d, const char *key, int klen) {
     return lo;
 }
 
+int JDict_MaxKeyBytes(int kind) {
+    return kind == JDICT_KIND_CANDIDATES ? JDICT_MAX_KEY_CANDIDATES : JDICT_MAX_KEY;
+}
+
 // ── 열기 ───────────────────────────────────────────────────────────────────────────
 static bool CheckLayout(JDict *d) {
     const unsigned char *h = d->base;
@@ -85,7 +89,8 @@ static bool CheckLayout(JDict *d) {
     d->flags     = Rd32(h + 48);
     d->crc       = Rd32(h + 52);
     if (d->count == 0 || d->count > JD_MAX_COUNT) return false;
-    if (d->maxKeyLen == 0 || d->maxKeyLen > JDICT_MAX_KEY) return false;
+    unsigned maxKey = (unsigned)JDict_MaxKeyBytes((int)d->kind);
+    if (d->maxKeyLen == 0 || d->maxKeyLen > maxKey) return false;
     if (d->maxValLen == 0 || d->maxValLen > JDICT_MAX_VALUE) return false;
     // 판 1 의 자리는 고정이다 — 이 배치가 아니면 우리가 구운 파일이 아니다
     if (d->offIndex != JD_HEADER_BYTES) return false;
@@ -98,7 +103,7 @@ static bool CheckLayout(JDict *d) {
     for (unsigned i = 0; i < d->count; i++) {
         const unsigned char *r = d->base + d->offIndex + (size_t)i * JD_REC_BYTES;
         unsigned ko = Rd32(r), vo = Rd32(r + 4), kl = Rd16(r + 8), vl = Rd16(r + 10);
-        if (kl == 0 || kl > JDICT_MAX_KEY || vl == 0 || vl > JDICT_MAX_VALUE) return false;
+        if (kl == 0 || kl > maxKey || vl == 0 || vl > JDICT_MAX_VALUE) return false;
         if (ko > d->keyBytes || ko + kl > d->keyBytes) return false;
         if (vo > d->valBytes || vo + vl * 2u > d->valBytes || (vo & 1u) != 0) return false;
     }
@@ -138,8 +143,9 @@ JDict *JDict_Open(const wchar_t *path, JDictError *err) {
     d->base = (const unsigned char *)MapViewOfFile(d->mapping, FILE_MAP_READ, 0, 0, 0);
     if (!d->base) { CloseHandle(d->mapping); CloseHandle(d->file); free(d); *err = JDICT_E_OPEN; return NULL; }
     if (memcmp(d->base, "JMTDICT\0", 8) != 0) { JDict_Close(d); *err = JDICT_E_MAGIC; return NULL; }
-    if (Rd32(d->base + 8) != JDICT_FORMAT_VERSION) { JDict_Close(d); *err = JDICT_E_VERSION; return NULL; }
-    d->kind = Rd32(d->base + 12);
+    unsigned fv = Rd32(d->base + 8);
+    if (fv < JDICT_FORMAT_MIN || fv > JDICT_FORMAT_VERSION) { JDict_Close(d); *err = JDICT_E_VERSION; return NULL; }
+    d->kind = Rd32(d->base + 12);   // 자리 검사는 종류마다 다른 키 한도를 쓴다
     if (!CheckLayout(d)) { JDict_Close(d); *err = JDICT_E_LAYOUT; return NULL; }
     return d;
 }
@@ -224,7 +230,7 @@ int JDict_CopyValue(const jdchar *val, int valLen, wchar_t *out, int cap) {
 
 bool JDict_Exact(const JDict *d, const wchar_t *key, const jdchar **val, int *valLen) {
     if (!d || !key || !*key) return false;
-    char kb[JDICT_MAX_KEY * 4];
+    char kb[JDICT_MAX_KEY_CANDIDATES + 4];
     int kn = KeyToUtf8(key, kb, (int)sizeof(kb));
     if (kn <= 0) return false;
     int at = LowerBound(d, kb, kn);
@@ -243,7 +249,7 @@ bool JDict_Exact(const JDict *d, const wchar_t *key, const jdchar **val, int *va
 
 bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count) {
     if (!d || !key || !*key) return false;
-    char kb[JDICT_MAX_KEY * 4];
+    char kb[JDICT_MAX_KEY_CANDIDATES + 4];
     int kn = KeyToUtf8(key, kb, (int)sizeof(kb));
     if (kn <= 0) return false;
     int at = LowerBound(d, kb, kn);
@@ -271,7 +277,7 @@ bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLe
 
 bool JDict_HasLonger(const JDict *d, const wchar_t *key) {
     if (!d || !key || !*key) return false;
-    char kb[JDICT_MAX_KEY * 4];
+    char kb[JDICT_MAX_KEY_CANDIDATES + 4];
     int kn = KeyToUtf8(key, kb, (int)sizeof(kb));
     if (kn <= 0) return false;
     int at = LowerBound(d, kb, kn);

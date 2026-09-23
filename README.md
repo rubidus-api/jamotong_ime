@@ -9,10 +9,10 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-0.44.1.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-0.45.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
-| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-japanese-demo-0.44.1.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
-| Japanese dictionary pack (full) | [jamotong-japanese-full-0.44.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.1/jamotong-japanese-full-0.44.1.zip) — the same, 500,000 entries (~5 MB) |
+| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-japanese-demo-0.45.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
+| Japanese dictionary pack (full) | [jamotong-japanese-full-0.45.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.45.0/jamotong-japanese-full-0.45.0.zip) — the same, 500,000 entries (~5 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -706,8 +706,8 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 used by several open Japanese dictionaries (`reading lid rid cost surface`). Rows are sorted by
 reading, and by cost within one reading, so the cheapest — the most common — candidate is offered
 first. `--limit N` keeps the N cheapest rows, which is how you cut a 90 MB dictionary down to
-something that opens instantly. A reading may be kana, Hangul or any other text, up to 32 bytes
-of UTF-8 (about ten kana); a surface is up to 64 characters. Comments, blank lines, rows that are
+something that opens instantly. A reading may be kana, Hangul or any other text, up to 96 bytes
+of UTF-8 (about thirty kana); a surface is up to 64 characters. Comments, blank lines, rows that are
 too long and rows whose text is not valid UTF-8 are skipped and counted — the importer never
 writes a row the compiler would refuse. The same reading and surface twice (common in word data
 that differs only in part of speech) is kept once, so the candidate list is not filled with
@@ -728,8 +728,10 @@ start the manager. Type `nihon`, press space, pick 日本. The word data comes f
 Mozc dictionary; no native speaker has reviewed this profile yet, so it is offered as an
 experiment rather than as finished Japanese support.
 
-- Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
-  characters, and a dictionary holds up to 500,000 entries.
+- Limits: the typed side of a sequence dictionary is printable ASCII up to 32 characters, a
+  candidate reading is up to 96 bytes of UTF-8, one entry emits up to 64 characters, and a
+  dictionary holds up to 500,000 entries. A dictionary that uses a reading longer than 32 bytes is
+  written as format version 2, which Jamotong 0.44 and older refuse to load rather than misread.
 - **Loading a layout checks its dictionary in full** — the checksum, the key order and the key
   characters — so a damaged dictionary means the layout is not offered at all, wherever it came
   from. The check reads the whole file once per load (about 7 ms for 100,000 entries).

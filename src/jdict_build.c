@@ -13,7 +13,7 @@
 #define JD_MAX_ROWS     JDICT_MAX_ENTRIES
 #define JD_MAX_LINE     1024
 
-typedef struct { char key[JDICT_MAX_KEY + 1]; int klen;
+typedef struct { char key[JDICT_MAX_KEY_CANDIDATES + 1]; int klen;
                  wchar_t val[JDICT_MAX_VALUE + 1]; int vlen; int line; } Row;
 
 static void Fail(JDictBuildResult *r, int line, const wchar_t *code, const wchar_t *msg, const wchar_t *help) {
@@ -203,32 +203,35 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         *tab = '\0';
         // 키 쪽도 값과 같은 표기를 쓴다: 글자를 그대로 적거나 `\u{...}` 로 적는다 (§6.4 의 읽기는
         // 가나·한글이라 이스케이프가 필요하다). 푼 뒤 다시 UTF-8 로 담는다.
-        wchar_t kw[JDICT_MAX_KEY + 2];
+        const int maxKey = JDict_MaxKeyBytes(kind);   // 후보 사전의 읽기는 96바이트까지 (판 2)
+        wchar_t kw[JDICT_MAX_KEY_CANDIDATES + 2];
         int kwlen = 0;
         const wchar_t *kwhy = NULL;
-        if (!DecodeValue(line, kw, JDICT_MAX_KEY, &kwlen, &kwhy)) {
+        if (!DecodeValue(line, kw, maxKey, &kwlen, &kwhy)) {
             Fail(res, lineno, L"E-DICT-KEY", kwhy ? kwhy : L"the typed side cannot be used", NULL);
             ok = false; break;
         }
-        char kbuf[JDICT_MAX_KEY * 4 + 1];
+        char kbuf[JDICT_MAX_KEY_CANDIDATES + 1];
         int klen = 0;
         for (int i = 0; i < kwlen && klen >= 0; i++) {
             unsigned long cp = (unsigned long)kw[i];
             if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < kwlen && kw[i+1] >= 0xDC00 && kw[i+1] <= 0xDFFF) {
                 cp = 0x10000 + ((cp - 0xD800) << 10) + ((unsigned long)kw[++i] - 0xDC00);
             }
-            if (cp < 0x80) { if (klen + 1 > JDICT_MAX_KEY) { klen = -1; break; } kbuf[klen++] = (char)cp; }
-            else if (cp < 0x800) { if (klen + 2 > JDICT_MAX_KEY) { klen = -1; break; }
+            if (cp < 0x80) { if (klen + 1 > maxKey) { klen = -1; break; } kbuf[klen++] = (char)cp; }
+            else if (cp < 0x800) { if (klen + 2 > maxKey) { klen = -1; break; }
                 kbuf[klen++] = (char)(0xC0 | (cp >> 6)); kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
-            else if (cp < 0x10000) { if (klen + 3 > JDICT_MAX_KEY) { klen = -1; break; }
+            else if (cp < 0x10000) { if (klen + 3 > maxKey) { klen = -1; break; }
                 kbuf[klen++] = (char)(0xE0 | (cp >> 12)); kbuf[klen++] = (char)(0x80 | ((cp >> 6) & 0x3F));
                 kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
-            else { if (klen + 4 > JDICT_MAX_KEY) { klen = -1; break; }
+            else { if (klen + 4 > maxKey) { klen = -1; break; }
                 kbuf[klen++] = (char)(0xF0 | (cp >> 18)); kbuf[klen++] = (char)(0x80 | ((cp >> 12) & 0x3F));
                 kbuf[klen++] = (char)(0x80 | ((cp >> 6) & 0x3F)); kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
         }
         if (klen < 0) {
-            Fail(res, lineno, L"E-DICT-KEY", L"the typed side is longer than 32 bytes", NULL);
+            Fail(res, lineno, L"E-DICT-KEY",
+                 kind == JDICT_KIND_CANDIDATES ? L"the reading is longer than 96 bytes"
+                                               : L"the typed side is longer than 32 bytes", NULL);
             ok = false; break;
         }
         kbuf[klen] = '\0';
@@ -307,7 +310,9 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     if (!buf) { free(rows); Fail(res, 0, L"E-DICT-MEMORY", L"out of memory", NULL); return false; }
 
     memcpy(buf, "JMTDICT\0", 8);
-    Wr32(buf + 8, JDICT_FORMAT_VERSION);
+    // 그 파일이 정말 필요로 하는 판만 적는다 — 32바이트를 넘는 키가 없으면 판 1 이라, 옛 자모통도
+    // 이 사전을 그대로 읽는다. 넘는 키가 있으면 판 2 이고 옛 자모통은 분명히 거절한다.
+    Wr32(buf + 8, maxK > (unsigned)JDICT_MAX_KEY ? 2u : 1u);
     Wr32(buf + 12, (unsigned)kind);
     Wr32(buf + 16, (unsigned)nrows);
     Wr32(buf + 20, offIndex);
