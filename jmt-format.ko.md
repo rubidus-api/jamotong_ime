@@ -22,6 +22,7 @@ jamotong --check      자판.jmt          # 원본을 검사하고, 구운 것�
 jamotong --build      자판.jmt          # 옆에 자판.jmb 를 만든다
 jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을 굽는다
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
+jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N]   # 남의 자료 → .jdt 원본
 jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴서 한 파일로
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```

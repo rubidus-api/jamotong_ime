@@ -690,6 +690,28 @@ A symbol the engine cannot use (no entry starts with it) is typed as it is, so n
 Chord layouts (`Type = chord`) have no engine, so `symbol` there is an error. Everything else in
 a chord layout — layers, tap/hold, pointer actions, macros — works the same in an input layout.
 
+**Bringing in dictionary data you already have.** Word lists worth typing with are large, and
+the ones worth using are other people's work. Jamotong ships none of them; it converts what you
+choose:
+
+```sh
+jamotong --import-dict japanese.txt -o kana-words.jdt --limit 50000
+jamotong --build-dict  kana-words.jdt -o kana-words.jdb
+```
+
+`--import-dict` reads a plain two-column TSV (`reading<TAB>surface`) and the five-column form
+used by several open Japanese dictionaries (`reading lid rid cost surface`). Rows are sorted by
+reading, and by cost within one reading, so the cheapest — the most common — candidate is offered
+first. `--limit N` keeps the N cheapest rows, which is how you cut a 90 MB dictionary down to
+something that opens instantly. A reading may be kana, Hangul or any other text, up to 32 bytes
+of UTF-8 (about ten kana); a surface is up to 64 characters. Comments, blank lines, rows that are
+too long and rows whose text is not valid UTF-8 are skipped and counted — the importer never
+writes a row the compiler would refuse. The entries keep the licence of the file they came from,
+so check it before you pass the result on.
+
+Measured on one 7 MB shard of an open Japanese dictionary (128,908 rows): 123,381 entries kept,
+5,527 readings too long, 0.08 s to convert, 0.08 s to build, 5.3 MB of `.jdb`, 1.6 ms to open.
+
 - Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
   characters, and a dictionary holds up to 500,000 entries.
 - **Loading a layout checks its dictionary in full** — the checksum, the key order and the key

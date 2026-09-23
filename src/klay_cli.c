@@ -7,6 +7,7 @@
 #include "jdict_build.h"
 #include "jlay.h"
 #include "jlay_build.h"
+#include "dict_import.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,7 @@ int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir")) return 1;
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")) return 1;
     return 0;
 }
 
@@ -159,19 +160,21 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --expand <file.jmt> -o <out.jmt>\n"
         L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
         L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
-        L"  jamotong --build-dir <folder>\n", ctx);
+        L"  jamotong --build-dir <folder>\n"
+        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N]\n", ctx);
     return 2;
 }
 
 int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx) {
     const wchar_t *cmd = NULL, *arg = NULL, *outPath = NULL;
-    int json = 0;
+    int json = 0, limit = 0;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir")) {
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
+        else if (!wcscmp(argv[i], L"--limit") && i + 1 < argc) limit = (int)wcstol(argv[++i], NULL, 10);
         else if (!wcscmp(argv[i], L"--json")) json = 1;
     }
     if (!cmd || !arg) return Usage(out, ctx);
@@ -214,6 +217,22 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         free(text);
         if (!ok) { Outf(out, ctx, L"error: cannot write '%ls'\n", outPath); return 1; }
         Outf(out, ctx, L"wrote %ls\n", outPath);
+        return 0;
+    }
+
+    // --import-dict: 남의 사전 자료를 우리 사전 원본(.jdt)으로. 자료는 사용자가 고른다 (§6.4).
+    if (!wcscmp(cmd, L"--import-dict")) {
+        if (!outPath) return Usage(out, ctx);
+        DictImportResult ir;
+        const wchar_t *sbase = arg;
+        for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
+        if (!DictImport_Run(arg, outPath, limit, &ir)) {
+            Outf(out, ctx, L"%ls: error: %ls\n", sbase, ir.error[0] ? ir.error : L"cannot import");
+            return 1;
+        }
+        Outf(out, ctx, L"wrote %ls - %d of %d rows (%d skipped)\n", outPath, ir.kept, ir.rows, ir.skipped);
+        Outf(out, ctx, L"   next: jamotong --build-dict \"%ls\" -o <name>.jdb\n", outPath);
+        Outf(out, ctx, L"   note: the entries keep the licence of the file they came from\n");
         return 0;
     }
 

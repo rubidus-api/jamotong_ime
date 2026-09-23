@@ -38,7 +38,7 @@ dist/jamotong32.dll: $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 
 # 트레이 모니터링/설정 앱
 APP_SRCS = src/tray_app.c src/config.c src/layout.c src/fsm.c src/hangul_layout.c src/hangul_parse.c \
-           src/chord.c src/chord_layout.c src/chord_parse.c src/seq_layout.c src/seq_parse.c src/jdict.c src/jdict_build.c src/jlay.c src/jlay_build.c src/klay.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c src/jamo_class.c
+           src/chord.c src/chord_layout.c src/chord_parse.c src/seq_layout.c src/seq_parse.c src/jdict.c src/jdict_build.c src/dict_import.c src/jlay.c src/jlay_build.c src/klay.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c src/jamo_class.c
 configapp: dist/jamotong.exe
 dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico src/version.h
 	@mkdir -p dist
