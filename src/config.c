@@ -330,6 +330,23 @@ static bool IsReservedDeviceBase(const wchar_t *name, size_t baseLen) {
     return false;
 }
 
+bool Config_UserDictDir(wchar_t *out, int cch) {
+    if (!out || cch < 8) return false;
+    wchar_t appdata[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return false;
+    wchar_t dir[MAX_PATH];
+    _snwprintf(dir, MAX_PATH, L"%ls\\Jamotong", appdata);
+    dir[MAX_PATH - 1] = L'\0';
+    CreateDirectoryW(dir, NULL);
+    Config_GrantAppContainerRead(dir);
+    _snwprintf(out, cch, L"%ls\\dicts", dir);
+    out[cch - 1] = L'\0';
+    CreateDirectoryW(out, NULL);
+    Config_GrantAppContainerRead(out);
+    return true;
+}
+
 bool Config_MachineLayoutDir(wchar_t *out, int cch) {
     if (!out || cch < 8) return false;
     wchar_t base[MAX_PATH];
@@ -338,6 +355,28 @@ bool Config_MachineLayoutDir(wchar_t *out, int cch) {
     _snwprintf(out, cch, L"%ls\\Jamotong\\layouts", base);
     out[cch - 1] = L'\0';
     return true;
+}
+
+bool Config_MachineDictDir(wchar_t *out, int cch) {
+    if (!out || cch < 8) return false;
+    wchar_t base[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"PROGRAMDATA", base, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return false;
+    _snwprintf(out, cch, L"%ls\\Jamotong\\dicts", base);
+    out[cch - 1] = L'\0';
+    return true;
+}
+
+// 사전 파일 이름 (RFC-0016 P5): 자판 파일 이름과 같은 규칙, 확장자만 .jdb
+bool Config_IsSafeDictFileName(const wchar_t *name) {
+    if (!name) return false;
+    size_t n = wcslen(name);
+    if (n < 5 || _wcsicmp(name + n - 4, L".jdb") != 0) return false;
+    wchar_t alt[MAX_PATH];
+    if (n + 1 > MAX_PATH) return false;
+    wcscpy(alt, name);
+    wcscpy(alt + n - 4, L".jmt");        // 나머지 규칙(경로 구분자·장치명·점/공백)은 한 곳에서 본다
+    return Config_IsSafeLayoutFileName(alt);
 }
 
 bool Config_IsSafeLayoutFileName(const wchar_t *name) {

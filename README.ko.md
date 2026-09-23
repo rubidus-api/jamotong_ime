@@ -522,31 +522,49 @@ Chord j   = text "1"
 
 #### 순차 입력 (형식 3판)
 
-**순차 변환 자판**은 친 글쇠의 *열*을 다른 글자로 바꾼다 — 로마자를 가나로 바꾸는 식이다. 사전이
-아니며 후보창도 없다. 파일에 적은 표가 전부다. `Type = input` 으로 적고 `Engine = sequence` 로
-엔진을 고른다.
+**순차 변환 자판**은 친 글쇠의 *열*을 다른 글자로 바꾼다 — 로마자를 가나로 바꾸는 식이다. 표는
+자판 파일에 적지 않는다. 한 번 **컴파일해 둔 사전**에 있고, 자모통은 컴파일된 파일만 읽는다.
+사전이 없거나 깨진 자판은 목록에 아예 뜨지 않는다.
+
+사전 원본 `romaji-kana.jdt` 를 쓴다(UTF-8, 한 줄에 하나, 두 칸 사이는 탭):
+
+```text
+JamotongData 1
+Type = sequence
+Name = romaji kana
+License = CC0-1.0
+a	\u{3042}
+i	\u{3044}
+ka	\u{304B}
+ki	\u{304D}
+ko	\u{3053}
+n	\u{3093}
+na	\u{306A}
+ni	\u{306B}
+chi	\u{3061}
+ha	\u{306F}
+```
+
+굽는다(`\u{...}` 대신 글자를 그대로 써도 된다):
+
+```sh
+jamotong --build-dict romaji-kana.jdt -o romaji-kana.jdb
+```
+
+자판 파일은 어느 사전을 쓰는지만 적는다:
 
 ```ini
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.37.0
+RequiresJamotong = 0.38.0
 Name             = romaji kana
 Abbrev           = KANA
+Dictionary       = romaji-kana.jdb
 OnUnmatched      = flush     # flush(기본): 보류한 글자를 그대로 친다. cancel: 버린다
-
-Sequence "a"   = emit "\u{3042}"
-Sequence "ka"  = emit "\u{304B}"
-Sequence "ki"  = emit "\u{304D}"
-Sequence "ko"  = emit "\u{3053}"
-Sequence "n"   = emit "\u{3093}"
-Sequence "na"  = emit "\u{306A}"
-Sequence "ni"  = emit "\u{306B}"
-Sequence "chi" = emit "\u{3061}"
-Sequence "ha"  = emit "\u{306F}"
 ```
 
-- **최장 일치가 이긴다.** 표에 `n`·`na`·`ni` 가 있으면 `n` 은 기다린다. `ni` 는 に 가 되고, `nk` 는
+- **최장 일치가 이긴다.** 사전에 `n`·`na`·`ni` 가 있으면 `n` 은 기다린다. `ni` 는 に 가 되고, `nk` 는
   ん 을 확정한 뒤 `k` 로 다시 시작한다. `konnichiha` 를 치면 こんにちは 가 된다.
 - **보류한 글자는 보여줄 뿐 넣지 않는다.** 캐럿 옆 미리보기 칩에 뜨고(관리 앱 시험칸에서는 선택된
   글자로), 판정이 끝나야 문서로 들어간다.
@@ -554,9 +572,11 @@ Sequence "ha"  = emit "\u{306F}"
   는 보류를 버린다. 자판 전환 글쇠로 자판을 바꾸면 보류한 것을 친 그대로 확정하고, 포커스가 옮겨
   가면(다른 창·언어바) 버린다 — 문서에 들어간 적이 없는 글자다.
 - **사이띄개·엔터·탭·화살표는 응용의 것이다.** 보류가 있었으면 먼저 문서에 확정하고 넘긴다.
-- 입력 쪽은 볼 수 있는 ASCII 글자 8자까지, `emit` 은 16자까지이며 문자열 표기는 조합 자판과 같다.
-  한 표에 512개까지 적을 수 있다. 한 파일 안의 같은 입력 두 번은 오류이고, `Extends` 로 물려받은
-  자판의 순서는 파생 파일이 덮어쓸 수 있다.
+- 사전은 자판 파일 옆 → `%APPDATA%\Jamotong\dicts` → `%PROGRAMDATA%\Jamotong\dicts` 차례로 찾는다.
+  이름은 폴더 없는 파일 이름이고 확장자는 `.jdb` 다.
+- 한도: 친 쪽은 볼 수 있는 ASCII 32자까지, 한 항목이 내는 글자는 64자까지, 사전 하나에 400만 항목까지.
+  `jamotong --check 자판.jmt` 는 자판과 **사전을 함께** 본다 — 자판을 고를 때 도는 검사와 같다.
+
 
 ## 삭제 (언인스톨)
 

@@ -4,6 +4,7 @@
 #include "hangul_layout.h"
 #include "chord_layout.h"
 #include "seq_layout.h"
+#include "jdict_build.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +21,8 @@ static void Outf(KlayCliOut out, void *ctx, const wchar_t *fmt, ...) {
 
 int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
-        if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")) return 1;
+        if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
+            || !wcscmp(argv[i], L"--build-dict")) return 1;
     return 0;
 }
 
@@ -52,22 +54,6 @@ static void W(WBuf *b, const wchar_t *fmt, ...) {
     va_end(ap);
     if (n > 0) b->o += (size_t)n;
 }
-// 3판 문자열 리터럴로 (RFC-0016 §6.2): ASCII 는 그대로, 그 밖은 \u{...} 로 적어 파일이 ASCII 로 남게.
-static void QuoteStr(const wchar_t *s, wchar_t *o, size_t cch) {
-    size_t k = 0;
-    if (cch < 4) { if (cch) o[0] = L'\0'; return; }
-    o[k++] = L'"';
-    for (; *s && k + 12 < cch; s++) {
-        if (*s == L'"' || *s == L'\\') { o[k++] = L'\\'; o[k++] = *s; }
-        else if (*s == L'\n') { o[k++] = L'\\'; o[k++] = L'n'; }
-        else if (*s == L'\t') { o[k++] = L'\\'; o[k++] = L't'; }
-        else if (*s >= 0x20 && *s < 0x7F) o[k++] = *s;
-        else k += (size_t)swprintf(o + k, cch - k, L"\\u{%04X}", (unsigned)*s);
-    }
-    o[k++] = L'"';
-    o[k] = L'\0';
-}
-
 static void WriteHeader(WBuf *b, const LayoutConfig *lc, const KlayMeta *m) {
     W(b, L"# written by jamotong --expand/--export (canonical form: comments and order are not kept)\n");
     // 판은 원본의 것을 지킨다 — 3판 문법(문자열 동작·순차 표)을 2판으로 적으면 못 읽는 파일이 된다.
@@ -107,14 +93,10 @@ static bool WriteCanonical(const wchar_t *src, const LayoutConfig *lc, const Kla
         return true;
     }
     if (lc->type == LAYOUT_TYPE_SEQUENCE) {
+        // 표는 사전 파일에 있다 — 펼치기는 그 이름만 옮긴다 (사전을 자판 파일로 되돌리지 않는다).
         const SeqLayout *sl = (const SeqLayout*)lc->pSeqLayout;
+        W(b, L"Dictionary = %ls\n", sl->dictFile);
         if (sl->onUnmatched == SEQ_UNMATCHED_CANCEL) W(b, L"OnUnmatched = cancel\n");
-        for (int i = 0; i < sl->count; i++) {
-            wchar_t in[64], out[160];
-            QuoteStr(sl->v[i].in, in, 64);
-            QuoteStr(sl->v[i].out, out, 160);
-            W(b, L"Sequence %ls = emit %ls\n", in, out);
-        }
         return true;
     }
     // chord: 동작 표를 다시 글로 옮기는 대신, Extends/Include 를 편 원문 줄을 쓴다(자립 파일).
@@ -171,7 +153,8 @@ static int Usage(KlayCliOut out, void *ctx) {
     out(L"usage:\n"
         L"  jamotong --check  <file.jmt> [--json]\n"
         L"  jamotong --export <@ko_3bul|@en_dvorak|@en_qwerty|file.jmt> -o <out.jmt>\n"
-        L"  jamotong --expand <file.jmt> -o <out.jmt>\n", ctx);
+        L"  jamotong --expand <file.jmt> -o <out.jmt>\n"
+        L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n", ctx);
     return 2;
 }
 
@@ -179,12 +162,40 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     const wchar_t *cmd = NULL, *arg = NULL, *outPath = NULL;
     int json = 0;
     for (int i = 1; i < argc; i++) {
-        if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")) {
+        if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
+            || !wcscmp(argv[i], L"--build-dict")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--json")) json = 1;
     }
     if (!cmd || !arg) return Usage(out, ctx);
+
+    // --build-dict: 사전 원본(.jdt)을 확인·검증해서 이진(.jdb)으로 굽는다 (오너 결정 2026-09-23).
+    if (!wcscmp(cmd, L"--build-dict")) {
+        if (!outPath) return Usage(out, ctx);
+        JDictBuildResult br;
+        const wchar_t *sbase = arg;
+        for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
+        if (!JDict_Build(arg, outPath, &br)) {
+            if (br.line > 0) Outf(out, ctx, L"%ls:%d: error: %ls\n", sbase, br.line, br.message);
+            else Outf(out, ctx, L"%ls: error: %ls\n", sbase, br.message);
+            if (br.help[0]) Outf(out, ctx, L"   help: %ls\n", br.help);
+            Outf(out, ctx, L"   code: %ls\n", br.code);
+            return 1;
+        }
+        // 구운 결과를 바로 다시 열어 전수 점검한다 — 못 믿을 산출물을 남기지 않는다
+        JDictError derr = JDICT_OK;
+        JDict *chk = JDict_Open(outPath, &derr);
+        bool good = chk && JDict_Verify(chk, &derr);
+        if (chk) JDict_Close(chk);
+        if (!good) {
+            Outf(out, ctx, L"%ls: error: the built dictionary did not pass its own check: %ls\n", sbase, JDict_ErrorText(derr));
+            return 1;
+        }
+        Outf(out, ctx, L"wrote %ls - %d entries, longest typed %d, longest output %d\n",
+             outPath, br.count, br.maxKeyLen, br.maxValLen);
+        return 0;
+    }
 
     // --export @내장: 표를 그대로 글로
     if (!wcscmp(cmd, L"--export") && arg[0] == L'@') {
@@ -226,7 +237,25 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     }
     int rc = ok ? 0 : 1;
     if (!wcscmp(cmd, L"--check")) {
-        if (ok && !json) Outf(out, ctx, L"%ls: OK - %ls layout '%ls', %d warning(s)\n", base, TypeName(lc.type), lc.name ? lc.name : L"", d->warnings);
+        if (ok && lc.type == LAYOUT_TYPE_SEQUENCE) {   // 사전 데이터까지 본다 (고를 때와 같은 검사)
+            KlayDiag vd; KlayDiag_Init(&vd);
+            if (!SeqLayout_Verify((const SeqLayout*)lc.pSeqLayout, &vd)) {
+                ok = false; rc = 1;
+                if (!json) {
+                    wchar_t *txt = (wchar_t*)malloc(4096 * sizeof(wchar_t));
+                    if (txt) { Klay_DiagFormat(&vd, base, txt, 4096); out(txt, ctx); free(txt); }
+                }
+            }
+        }
+        if (ok && !json) {
+            if (lc.type == LAYOUT_TYPE_SEQUENCE) {
+                const SeqLayout *sl = (const SeqLayout*)lc.pSeqLayout;
+                Outf(out, ctx, L"%ls: OK - %ls layout '%ls' with dictionary '%ls' (%d entries), %d warning(s)\n",
+                     base, TypeName(lc.type), lc.name ? lc.name : L"", sl->dictFile, JDict_Count(sl->dict), d->warnings);
+            } else {
+                Outf(out, ctx, L"%ls: OK - %ls layout '%ls', %d warning(s)\n", base, TypeName(lc.type), lc.name ? lc.name : L"", d->warnings);
+            }
+        }
     } else if (ok) {   // --expand / --export <file>
         if (!outPath) rc = Usage(out, ctx);
         else {

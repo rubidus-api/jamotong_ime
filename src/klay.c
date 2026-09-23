@@ -234,7 +234,7 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
         return false;
     }
     if (isInput) {
-        SeqLayout *sl = SeqLayout_LoadFromLines(&L, diag);
+        SeqLayout *sl = SeqLayout_LoadFromLines(&L, path, diag);
         if (sl) {
             out->type = LAYOUT_TYPE_SEQUENCE; out->pSeqLayout = sl;
             out->name = _wcsdup(sl->name[0] ? sl->name : L"sequence");

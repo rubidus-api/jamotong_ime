@@ -567,31 +567,51 @@ Chord j   = text "1"
 #### Sequence input (format version 3)
 
 A **sequence layout** turns a *run* of Latin keys into other letters — romaji to kana, for
-example. It is not a dictionary and there is no candidate window: the file's table is all there
-is. Write `Type = input` and pick the engine with `Engine = sequence`.
+example. The table is not written in the layout file: it lives in a **dictionary** that you
+compile once. Jamotong reads only the compiled file, and a layout whose dictionary is missing
+or damaged is not offered at all.
+
+Write the dictionary source `romaji-kana.jdt` (UTF-8, one entry per line, a tab between the two
+columns):
+
+```text
+JamotongData 1
+Type = sequence
+Name = romaji kana
+License = CC0-1.0
+a	\u{3042}
+i	\u{3044}
+ka	\u{304B}
+ki	\u{304D}
+ko	\u{3053}
+n	\u{3093}
+na	\u{306A}
+ni	\u{306B}
+chi	\u{3061}
+ha	\u{306F}
+```
+
+Build it (the letters may also be written directly instead of `\u{...}`):
+
+```sh
+jamotong --build-dict romaji-kana.jdt -o romaji-kana.jdb
+```
+
+Then the layout file only says which dictionary it uses:
 
 ```ini
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.37.0
+RequiresJamotong = 0.38.0
 Name             = romaji kana
 Abbrev           = KANA
+Dictionary       = romaji-kana.jdb
 OnUnmatched      = flush     # flush (default): type the pending letters. cancel: drop them
-
-Sequence "a"   = emit "\u{3042}"
-Sequence "ka"  = emit "\u{304B}"
-Sequence "ki"  = emit "\u{304D}"
-Sequence "ko"  = emit "\u{3053}"
-Sequence "n"   = emit "\u{3093}"
-Sequence "na"  = emit "\u{306A}"
-Sequence "ni"  = emit "\u{306B}"
-Sequence "chi" = emit "\u{3061}"
-Sequence "ha"  = emit "\u{306F}"
 ```
 
-- **Longest match wins.** With `n`, `na` and `ni` in the table, `n` waits: `ni` becomes に, while
-  `nk` types ん and starts a new `k`. Typing `konnichiha` gives こんにちは.
+- **Longest match wins.** With `n`, `na` and `ni` in the dictionary, `n` waits: `ni` becomes に,
+  while `nk` types ん and starts a new `k`. Typing `konnichiha` gives こんにちは.
 - **Pending letters are shown, not inserted.** They appear in the preview chip next to the caret
   (in the manager's test box, as selected text) and only reach the document once they are decided.
 - **Backspace** takes back one pending letter; letters already in the document are left alone.
@@ -599,9 +619,13 @@ Sequence "ha"  = emit "\u{306F}"
   focus change (another window, the language bar) drops it — it was never in the document.
 - **Space, Enter, Tab and the arrow keys belong to the application.** If something was pending, it
   is typed into the document first.
-- The input side is printable ASCII (up to 8 letters), `emit` takes up to 16 characters with the
-  same string escapes as chord layouts. A table holds up to 512 sequences. The same input twice in
-  one file is an error; a file that `Extends` another may override the base file's sequences.
+- The dictionary is looked up beside the layout file, then in `%APPDATA%\Jamotong\dicts`, then in
+  `%PROGRAMDATA%\Jamotong\dicts`. The name is a plain file name ending in `.jdb`.
+- Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
+  characters, and a dictionary holds up to 4,000,000 entries. `jamotong --check layout.jmt`
+  reports the layout **and** the dictionary, which is the same check that runs when a layout is
+  selected.
+
 
 ## Uninstall
 

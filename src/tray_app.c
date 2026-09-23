@@ -374,6 +374,10 @@ static bool CheckEditor(LayoutConfig *keep, bool show, const wchar_t *title) {
     static KlayDiag diag;
     KlayMeta meta;
     bool ok = Klay_LoadEx(tmp, &lc, &diag, &meta);
+    if (ok && lc.type == LAYOUT_TYPE_SEQUENCE && !SeqLayout_Verify((const SeqLayout*)lc.pSeqLayout, &diag)) {
+        ok = false;   // 사전 데이터까지 성해야 쓸 수 있다 (자판을 고를 때와 같은 검사)
+        Config_FreeLayoutResources(&lc);
+    }
     DeleteFileW(tmp);
     const wchar_t *fname = g_curFile[0] ? (wcsrchr(g_curFile, L'\\') ? wcsrchr(g_curFile, L'\\') + 1 : g_curFile) : L"(editor)";
     static wchar_t body[6144], msg[6400];
@@ -658,7 +662,8 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     // RFC-0015: UWP 호스트 안의 TIP 은 창을 못 띄운다 → 이 프로세스가 대신 그려 주는 모드.
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
-    if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand"))) {
+    if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand")
+                || wcsstr(cmd, L"--build-dict"))) {
         int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
         if (rc >= 0) return rc;
     }

@@ -158,12 +158,19 @@ bool Config_UserLayoutDir(wchar_t *out, int cch);
 // TIP 은 호스트 프로세스 안에서 돈다 — 호스트가 UWP 앱이면 AppContainer 라서 이 권한이 없는
 // 폴더의 파일을 열지 못한다(설정도, TIP DLL 자신도). 설정 폴더 생성 시와 DLL 등록 시 부른다.
 void Config_GrantAppContainerRead(const wchar_t *path);
+// 사용자 사전 저장소 %APPDATA%\Jamotong\dicts — 구운 사전(.jdb)이 사는 곳 (RFC-0016 P5).
+//   자판 파일은 이름만 적고, 찾는 순서는 자판 파일 옆 → 여기 → 기계 전체 → DLL 옆이다.
+bool Config_UserDictDir(wchar_t *out, int cch);
+// 기계 전체 사전 저장소 %PROGRAMDATA%\Jamotong\dicts (관리자 배포용).
+bool Config_MachineDictDir(wchar_t *out, int cch);
 // 기계 전체 자판 저장소 %PROGRAMDATA%\Jamotong\layouts (관리자 배포용, RFC-0011 P0).
 // 읽기 전용 취급 — 생성 시도는 하되 실패(비관리자)해도 조용히 넘어간다.
 bool Config_MachineLayoutDir(wchar_t *out, int cch);
 // Import 번들 복원 시 [LayoutFile:name] 이름이 안전한지 검사한다(경로 조작 방어).
 //   경로 구분자 없음 + .jmt 확장자 + 예약 장치명 아님 + basename이 점/공백만은 아님일 때 true.
 bool Config_IsSafeLayoutFileName(const wchar_t *name);
+// 사전 파일 이름이 안전한지 (같은 규칙 + `.jdb` 확장자). 자판 파일이 가리키는 이름을 이걸로 거른다.
+bool Config_IsSafeDictFileName(const wchar_t *name);
 // 번들 헤더에 파일명을 안전하게 싣기 위한 최소 percent-encoding(']' 와 '%'만).
 void Config_EncodeLayoutName(const wchar_t *in, wchar_t *out, size_t cch);
 void Config_DecodeLayoutName(wchar_t *s);   // 제자리 역변환
