@@ -254,7 +254,7 @@ bool JLay_IsStale(const wchar_t *jmbPath, const wchar_t *jmtPath) {
     if (!file) return true;                                                          // 산출물이 없다
     bool stale = true;
     if (len >= JLAY_HEADER && memcmp(file, JLAY_MAGIC, 8) == 0 &&
-        JLayRd32(file + JLAY_OFF_VERSION) == JLAY_FORMAT_VERSION &&
+        JLayRd32(file + JLAY_OFF_VERSION) == JLAY_FORMAT_VERSION &&   // 판이 다르면 낡은 것으로 본다
         JLayRd32(file + JLAY_OFF_SRCSIZE) == src.nFileSizeLow &&
         JLayRd32(file + JLAY_OFF_MTIMEL) == src.ftLastWriteTime.dwLowDateTime &&
         JLayRd32(file + JLAY_OFF_MTIMEH) == src.ftLastWriteTime.dwHighDateTime)

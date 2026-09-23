@@ -12,7 +12,9 @@
 // 본문은 이름·약칭 뒤에 종류별 고정폭 필드(자세한 것은 jlay_build.c 의 쓰기 순서와 짝).
 //
 // 산출물은 원본의 크기·수정시각을 담는다 — 관리 앱과 `--check` 가 "낡았다"를 이걸로 안다.
-#define JLAY_FORMAT_VERSION 1
+// 판 2 (v0.40.0): 순차 자판 본문에 앞단 조합이 붙었다 (RFC-0016 §6.3).
+//   본문이 바뀌면 반드시 이 번호를 올린다 — 옛 산출물을 새 규칙으로 읽으면 조용히 어긋난다.
+#define JLAY_FORMAT_VERSION 2
 
 typedef enum JLayError {
     JLAY_OK = 0,
@@ -32,6 +34,7 @@ typedef enum JLayError {
 bool JLay_Load(const wchar_t *path, LayoutConfig *out, JLayError *err);
 const wchar_t *JLay_ErrorText(JLayError e);
 
-// 산출물이 원본보다 낡았는가 (원본의 크기·수정시각이 머리부와 다르다). 산출물이 없으면 true.
+// 산출물이 낡았는가: 원본의 크기·수정시각이 머리부와 다르거나, **형식 판이 지금 쓰는 판과 다르다**.
+//   산출물이 없어도 true. (형식이 바뀐 판올림에서 도구가 스스로 다시 굽게 하는 자리다.)
 //   실제로 다시 굽는 일은 도구가 한다 — 입력기는 굽지 않는다.
 bool JLay_IsStale(const wchar_t *jmbPath, const wchar_t *jmtPath);

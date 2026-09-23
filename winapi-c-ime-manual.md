@@ -3138,7 +3138,8 @@ failure on the third file rolled back the first two, downgrade with the same scr
 | Ghost-key self-heal (§13.5), reset choke point (§13.7) | `src/chord.c`, `src/chord_layout.c`, `ResetComposition` in `text_service.c` |
 | Codepoint input popup (with character name) | `src/code_input.c` |
 | Manager app (`.jmt` editor / validate / settings / TSF-less input test) | `src/tray_app.c` |
-| `.jmt` loaders + parse diagnostics (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
+| `.jmt` loaders + parse diagnostics (`KlayDiag`) - tools only, not in the IME DLL | `src/klay.c`, `src/hangul_parse.c`, `src/chord_parse.c`, `src/seq_parse.c` |
+| Layout runtimes the IME uses | `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | Dictionary files: compiler (tool only) and read-only mapped reader | `src/jdict_build.c`, `src/jdict.c` |
 | Built layouts: compiler (tool only) and the reader the IME uses | `src/jlay_build.c`, `src/jlay.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |
