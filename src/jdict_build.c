@@ -138,7 +138,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     Row *rows = NULL;
     int nrows = 0, cap = 0, kind = 0, lineno = 0;
     bool sawMagic = false;
-    wchar_t name[64] = L"", license[64] = L"", version[32] = L"";
+    wchar_t name[128] = L"", license[256] = L"", version[64] = L"";
     char line[JD_MAX_LINE];
     bool ok = true;
 
@@ -179,17 +179,17 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
             continue;
         }
         if ((v = HeadValue(line, "Name")) != NULL) {
-            if (!HeadFits(v, 64)) { Fail(res, lineno, L"E-DICT-HEAD", L"Name is longer than 63 characters", L"shorten it"); ok = false; break; }
-            Utf8ToW(v, name, 64); continue;
+            if (!HeadFits(v, 128)) { Fail(res, lineno, L"E-DICT-HEAD", L"Name is longer than 127 characters", L"shorten it"); ok = false; break; }
+            Utf8ToW(v, name, 128); continue;
         }
         if ((v = HeadValue(line, "License")) != NULL) {
-            if (!HeadFits(v, 64)) { Fail(res, lineno, L"E-DICT-HEAD", L"License is longer than 63 characters",
-                                        L"name the licence and point at the file that holds its full text"); ok = false; break; }
-            Utf8ToW(v, license, 64); continue;
+            if (!HeadFits(v, 256)) { Fail(res, lineno, L"E-DICT-HEAD", L"License is longer than 255 characters",
+                                         L"name the licence here and keep its full text in a file beside the dictionary"); ok = false; break; }
+            Utf8ToW(v, license, 256); continue;
         }
         if ((v = HeadValue(line, "Version")) != NULL) {
-            if (!HeadFits(v, 32)) { Fail(res, lineno, L"E-DICT-HEAD", L"Version is longer than 31 characters", L"shorten it"); ok = false; break; }
-            Utf8ToW(v, version, 32); continue;
+            if (!HeadFits(v, 64)) { Fail(res, lineno, L"E-DICT-HEAD", L"Version is longer than 63 characters", L"shorten it"); ok = false; break; }
+            Utf8ToW(v, version, 64); continue;
         }
         if ((v = HeadValue(line, "Source")) != NULL)  { continue; }   // 출처는 원본에만 남는다
 

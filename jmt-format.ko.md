@@ -164,7 +164,7 @@ kya	きゃ
 | `E-DICT-DUP` | 사전에 같은 키가 두 번 있다 | keep one of the two rows |
 | `E-DICT-EMPTY` | 사전에 항목이 하나도 없다 | write one 'keys TAB output' line per entry |
 | `E-DICT-KEY` | 친 쪽은 공백 없는 ASCII 여야 한다 | this is what is pressed on the keyboard |
-| `E-DICT-HEAD` | Name/License 가 사전이 실을 수 있는 길이(63글자)를 넘는다 | 라이선스 이름만 적고 전문은 파일로 가리킨다 |
+| `E-DICT-HEAD` | Name(127)·License(255)·Version(63) 이 사전이 실을 수 있는 길이를 넘는다 | 출처는 여기 적고 전문은 사전 옆 파일에 둔다 |
 | `E-DICT-KIND` | 모르는 사전 Type | Type = sequence |
 | `E-DICT-LIMIT` | 항목이 한도(50만)를 넘는다 | - |
 | `E-DICT-LINE` | 한 줄이 1023바이트를 넘는다 | one entry per line |

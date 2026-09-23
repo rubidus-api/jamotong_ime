@@ -16,7 +16,10 @@ typedef struct JDict {
     size_t   size;
     unsigned count, kind, maxKeyLen, maxValLen, flags, crc;
     unsigned offIndex, offKeys, offVals, keyBytes, valBytes;
-    wchar_t  name[64], license[64], version[32];
+    // 꼬리의 이름/라이선스/판 — 파일에는 길이 붙은 문자열이라 형식은 원래 길이 제한이 없다.
+    // 자리는 넉넉히 잡는다: 라이선스 한 줄에 출처와 전문 파일 이름이 함께 들어가야 한다
+    // (오너 지적 2026-09-24). 사전 하나에 1KB 도 안 되는 값이다.
+    wchar_t  name[128], license[256], version[64];
 } JDict;
 
 static unsigned Rd32(const unsigned char *p) {   // 리틀엔디안 — 파일이 어느 기계에서 구워졌든 같게 읽는다
@@ -108,7 +111,7 @@ static bool CheckLayout(JDict *d) {
         if (vo > d->valBytes || vo + vl * 2u > d->valBytes || (vo & 1u) != 0) return false;
     }
     // 꼬리의 이름/라이선스/판 (각각 u16 길이 + UTF-16LE)
-    unsigned cap[3] = { 64, 64, 32 };
+    unsigned cap[3] = { 128, 256, 64 };
     wchar_t *out[3] = { d->name, d->license, d->version };
     unsigned at = offMeta;
     for (int f = 0; f < 3; f++) {

@@ -74,9 +74,9 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
     memset(res, 0, sizeof *res);
 
     // 컴파일러가 거절할 머리부를 쓰지 않는다 — 사전이 실을 수 있는 이름/라이선스는 63글자까지다.
-    if (meta && meta->name && wcslen(meta->name) > 63) { Fail(res, L"the name is longer than 63 characters"); return false; }
-    if (meta && meta->license && wcslen(meta->license) > 63) {
-        Fail(res, L"the licence line is longer than 63 characters - name it and point at the file with the full text");
+    if (meta && meta->name && wcslen(meta->name) > 127) { Fail(res, L"the name is longer than 127 characters"); return false; }
+    if (meta && meta->license && wcslen(meta->license) > 255) {
+        Fail(res, L"the licence line is longer than 255 characters - keep the full text in a file beside the dictionary");
         return false;
     }
 
@@ -174,9 +174,9 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
         else {
             const wchar_t *base = srcPath;
             for (const wchar_t *q = srcPath; *q; q++) if (*q == L'\\' || *q == L'/') base = q + 1;
-            wchar_t nameLine[120], licLine[200];
-            OneLine(meta && meta->name ? meta->name : L"imported", nameLine, 120);
-            OneLine(meta && meta->license ? meta->license : L"", licLine, 200);
+            wchar_t nameLine[128], licLine[256];
+            OneLine(meta && meta->name ? meta->name : L"imported", nameLine, 128);
+            OneLine(meta && meta->license ? meta->license : L"", licLine, 256);
             fprintf(out, "JamotongData 1\nType = candidates\n");
             fprintf(out, "Name = %ls\n", nameLine[0] ? nameLine : L"imported");
             if (licLine[0]) fprintf(out, "License = %ls\n", licLine);
