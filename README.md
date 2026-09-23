@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.35.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.35.0/jamotong-0.35.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.36.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.36.0/jamotong-0.36.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
@@ -532,13 +532,27 @@ Hold  k   = pointer move(0,1) profile(normal)   # while held: move down (slow|no
 Chord jk  = pointer click(left)                 # click / down / up / drag-toggle
 Chord k;  = pointer drag-toggle(left)           # press now, release on the next chord
 Hold  jkl = pointer wheel(0,-1) profile(scroll) # while held: scroll down (wheel(1,0) = right)
-Chord kl; = cancel actions                      # stop moving, drop a held drag
+Chord kl; = cancel actions                      # stop moving, drop a held drag, cancel a macro
+
+Macro label                       # a finite, cancelable sequence
+  text "item: "
+  key LEFT
+  wait 40                         # ms (1-2000); the IME never blocks while waiting
+  with mods(ctrl,shift)
+    key RIGHT
+  endwith
+EndMacro
+Chord jl; = macro label
 Layer num                         # chords of the num layer
 Chord j   = text "1"
 ```
 
 - **Bigger chords win**: with `Hold jk` and `Chord jkl`, pressing j k l within `ComboTermMs`
   types `the`; the `jk` hold only starts when no bigger chord can still be formed.
+- **Macros**: `Macro <name> … EndMacro` holds up to 128 steps (`text`, `key`, `pointer`, `wait`,
+  `with mods(...)` / `endwith`) and runs at most 3 seconds. One runs at a time; pressing any other
+  key, `cancel actions`, a focus change or a layout switch cancels it and releases the modifiers it
+  pressed. There is no repetition, no condition and nothing that reads the clipboard or files.
 - **Pointer**: a `pointer move`/`wheel` on `Hold` runs while you hold the keys — it speeds up to
   the profile's limit, opposite directions cancel, diagonals are normalized. On `Chord` the same
   action happens once (`pointer move(10,0)` = 10 px right). A drag started with `drag-toggle` (here `k;`) is
