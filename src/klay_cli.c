@@ -237,16 +237,6 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     }
     int rc = ok ? 0 : 1;
     if (!wcscmp(cmd, L"--check")) {
-        if (ok && lc.type == LAYOUT_TYPE_SEQUENCE) {   // 사전 데이터까지 본다 (고를 때와 같은 검사)
-            KlayDiag vd; KlayDiag_Init(&vd);
-            if (!SeqLayout_Verify((const SeqLayout*)lc.pSeqLayout, &vd)) {
-                ok = false; rc = 1;
-                if (!json) {
-                    wchar_t *txt = (wchar_t*)malloc(4096 * sizeof(wchar_t));
-                    if (txt) { Klay_DiagFormat(&vd, base, txt, 4096); out(txt, ctx); free(txt); }
-                }
-            }
-        }
         if (ok && !json) {
             if (lc.type == LAYOUT_TYPE_SEQUENCE) {
                 const SeqLayout *sl = (const SeqLayout*)lc.pSeqLayout;

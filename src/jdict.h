@@ -20,6 +20,9 @@
 #define JDICT_FORMAT_VERSION 1
 #define JDICT_KIND_SEQUENCE  1
 #define JDICT_MAX_KEY        32    // 친 글자열 (ASCII)
+// 한 사전의 항목 수 한도. 고를 때 파일 전체를 한 번 훑으므로(검사합·차례) 무한정 크면 안 된다 —
+// 50만 항목이면 10MB 안쪽이고 점검이 수십 ms 다.
+#define JDICT_MAX_ENTRIES    500000
 #define JDICT_MAX_VALUE      64    // 낼 글자 (UTF-16 부호단위)
 
 typedef enum JDictError {
@@ -55,6 +58,8 @@ const wchar_t *JDict_ErrorText(JDictError e);
 //   머리부 뒤 전체의 crc32, 키 오름차순, 키 글자 범위를 확인한다. 파일 전체를 읽으므로 자판을
 //   목록에 올리거나 켤 때 한 번만 부른다 — 치는 동안에는 부르지 않는다.
 bool JDict_Verify(const JDict *d, JDictError *err);
+// 파일이 쓰는 검사합 (CRC-32/IEEE). 컴파일러와 로더가 같은 구현을 쓴다.
+unsigned JDict_Crc32(const void *data, unsigned long len);
 
 // 정확히 같은 키가 있는가. val/valLen 은 NULL 을 넘겨도 된다. val 은 매핑 안을 가리키며
 // (NUL 종단이 아니다) 사전이 닫힐 때까지 유효하다.

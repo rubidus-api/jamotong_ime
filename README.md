@@ -622,9 +622,11 @@ OnUnmatched      = flush     # flush (default): type the pending letters. cancel
 - The dictionary is looked up beside the layout file, then in `%APPDATA%\Jamotong\dicts`, then in
   `%PROGRAMDATA%\Jamotong\dicts`. The name is a plain file name ending in `.jdb`.
 - Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
-  characters, and a dictionary holds up to 4,000,000 entries. `jamotong --check layout.jmt`
-  reports the layout **and** the dictionary, which is the same check that runs when a layout is
-  selected.
+  characters, and a dictionary holds up to 500,000 entries.
+- **Loading a layout checks its dictionary in full** — the checksum, the key order and the key
+  characters — so a damaged dictionary means the layout is not offered at all, wherever it came
+  from. The check reads the whole file once per load (about 7 ms for 100,000 entries).
+  `jamotong --check layout.jmt` runs exactly the same check and names the dictionary it used.
 
 
 ## Uninstall

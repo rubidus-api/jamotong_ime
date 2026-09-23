@@ -10,7 +10,7 @@
 
 #define JD_HEADER_BYTES 64
 #define JD_REC_BYTES    12
-#define JD_MAX_ROWS     4000000
+#define JD_MAX_ROWS     JDICT_MAX_ENTRIES
 #define JD_MAX_LINE     1024
 
 typedef struct { char key[JDICT_MAX_KEY + 1]; int klen;
@@ -78,14 +78,6 @@ static int CmpRow(const void *a, const void *b) {
     return x->klen == y->klen ? 0 : (x->klen < y->klen ? -1 : 1);
 }
 
-static unsigned Crc32(const unsigned char *p, size_t n) {
-    unsigned c = 0xFFFFFFFFu;
-    for (size_t i = 0; i < n; i++) {
-        c ^= p[i];
-        for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1)));
-    }
-    return c ^ 0xFFFFFFFFu;
-}
 static void Wr32(unsigned char *p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); p[2] = (unsigned char)(v >> 16); p[3] = (unsigned char)(v >> 24); }
 static void Wr16(unsigned char *p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); }
 
@@ -201,7 +193,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         }
         if (nrows >= cap) {
             int ncap = cap ? cap * 2 : 1024;
-            if (ncap > JD_MAX_ROWS) { Fail(res, lineno, L"E-DICT-LIMIT", L"too many entries (max 4000000)", NULL); ok = false; break; }
+            if (ncap > JD_MAX_ROWS) { Fail(res, lineno, L"E-DICT-LIMIT", L"too many entries (max 500000)", NULL); ok = false; break; }
             Row *nr = (Row *)realloc(rows, (size_t)ncap * sizeof(Row));
             if (!nr) { Fail(res, lineno, L"E-DICT-MEMORY", L"out of memory", NULL); ok = false; break; }
             rows = nr; cap = ncap;
@@ -292,7 +284,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         for (unsigned i = 0; i < len; i++) Wr16(buf + at + i * 2u, (unsigned)metas[f][i]);
         at += len * 2u;
     }
-    Wr32(buf + 52, Crc32(buf + JD_HEADER_BYTES, total - JD_HEADER_BYTES));
+    Wr32(buf + 52, JDict_Crc32(buf + JD_HEADER_BYTES, total - JD_HEADER_BYTES));
 
     FILE *out = _wfopen(outPath, L"wb");
     bool wrote = out && fwrite(buf, 1, total, out) == total;

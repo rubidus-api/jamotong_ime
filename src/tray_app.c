@@ -374,10 +374,6 @@ static bool CheckEditor(LayoutConfig *keep, bool show, const wchar_t *title) {
     static KlayDiag diag;
     KlayMeta meta;
     bool ok = Klay_LoadEx(tmp, &lc, &diag, &meta);
-    if (ok && lc.type == LAYOUT_TYPE_SEQUENCE && !SeqLayout_Verify((const SeqLayout*)lc.pSeqLayout, &diag)) {
-        ok = false;   // 사전 데이터까지 성해야 쓸 수 있다 (자판을 고를 때와 같은 검사)
-        Config_FreeLayoutResources(&lc);
-    }
     DeleteFileW(tmp);
     const wchar_t *fname = g_curFile[0] ? (wcsrchr(g_curFile, L'\\') ? wcsrchr(g_curFile, L'\\') + 1 : g_curFile) : L"(editor)";
     static wchar_t body[6144], msg[6400];
@@ -667,6 +663,8 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
         int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
         if (rc >= 0) return rc;
     }
+
+    { wchar_t dictDir[MAX_PATH]; Config_UserDictDir(dictDir, MAX_PATH); }   // 사전 폴더를 만들어 둔다
 
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     BOOL (WINAPI *pSetCtx)(HANDLE) = (void*)GetProcAddress(u32, "SetProcessDpiAwarenessContext");

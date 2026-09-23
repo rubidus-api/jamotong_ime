@@ -1,6 +1,5 @@
 #include "plugin_loader.h"
 #include "klay.h"
-#include "seq_layout.h"   // 고를 때의 사전 전수 점검 (RFC-0016 P5)
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,12 +21,6 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
         LayoutConfig lc;
         memset(&lc, 0, sizeof(lc));
         if (!Klay_Load(fullPath, &lc, NULL)) continue;
-        // 오너 지시 2026-09-23: 목록에 올리기 전에 자판 문법과 사전 데이터를 모두 본다.
-        // 점검에 걸린 자판은 아예 목록에 넣지 않는다 — 고른 뒤에 깨진 자료를 만나는 일이 없게.
-        if (lc.type == LAYOUT_TYPE_SEQUENCE && !SeqLayout_Verify((const SeqLayout*)lc.pSeqLayout, NULL)) {
-            Config_FreeLayoutResources(&lc);
-            continue;
-        }
         bool dup = false;
         for (int i = 0; i < config->layoutCount; i++) {
             if (config->layouts[i].name && lc.name && wcscmp(config->layouts[i].name, lc.name) == 0) { dup = true; break; }

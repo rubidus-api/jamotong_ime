@@ -8,7 +8,7 @@
 
 #define JD_HEADER_BYTES 64
 #define JD_REC_BYTES    12
-#define JD_MAX_COUNT    4000000
+#define JD_MAX_COUNT    JDICT_MAX_ENTRIES
 
 typedef struct JDict {
     HANDLE   file, mapping;
@@ -103,10 +103,8 @@ static bool CheckLayout(JDict *d) {
         if (vo > d->valBytes || vo + vl * 2u > d->valBytes || (vo & 1u) != 0) return false;
     }
     // 꼬리의 이름/라이선스/판 (각각 u16 길이 + UTF-16LE)
-    const wchar_t *dst[3] = { NULL, NULL, NULL };
     unsigned cap[3] = { 64, 64, 32 };
     wchar_t *out[3] = { d->name, d->license, d->version };
-    (void)dst;
     unsigned at = offMeta;
     for (int f = 0; f < 3; f++) {
         out[f][0] = L'\0';
@@ -176,12 +174,21 @@ const wchar_t *JDict_ErrorText(JDictError e) {
 }
 
 // ── 전수 점검 (자판을 고를 때 한 번) ───────────────────────────────────────────────
-static unsigned Crc32(const unsigned char *p, size_t n) {
-    unsigned c = 0xFFFFFFFFu;
-    for (size_t i = 0; i < n; i++) {
-        c ^= p[i];
-        for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1)));
+// 표 방식 CRC-32/IEEE. 비트마다 도는 판은 100MB 당 1초라 큰 사전에서 고르는 순간이 멈춘다.
+unsigned JDict_Crc32(const void *data, unsigned long len) {
+    static unsigned tbl[256];
+    static int ready = 0;
+    if (!ready) {   // 표는 값이 정해져 있어 여러 스레드가 같이 만들어도 결과가 같다
+        for (unsigned i = 0; i < 256; i++) {
+            unsigned c = i;
+            for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (unsigned)(-(int)(c & 1)));
+            tbl[i] = c;
+        }
+        ready = 1;
     }
+    const unsigned char *p = (const unsigned char *)data;
+    unsigned c = 0xFFFFFFFFu;
+    for (unsigned long i = 0; i < len; i++) c = tbl[(c ^ p[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
 }
 
@@ -190,7 +197,7 @@ bool JDict_Verify(const JDict *d, JDictError *err) {
     if (!err) err = &dummy;
     *err = JDICT_OK;
     if (!d) { *err = JDICT_E_LAYOUT; return false; }
-    if (Crc32(d->base + JD_HEADER_BYTES, d->size - JD_HEADER_BYTES) != d->crc) { *err = JDICT_E_CRC; return false; }
+    if (JDict_Crc32(d->base + JD_HEADER_BYTES, (unsigned long)(d->size - JD_HEADER_BYTES)) != d->crc) { *err = JDICT_E_CRC; return false; }
     int prevLen = 0;
     const char *prev = NULL;
     for (unsigned i = 0; i < d->count; i++) {
