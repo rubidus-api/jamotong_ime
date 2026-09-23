@@ -90,9 +90,16 @@ Macro name ... EndMacro  # a finite sequence: text, key, pointer, wait, with mod
 Engine      = sequence            # the only engine today
 Dictionary  = romaji-kana.jdb     # the built dictionary this layout uses
 OnUnmatched = flush               # flush (default) types the pending letters, cancel drops them
+Candidates  = kana-words.jdb      # optional: a reading -> several candidates
+ConvertKey  = space               # required with Candidates: space | tab | hanja | convert | f9
 Key jkl; = 0                      # optional chord front end
 Chord jk = symbol "k"             # its result goes into the engine, not to the application
 ```
+
+With `Candidates` the letters collect in a reading the IME owns instead of going straight into the
+document, and the convert key offers the candidates for that reading. Choosing one replaces the
+reading; cancelling keeps it. Backspace takes back one letter of the reading, Esc drops it, and a
+boundary commits it as it is. A choice that arrives after the reading changed is dropped.
 
 The engine waits for the longest match, so with `n`, `na` and `ni` in the dictionary a lone `n`
 waits. Pending letters are shown next to the caret, not inserted. Backspace takes back one pending
@@ -133,8 +140,10 @@ ka	か
 kya	きゃ
 ```
 
-The first line is fixed. Each data row is the typed letters, a **tab**, and what they produce
-(`\u{hex}` works here too). Building sorts the entries, rejects duplicates, and writes a binary the
+`Type` is `sequence` (keys to letters) or `candidates` (a reading to several candidates — repeat
+the same reading once per candidate, in the order you want them offered). The first line is fixed.
+Each data row is the key, a **tab**, and what it produces; `\u{hex}` works on both sides, and a
+candidate dictionary's reading may be any script. Building sorts the entries, rejects duplicates, and writes a binary the
 IME maps read-only; opening it checks the header and the index, and a layout that uses it checks
 the whole file (checksum, order, key characters) before the layout can be used.
 

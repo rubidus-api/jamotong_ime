@@ -70,12 +70,18 @@ static bool DecodeValue(const char *s, wchar_t *out, int cap, int *outLen, const
     return n > 0;
 }
 
-static int CmpRow(const void *a, const void *b) {
-    const Row *x = (const Row *)a, *y = (const Row *)b;
+static int CmpKeyOnly(const Row *x, const Row *y) {
     int n = x->klen < y->klen ? x->klen : y->klen;
     int c = n ? memcmp(x->key, y->key, (size_t)n) : 0;
     if (c) return c;
     return x->klen == y->klen ? 0 : (x->klen < y->klen ? -1 : 1);
+}
+// 키로 정렬하되 같은 키는 **원본에 적힌 차례**를 지킨다 — 후보 사전의 차례가 곧 후보 차례다.
+static int CmpRow(const void *a, const void *b) {
+    const Row *x = (const Row *)a, *y = (const Row *)b;
+    int c = CmpKeyOnly(x, y);
+    if (c) return c;
+    return x->line == y->line ? 0 : (x->line < y->line ? -1 : 1);
 }
 
 static void Wr32(unsigned char *p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); p[2] = (unsigned char)(v >> 16); p[3] = (unsigned char)(v >> 24); }
@@ -156,8 +162,9 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         const char *v;
         if ((v = HeadValue(line, "Type")) != NULL) {
             if (strcmp(v, "sequence") == 0) kind = JDICT_KIND_SEQUENCE;
+            else if (strcmp(v, "candidates") == 0) kind = JDICT_KIND_CANDIDATES;
             else {
-                Fail(res, lineno, L"E-DICT-KIND", L"unknown dictionary Type", L"Type = sequence");
+                Fail(res, lineno, L"E-DICT-KIND", L"unknown dictionary Type", L"Type = sequence | candidates");
                 ok = false; break;
             }
             continue;
@@ -175,12 +182,39 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
             ok = false; break;
         }
         *tab = '\0';
-        int klen = (int)strlen(line);
-        if (klen > JDICT_MAX_KEY) {
-            Fail(res, lineno, L"E-DICT-KEY", L"the typed side is longer than 32 characters", NULL);
+        // 키 쪽도 값과 같은 표기를 쓴다: 글자를 그대로 적거나 `\u{...}` 로 적는다 (§6.4 의 읽기는
+        // 가나·한글이라 이스케이프가 필요하다). 푼 뒤 다시 UTF-8 로 담는다.
+        wchar_t kw[JDICT_MAX_KEY + 2];
+        int kwlen = 0;
+        const wchar_t *kwhy = NULL;
+        if (!DecodeValue(line, kw, JDICT_MAX_KEY, &kwlen, &kwhy)) {
+            Fail(res, lineno, L"E-DICT-KEY", kwhy ? kwhy : L"the typed side cannot be used", NULL);
             ok = false; break;
         }
-        if (kind == JDICT_KIND_SEQUENCE) {
+        char kbuf[JDICT_MAX_KEY * 4 + 1];
+        int klen = 0;
+        for (int i = 0; i < kwlen && klen >= 0; i++) {
+            unsigned long cp = (unsigned long)kw[i];
+            if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < kwlen && kw[i+1] >= 0xDC00 && kw[i+1] <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + ((unsigned long)kw[++i] - 0xDC00);
+            }
+            if (cp < 0x80) { if (klen + 1 > JDICT_MAX_KEY) { klen = -1; break; } kbuf[klen++] = (char)cp; }
+            else if (cp < 0x800) { if (klen + 2 > JDICT_MAX_KEY) { klen = -1; break; }
+                kbuf[klen++] = (char)(0xC0 | (cp >> 6)); kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
+            else if (cp < 0x10000) { if (klen + 3 > JDICT_MAX_KEY) { klen = -1; break; }
+                kbuf[klen++] = (char)(0xE0 | (cp >> 12)); kbuf[klen++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
+            else { if (klen + 4 > JDICT_MAX_KEY) { klen = -1; break; }
+                kbuf[klen++] = (char)(0xF0 | (cp >> 18)); kbuf[klen++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                kbuf[klen++] = (char)(0x80 | ((cp >> 6) & 0x3F)); kbuf[klen++] = (char)(0x80 | (cp & 0x3F)); }
+        }
+        if (klen < 0) {
+            Fail(res, lineno, L"E-DICT-KEY", L"the typed side is longer than 32 bytes", NULL);
+            ok = false; break;
+        }
+        kbuf[klen] = '\0';
+        memcpy(line, kbuf, (size_t)klen + 1);
+        if (kind == JDICT_KIND_SEQUENCE) {   // 친 글쇠열이므로 ASCII 만 (후보 사전의 읽기는 아니다)
             for (int i = 0; i < klen; i++) {
                 unsigned char c = (unsigned char)line[i];
                 if (c < 0x21 || c > 0x7E) {
@@ -219,11 +253,12 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
 
     if (ok) {
         qsort(rows, (size_t)nrows, sizeof(Row), CmpRow);
-        for (int i = 1; i < nrows; i++)
-            if (CmpRow(&rows[i - 1], &rows[i]) == 0) {
-                Fail(res, rows[i].line, L"E-DICT-DUP", L"this key is defined twice", L"keep one of the two rows");
-                ok = false; break;
-            }
+        if (kind != JDICT_KIND_CANDIDATES)   // 후보 사전은 같은 키가 여러 줄인 것이 정상이다
+            for (int i = 1; i < nrows; i++)
+                if (CmpKeyOnly(&rows[i - 1], &rows[i]) == 0) {
+                    Fail(res, rows[i].line, L"E-DICT-DUP", L"this key is defined twice", L"keep one of the two rows");
+                    ok = false; break;
+                }
     }
 
     unsigned keyBytes = 0, valBytes = 0, maxK = 0, maxV = 0;
@@ -260,7 +295,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     Wr32(buf + 36, valBytes);
     Wr32(buf + 40, maxK);
     Wr32(buf + 44, maxV);
-    Wr32(buf + 48, 1u);            // flags bit0 = 키가 전부 ASCII (지금 종류는 언제나 그렇다)
+    Wr32(buf + 48, kind == JDICT_KIND_SEQUENCE ? 1u : 0u);   // bit0 = 키가 전부 ASCII
     Wr32(buf + 56, total);
 
     unsigned ko = 0, vo = 0;

@@ -17,6 +17,8 @@ void CandidateUI_SetStyle(const wchar_t *face, int sizePx);
 // 이 위로 뒤집어 배치한다. 창은 모니터 작업영역 안으로 클램프된다.
 // 반환: 표시했는가(RFC-0008 W1-08). false 면 아무것도 열리지 않았고 콜백도 불리지 않는다 —
 // 호출자가 넘긴 문맥(ctx 가 쥔 참조)은 호출자가 정리한다.
+// ※ candidates 배열과 그 문자열은 **복사하지 않는다** — 창이 닫힐 때까지 호출자가 살려 두어야
+//   한다(스택 배열을 넘기면 첫 줄만 살아남는 식으로 깨진다. 실기 2026-09-23).
 bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
 
 // 키보드 이벤트 가로채기

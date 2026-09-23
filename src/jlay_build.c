@@ -101,6 +101,8 @@ static void WriteSeq(Buf *b, const SeqLayout *sl) {
     PutStr(b, sl->name);
     PutStr(b, sl->dictFile);
     Put32(b, (unsigned)sl->onUnmatched);
+    PutStr(b, sl->candFile);                           // 후보 사전 이름 (없으면 빈 문자열, §6.4)
+    Put32(b, (unsigned)sl->convertVk);                 // 변환 글쇠 (0 = 후보 없음)
     Put32(b, sl->chord ? 1u : 0u);                     // 앞단 조합 인식기가 있는가 (§6.3)
     if (sl->chord) WriteChord(b, (const ChordLayout *)sl->chord);
 }

@@ -156,6 +156,8 @@ static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError 
     GetStr(r, sl->name, 64);
     GetStr(r, sl->dictFile, 64);
     sl->onUnmatched = GetI32(r);
+    GetStr(r, sl->candFile, 64);
+    sl->convertVk = GetI32(r);
     unsigned hasChord = Get32(r);
     if (r->bad || !sl->dictFile[0]) { free(sl); return false; }
     if (hasChord) {                       // 앞단 조합 인식기 (§6.3)

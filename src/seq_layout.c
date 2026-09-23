@@ -26,6 +26,8 @@ static void Emit(SeqResult *r, const wchar_t *s) {
 }
 // 막다른 길: 앞에서부터 확정할 수 있는 만큼 확정하고, 남은 꼬리는 다시 보류한다.
 //   atBoundary 면 더 기다리지 않는다(자판 전환·포커스 상실) — 남은 것은 리터럴로 확정한다.
+static void Deliver(SeqState *st, const SeqLayout *sl, SeqResult *r, const wchar_t *s);
+
 static void FlushBuf(SeqState *st, const SeqLayout *sl, wchar_t *buf, SeqResult *r, bool atBoundary) {
     st->pending[0] = L'\0';
     while (*buf) {
@@ -36,17 +38,48 @@ static void FlushBuf(SeqState *st, const SeqLayout *sl, wchar_t *buf, SeqResult 
         const jdchar *v = NULL; int vn = 0, kn = 0;
         if (JDict_LongestPrefix(sl->dict, buf, &kn, &v, &vn)) {
             wchar_t out[SEQ_MAX_OUT + 1];
-            if (JDict_CopyValue(v, vn, out, SEQ_MAX_OUT + 1) >= 0) Emit(r, out);
+            if (JDict_CopyValue(v, vn, out, SEQ_MAX_OUT + 1) >= 0) Deliver(st, sl, r, out);
             buf += kn;
         } else {
             wchar_t lit[2] = { buf[0], 0 };
-            Emit(r, lit);                                  // 사전에 없는 글자는 친 그대로
+            Deliver(st, sl, r, lit);                       // 사전에 없는 글자는 친 그대로
             buf++;
         }
     }
 }
 
-void SeqKb_Init(SeqState *st) { st->pending[0] = L'\0'; }
+void SeqKb_Init(SeqState *st) {
+    unsigned gen = st->generation;   // 세대는 초기화로 되돌리지 않는다 — 늦게 온 후보를 계속 걸러야 한다
+    memset(st, 0, sizeof *st);
+    st->generation = gen + 1;
+}
+
+const wchar_t *SeqKb_Reading(const SeqState *st) { return st ? st->reading : L""; }
+
+// 사전이 낸 글자를 어디에 둘까: 후보 사전이 있으면 우리 소유 읽기, 없으면 바로 확정 (§6.4)
+static void Deliver(SeqState *st, const SeqLayout *sl, SeqResult *r, const wchar_t *s) {
+    if (!s || !s[0]) return;
+    if (!sl->cand) { Emit(r, s); return; }
+    size_t have = wcslen(st->reading), add = wcslen(s);
+    if (have + add > SEQ_MAX_READING) {   // 읽기가 꽉 차면 앞부분을 확정해 자리를 낸다
+        Emit(r, st->reading);
+        st->reading[0] = L'\0';
+        have = 0;
+        if (add > SEQ_MAX_READING) { Emit(r, s); return; }
+    }
+    wcscpy(st->reading + have, s);
+    st->generation++;                     // 읽기가 바뀌었다 — 먼저 낸 후보는 이제 남의 것이다
+}
+
+// 지금 보여 줄 조합 문자열: 읽기 + 아직 사전을 못 만난 글자들
+static void SeqComposing(const SeqState *st, SeqResult *r) {
+    size_t n = wcslen(st->reading);
+    if (n > sizeof(r->composing) / sizeof(r->composing[0]) - 1) n = sizeof(r->composing) / sizeof(r->composing[0]) - 1;
+    wmemcpy(r->composing, st->reading, n);
+    r->composing[n] = L'\0';
+    lstrcpynW(r->composing + n, st->pending,
+              (int)(sizeof(r->composing) / sizeof(r->composing[0]) - n));
+}
 
 bool SeqKb_WouldEat(const SeqState *st, const SeqLayout *sl, wchar_t ch) {
     if (!sl || !sl->dict || ch < 0x21 || ch > 0x7E) return false;
@@ -77,7 +110,7 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
     if (HasLonger(sl, buf)) {                      // 최장 일치를 기다린다
         lstrcpynW(st->pending, buf, SEQ_MAX_IN + 1);
     } else if (Exact(sl, buf, out, SEQ_MAX_OUT + 1)) {
-        Emit(&r, out);
+        Deliver(st, sl, &r, out);
         st->pending[0] = L'\0';
     } else if (sl->onUnmatched == SEQ_UNMATCHED_CANCEL) {
         st->pending[0] = L'\0';                    // 오류 없이 취소 — 보류와 그 글쇠가 사라진다
@@ -101,7 +134,7 @@ SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym) {
         }
     }
     r.eaten = true;   // symbol 은 언제나 우리가 처리한다 (글쇠가 아니라 조합의 결과다)
-    lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
+    SeqComposing(st, &r);
     return r;
 }
 
@@ -109,29 +142,88 @@ SeqResult SeqKb_Backspace(SeqState *st, const SeqLayout *sl) {
     (void)sl;
     SeqResult r; memset(&r, 0, sizeof r);
     size_t n = wcslen(st->pending);
-    if (n == 0) return r;                          // 확정된 남의 글자는 추측해서 지우지 않는다
-    st->pending[n - 1] = L'\0';
-    r.eaten = true;
-    lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
+    if (n > 0) { st->pending[n - 1] = L'\0'; r.eaten = true; SeqComposing(st, &r); return r; }
+    size_t m = wcslen(st->reading);
+    if (m > 0) {   // 우리 소유 읽기에서 한 글자 (확정된 남의 글자는 건드리지 않는다)
+        st->reading[m - 1] = L'\0';
+        st->generation++;
+        st->candOpen = false;
+        r.eaten = true;
+        SeqComposing(st, &r);
+        return r;
+    }
     return r;
 }
 
 SeqResult SeqKb_Cancel(SeqState *st) {
     SeqResult r; memset(&r, 0, sizeof r);
-    if (!st->pending[0]) return r;
+    if (!st->pending[0] && !st->reading[0]) return r;
     st->pending[0] = L'\0';
+    st->reading[0] = L'\0';
+    st->generation++;      // 먼저 낸 후보는 이제 남의 것이다
+    st->candOpen = false;
     r.eaten = true;
     return r;
 }
 
 SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl) {
     SeqResult r; memset(&r, 0, sizeof r);
-    if (!st->pending[0] || !sl || !sl->dict) return r;
-    wchar_t buf[SEQ_MAX_IN + 2];
-    lstrcpynW(buf, st->pending, SEQ_MAX_IN + 2);
+    if (!sl || !sl->dict || (!st->pending[0] && !st->reading[0])) return r;
     r.eaten = true;
-    FlushBuf(st, sl, buf, &r, true);
-    lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
+    if (st->pending[0]) {
+        wchar_t buf[SEQ_MAX_IN + 2];
+        lstrcpynW(buf, st->pending, SEQ_MAX_IN + 2);
+        FlushBuf(st, sl, buf, &r, true);
+    }
+    if (st->reading[0]) {   // 읽은 그대로 확정한다 — 고르지 않은 것을 대신 고르지 않는다
+        Emit(&r, st->reading);
+        st->reading[0] = L'\0';
+        st->generation++;
+        st->candOpen = false;
+    }
+    SeqComposing(st, &r);
+    return r;
+}
+
+// ── 후보 (RFC-0016 §6.4) ───────────────────────────────────────────────────────────
+bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
+    if (!st || !sl || !sl->cand || !out || !st->reading[0]) return false;
+    int first = 0, count = 0;
+    if (!JDict_Candidates(sl->cand, st->reading, &first, &count)) return false;
+    memset(out, 0, sizeof *out);
+    out->generation = st->generation;
+    if (count > SEQ_MAX_CANDS) count = SEQ_MAX_CANDS;
+    for (int i = 0; i < count; i++) {
+        const jdchar *v = NULL; int vn = 0;
+        if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
+        if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) out->count++;
+    }
+    if (out->count == 0) return false;
+    st->candOpen = true;
+    return true;
+}
+
+SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index) {
+    (void)sl;
+    SeqResult r; memset(&r, 0, sizeof r);
+    if (!st || !cands || index < 0 || index >= cands->count) return r;
+    if (cands->generation != st->generation) return r;   // 늦게 온 결과·이전 읽기의 것은 버린다
+    Emit(&r, cands->items[index]);
+    st->reading[0] = L'\0';
+    st->pending[0] = L'\0';
+    st->generation++;
+    st->candOpen = false;
+    r.eaten = true;
+    return r;
+}
+
+SeqResult SeqKb_CancelCandidates(SeqState *st) {
+    SeqResult r; memset(&r, 0, sizeof r);
+    if (!st || !st->candOpen) return r;
+    st->candOpen = false;
+    st->generation++;          // 접은 뒤에 도착한 선택은 남의 것이다
+    r.eaten = true;
+    SeqComposing(st, &r);
     return r;
 }
 
@@ -205,11 +297,53 @@ bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
     sl->dict = d;
     lstrcpynW(sl->dictPath, full, 260);
     sl->maxIn = JDict_MaxKeyLen(d);
+
+    if (sl->candFile[0]) {   // 후보 사전 (§6.4) — 같은 규칙으로 찾고 열고 본다
+        if (!Config_IsSafeDictFileName(sl->candFile) || !ResolveDict(layoutPath, sl->candFile, full, MAX_PATH)) {
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the candidate dictionary '%ls' was not found", sl->candFile);
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg,
+                         L"put it beside the layout file or in the dictionary folder");
+            return false;
+        }
+        JDictError cerr = JDICT_OK;
+        JDict *cd = JDict_Open(full, &cerr);
+        if (!cd) {
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the candidate dictionary '%ls' cannot be used: %ls", sl->candFile, JDict_ErrorText(cerr));
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg,
+                         L"build it again with 'jamotong --build-dict'");
+            return false;
+        }
+        if (JDict_Kind(cd) != JDICT_KIND_CANDIDATES) {
+            JDict_Close(cd);
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-KIND",
+                         L"this dictionary is not a candidate dictionary",
+                         L"build it with 'Type = candidates'");
+            return false;
+        }
+        if (sl->cand) JDict_Close(sl->cand);
+        sl->cand = cd;
+    }
     return SeqLayout_Verify(sl, diag);   // 내용까지 본다 — 성한 사전만 자판을 세운다
 }
 
 
 bool SeqLayout_Verify(const SeqLayout *sl, KlayDiag *diag) {
+    if (sl && sl->cand) {   // 후보 사전도 전수로 본다
+        JDictError cerr = JDICT_OK;
+        if (!JDict_Verify(sl->cand, &cerr)) {
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the candidate dictionary '%ls' did not pass its check: %ls",
+                       sl->candFile, JDict_ErrorText(cerr));
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg,
+                         L"build it again with 'jamotong --build-dict'");
+            return false;
+        }
+    }
     if (!sl || !sl->dict) {
         KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", L"this layout has no usable dictionary", NULL);
         return false;
@@ -227,6 +361,7 @@ bool SeqLayout_Verify(const SeqLayout *sl, KlayDiag *diag) {
 void SeqLayout_Free(SeqLayout *sl) {
     if (!sl) return;
     if (sl->dict) JDict_Close(sl->dict);
+    if (sl->cand) JDict_Close(sl->cand);
     if (sl->chord) ChordLayout_Free((ChordLayout *)sl->chord);
     free(sl);
 }

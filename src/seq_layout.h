@@ -28,6 +28,16 @@
 
 enum { SEQ_UNMATCHED_FLUSH = 0, SEQ_UNMATCHED_CANCEL = 1 };
 
+// 읽기·후보 (RFC-0016 §6.4). 후보 사전이 없으면 이 자리는 비어 있고 동작도 예전 그대로다.
+#define SEQ_MAX_READING 64     // 우리 소유 preedit 에 쌓을 수 있는 글자 수
+#define SEQ_MAX_CANDS   16     // 한 번에 보여 줄 후보 수
+
+typedef struct SeqCandidates {
+    unsigned generation;                        // 이 묶음이 어느 읽기의 것인가 (늦은 결과를 버린다)
+    int      count;
+    wchar_t  items[SEQ_MAX_CANDS][SEQ_MAX_OUT + 1];
+} SeqCandidates;
+
 typedef struct SeqLayout {
     wchar_t  name[64];
     // 앞단 조합 인식기 (RFC-0016 §6.3, 선택). 있으면 조합이 먼저 결정하고 그 `symbol` 만 엔진으로
@@ -38,11 +48,19 @@ typedef struct SeqLayout {
     int      onUnmatched;        // SEQ_UNMATCHED_*
     int      maxIn;              // 사전에 있는 가장 긴 키
     JDict   *dict;               // 매핑한 사전 (이 자판이 소유한다)
+    // 후보 사전 (선택, §6.4). 있으면 사전이 낸 글자를 바로 확정하지 않고 읽기 버퍼에 쌓았다가
+    // 변환 글쇠에서 후보를 내놓는다. 없으면 예전과 똑같이 바로 확정한다.
+    wchar_t  candFile[64];
+    JDict   *cand;
+    int      convertVk;          // 변환 글쇠 (VK_*), 0 = 없음
 } SeqLayout;
 
 // 보류 중인 입력. 확정한 글자는 문서가 갖고 있으므로 여기 남기지 않는다.
 typedef struct SeqState {
-    wchar_t pending[SEQ_MAX_IN + 1];
+    wchar_t  pending[SEQ_MAX_IN + 1];            // 아직 사전을 만나지 못한 친 글자들
+    wchar_t  reading[SEQ_MAX_READING + 1];       // 우리 소유 preedit (후보 사전이 있을 때만 찬다)
+    unsigned generation;                         // 읽기가 바뀔 때마다 오른다 (후보 snapshot 의 주인)
+    bool     candOpen;                           // 후보를 내놓은 상태인가
 } SeqState;
 
 // 한 번의 입력이 낳은 결과. committed = 지금 문서에 넣을 글자들, composing = 아직 보류(미리보기).
@@ -76,5 +94,13 @@ SeqResult SeqKb_Cancel(SeqState *st);
 //   엔진이 받지 않는 글자(그 사전으로 시작할 수 없는 글자)는 **친 그대로 확정한다** — symbol 은
 //   글쇠가 아니라 논리 입력이라, 엔진이 안 받는다고 사라지면 안 된다.
 SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym);
+// 지금 읽기 (우리 소유 preedit). 후보 사전이 없으면 언제나 빈 문자열.
+const wchar_t *SeqKb_Reading(const SeqState *st);
+// 변환 글쇠: 지금 읽기의 후보를 내놓는다. 읽기가 비었거나 후보가 없으면 false.
+bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
+// 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다.
+SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index);
+// 후보를 접는다 — 읽기는 그대로 남는다.
+SeqResult SeqKb_CancelCandidates(SeqState *st);
 // 경계(자판 전환·포커스 상실·비활성화): 보류한 리터럴을 확정한다.
 SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl);

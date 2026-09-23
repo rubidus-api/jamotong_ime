@@ -19,7 +19,18 @@ static void TrimEnds(wchar_t *s) {
     size_t n = wcslen(s);
     while (n && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
-static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Engine", L"OnUnmatched", NULL };
+static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Candidates", L"ConvertKey",
+                                                 L"Engine", L"OnUnmatched", NULL };
+
+// 변환 글쇠 이름 → VK (§6.4). 적은 것만 받는다 — 글자 글쇠는 읽기를 만드는 데 쓰이므로 안 된다.
+static int ConvertKeyVk(const wchar_t *name) {
+    if (!_wcsicmp(name, L"space")) return VK_SPACE;
+    if (!_wcsicmp(name, L"tab")) return VK_TAB;
+    if (!_wcsicmp(name, L"hanja")) return VK_HANJA;
+    if (!_wcsicmp(name, L"convert")) return 0x1C;      /* VK_CONVERT (IME 변환 글쇠) */
+    if (!_wcsicmp(name, L"f9")) return VK_F9;
+    return 0;
+}
 SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath, KlayDiag *diag) {
     SeqLayout *sl = (SeqLayout *)calloc(1, sizeof(SeqLayout));
     if (!sl) return NULL;
@@ -66,6 +77,33 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
             lstrcpynW(sl->dictFile, file, 64);
             continue;
         }
+        if (!wcsncmp(p, L"Candidates", 10)) {
+            wchar_t file[64] = {0};
+            if (swscanf(p, L"Candidates = %63l[^\n]", file) != 1) {
+                FAIL(col0, L"E-JMT-DICT", L"Candidates needs a file name", L"Candidates = words.jdb");
+                continue;
+            }
+            TrimEnds(file);
+            if (sl->candFile[0]) { FAIL(col0, L"E-JMT-DICT", L"this layout already has a candidate dictionary", NULL); continue; }
+            if (!Config_IsSafeDictFileName(file)) {
+                FAIL(col0, L"E-JMT-DICT", L"the candidate dictionary must be a plain file name ending in .jdb", NULL);
+                continue;
+            }
+            lstrcpynW(sl->candFile, file, 64);
+            continue;
+        }
+        if (!wcsncmp(p, L"ConvertKey", 10)) {
+            wchar_t v[32] = {0};
+            if (swscanf(p, L"ConvertKey = %31ls", v) != 1) {
+                FAIL(col0, L"E-JMT-VALUE", L"ConvertKey needs a key name", L"ConvertKey = space | tab | hanja | convert | f9");
+                continue;
+            }
+            sl->convertVk = ConvertKeyVk(v);
+            if (!sl->convertVk)
+                FAIL(col0, L"E-JMT-VALUE", L"this key cannot be the convert key",
+                     L"ConvertKey = space | tab | hanja | convert | f9");
+            continue;
+        }
         if (!wcsncmp(p, L"OnUnmatched", 11)) {
             wchar_t v[32] = {0};
             if (swscanf(p, L"OnUnmatched = %31ls", v) != 1)
@@ -97,6 +135,14 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
         ChordLayout *cl = ChordLayout_LoadFromLinesEx(L, diag, true);
         if (cl) sl->chord = cl;
         else bad = true;
+    }
+    if (!bad && (sl->candFile[0] != 0) != (sl->convertVk != 0)) {
+        // 후보 사전과 변환 글쇠는 함께 있어야 한다 — 하나만 있으면 무엇을 뜻하는지 알 수 없다
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-VALUE",
+                     sl->candFile[0] ? L"a candidate dictionary needs a convert key"
+                                     : L"a convert key needs a candidate dictionary",
+                     L"write both 'Candidates = words.jdb' and 'ConvertKey = space'");
+        bad = true;
     }
     if (!bad && !SeqLayout_OpenDict(sl, layoutPath, diag)) bad = true;
 

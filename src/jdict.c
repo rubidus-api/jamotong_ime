@@ -203,7 +203,9 @@ bool JDict_Verify(const JDict *d, JDictError *err) {
     for (unsigned i = 0; i < d->count; i++) {
         int klen = 0;
         const char *k = KeyAt(d, (int)i, &klen);
-        if (prev && CmpBytes(prev, prevLen, k, klen) >= 0) { *err = JDICT_E_ORDER; return false; }
+        int cmp = prev ? CmpBytes(prev, prevLen, k, klen) : -1;
+        // 순차 사전은 키가 꼭 커져야 하고, 후보 사전은 같은 키가 이어질 수 있다 (§6.4)
+        if (cmp > 0 || (cmp == 0 && d->kind != JDICT_KIND_CANDIDATES)) { *err = JDICT_E_ORDER; return false; }
         if (d->kind == JDICT_KIND_SEQUENCE)
             for (int j = 0; j < klen; j++)
                 if ((unsigned char)k[j] < 0x21 || (unsigned char)k[j] > 0x7E) { *err = JDICT_E_KEY; return false; }
@@ -236,6 +238,34 @@ bool JDict_Exact(const JDict *d, const wchar_t *key, const jdchar **val, int *va
         if (val) *val = v;
         if (valLen) *valLen = vlen;
     }
+    return true;
+}
+
+bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count) {
+    if (!d || !key || !*key) return false;
+    char kb[JDICT_MAX_KEY * 4];
+    int kn = KeyToUtf8(key, kb, (int)sizeof(kb));
+    if (kn <= 0) return false;
+    int at = LowerBound(d, kb, kn);
+    int n = 0;
+    while (at + n < (int)d->count) {   // 같은 키가 이어지는 만큼이 후보다 (구울 때 차례를 지킨다)
+        int klen = 0;
+        const char *k = KeyAt(d, at + n, &klen);
+        if (klen != kn || memcmp(k, kb, (size_t)kn) != 0) break;
+        n++;
+    }
+    if (n == 0) return false;
+    if (first) *first = at;
+    if (count) *count = n;
+    return true;
+}
+
+bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLen) {
+    if (!d || index < 0 || index >= (int)d->count) return false;
+    int vlen = 0;
+    const jdchar *v = ValAt(d, index, &vlen);
+    if (val) *val = v;
+    if (valLen) *valLen = vlen;
     return true;
 }
 

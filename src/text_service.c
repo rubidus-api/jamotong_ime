@@ -570,6 +570,33 @@ static void OnHanjaCancelled(void *ctx) {
     if (obj && obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
 }
 
+// ── 순차 입력의 후보 (RFC-0016 §6.4) ───────────────────────────────────────────────
+//   읽기는 우리 소유 preedit 이고, 고른 결과만 문서로 간다. 늦게 온 선택은 세대가 걸러 낸다.
+static SeqCandidates g_seqCands;          // 지금 띄운 묶음 (입력 스레드 하나가 쓴다)
+// 후보창은 **포인터 배열을 그대로 붙잡아** 그린다(복사하지 않는다) — 창이 살아 있는 동안 같이
+// 살아야 하므로 스택이 아니라 여기 둔다. (실기 2026-09-23: 스택 배열을 넘겨 한 줄만 보였다.)
+static wchar_t *g_seqCandPtrs[SEQ_MAX_CANDS];
+static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
+
+static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
+    (void)str;
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    if (!obj) return;
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    if (layout && layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout) {
+        SeqResult r = SeqKb_Choose(&obj->seqKb, (const SeqLayout*)layout->pSeqLayout, &g_seqCands, index);
+        if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
+    }
+    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+}
+static void OnSeqCandidateCancelled(void *ctx) {
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    if (!obj) return;
+    SeqResult r = SeqKb_CancelCandidates(&obj->seqKb);   // 읽기는 그대로 남는다
+    if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
+    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+}
+
 // 104-key US QWERTY 기준으로 가상 키와 Shift 조합을 통해 영문 Base Char를 가져옵니다.
 static wchar_t GetQwertyChar(WPARAM vk, bool shift) {
     return Layout_QwertyChar((unsigned)vk, shift ? 1 : 0);   // 공유 구현(layout.c) — TSF/IMM 일관
@@ -1026,7 +1053,11 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
             bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             wchar_t qc = GetQwertyChar(wParam, isShift);
-            bool pend = obj->seqKb.pending[0] != L'\0';
+            bool pend = obj->seqKb.pending[0] != L'\0' || SeqKb_Reading(&obj->seqKb)[0] != L'\0';
+            if (sl && sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_Reading(&obj->seqKb)[0]) {
+                if (pfEaten) *pfEaten = TRUE;   // 변환 글쇠 (§6.4)
+                goto tk_done;
+            }
             // 보류가 있으면 글자가 아닌 글쇠(엔터·탭·화살표·사이띄개)도 예측-소비한다 — 그래야
             // OnKeyDown 이 불려 보류를 확정하고, 원래 글쇠를 실제 이벤트로 다시 보낼 수 있다
             // (한글 FSM 의 어절 경계 처리와 같은 규칙, RFC-0008 W0-02).
@@ -1428,11 +1459,32 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         }
         if (sl) {
             SeqResult r;
+            if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_Reading(&obj->seqKb)[0]) {
+                // §6.4: 읽기를 후보로 바꾼다. 후보가 없으면 이 글쇠는 응용의 것이다.
+                if (SeqKb_Convert(&obj->seqKb, sl, &g_seqCands)) {
+                    for (int i = 0; i < g_seqCands.count; i++) g_seqCandPtrs[i] = g_seqCands.items[i];
+                    RECT rc; int x = 0, y = 0, caretTop = 0;
+                    if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom; caretTop = rc.top; }
+                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+                    if (pic) { pic->lpVtbl->AddRef(pic); obj->candCtx.pic = pic; }
+                    CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
+                    if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
+                                          OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
+                        SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
+                        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+                    }
+                    if (pfEaten) *pfEaten = TRUE;
+                }
+                goto kd_done;
+            }
             if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
             else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
             else {
                 wchar_t qc = GetQwertyChar(wParam, isShift);
-                if ((qc < 0x21 || qc > 0x7E) && obj->seqKb.pending[0] && !IsModifierOrLock(wParam)) {
+                if ((qc < 0x21 || qc > 0x7E) && !IsModifierOrLock(wParam)
+                    && (obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0])) {
+                    // 보류한 글자뿐 아니라 **읽기(우리 소유 preedit)** 도 여기서 확정한다 —
+                    // 엔터·탭·화살표에 읽기가 사라지면 안 된다 (실기 2026-09-23에서 발견).
                     // 엔터·탭·화살표·사이띄개처럼 표 밖의 글쇠는 응용의 것이다. 보류를 먼저
                     // 확정하고, 원래 글쇠는 실제 이벤트로 다시 보낸다 (한글 어절 경계와 같은 길 —
                     // 편집세션 삽입이 안 통하는 터미널·방향키도 이 길이라야 제대로 산다).

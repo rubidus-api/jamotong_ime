@@ -649,6 +649,31 @@ OnUnmatched      = flush     # flush (default): type the pending letters. cancel
   is typed into the document first.
 - The dictionary is looked up beside the layout file, then in `%APPDATA%\Jamotong\dicts`, then in
   `%PROGRAMDATA%\Jamotong\dicts`. The name is a plain file name ending in `.jdb`.
+**Readings and candidates (optional).** With a candidate dictionary the letters the engine
+produces are not committed at once: they collect in a reading the IME owns (shown next to the
+caret), and the convert key turns that reading into a candidate list.
+
+```ini
+Dictionary  = romaji-kana.jdb     # keys -> letters
+Candidates  = kana-words.jdb      # a reading -> several candidates
+ConvertKey  = space               # space | tab | hanja | convert | f9
+```
+
+The candidate dictionary source uses `Type = candidates` and repeats the same reading once per
+candidate, in the order you want them offered:
+
+```text
+JamotongData 1
+Type = candidates
+かな	仮名
+かな	金娜
+```
+
+Backspace takes back one letter of the reading, Esc drops it, and switching layouts or leaving the
+window commits the reading as it is — the IME never picks a candidate for you. A choice that
+arrives after the reading changed is dropped. Without `Candidates` nothing changes: the letters go
+straight into the document as before.
+
 **A chord front end (optional).** An input layout may also declare chords. Then the chords decide
 first and only what they produce with `symbol` goes into the engine — the same physical key is
 never consumed twice:

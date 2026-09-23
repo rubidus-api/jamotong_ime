@@ -19,6 +19,9 @@
 //   이름/라이선스 문자열은 값블록 뒤 꼬리에 UTF-16LE 로 붙는다.
 #define JDICT_FORMAT_VERSION 1
 #define JDICT_KIND_SEQUENCE  1
+// 후보 사전 (RFC-0016 §6.4): 읽기 하나에 후보가 여럿이다 — **같은 키가 여러 줄** 올 수 있고,
+// 원본에 적은 차례가 후보의 차례다. 순차 사전과 달리 중복이 오류가 아니다.
+#define JDICT_KIND_CANDIDATES 2
 #define JDICT_MAX_KEY        32    // 친 글자열 (ASCII)
 // 한 사전의 항목 수 한도. 고를 때 파일 전체를 한 번 훑으므로(검사합·차례) 무한정 크면 안 된다 —
 // 50만 항목이면 10MB 안쪽이고 점검이 수십 ms 다.
@@ -68,6 +71,12 @@ bool JDict_Exact(const JDict *d, const wchar_t *key, const jdchar **val, int *va
 int  JDict_CopyValue(const jdchar *val, int valLen, wchar_t *out, int cap);
 // key 로 시작하면서 key 보다 긴 항목이 있는가 (엔진의 "더 기다릴까" 판정).
 bool JDict_HasLonger(const JDict *d, const wchar_t *key);
+// 후보 사전에서 그 읽기의 후보 범위 (first..first+count). 없으면 false.
+//   키는 순차 사전과 달리 ASCII 가 아니어도 된다(가나·한글 읽기).
+bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count);
+// 후보 하나 (JDict_Candidates 가 준 범위 안의 자리).
+bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLen);
+
 // buf 의 앞부분과 맞는 가장 긴 항목. 찾으면 *keyLen 에 그 길이, val/valLen 에 값.
 bool JDict_LongestPrefix(const JDict *d, const wchar_t *buf, int *keyLen,
                          const jdchar **val, int *valLen);
