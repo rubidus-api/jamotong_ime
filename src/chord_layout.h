@@ -29,8 +29,19 @@ typedef enum {
     CA_LAYER_SWITCH,    // 레이어 전환 (계속 유지)
     CA_MOUSE_MOVE,      // 마우스 이동 (p1=dx, p2=dy)
     CA_MOUSE_BTN,       // 버튼: p1=버튼(0 L,1 R,2 M), p2=동작(0 click,1 down,2 up)
-    CA_MOUSE_WHEEL      // 휠: p1=수직량(+위/−아래), p2=수평량
+    CA_MOUSE_WHEEL,     // 휠: p1=수직량(+위/−아래), p2=수평량
+    // ── 3판 포인터 (RFC-0016 §6.5) ──
+    CA_PTR_MOVE,        // pointer move(dx,dy): Hold = 누르는 동안 연속 이동, Chord = 한 번 dx,dy 픽셀
+    CA_PTR_BTN,         // pointer click/down/up/drag-toggle(btn): p1=버튼, p2=0 click 1 down 2 up 3 drag-toggle
+    CA_PTR_WHEEL,       // pointer wheel(dx,dy): Hold = 연속 스크롤, Chord = 한 번 (노치 단위)
+    CA_CANCEL           // cancel actions: 연속 동작 정지·드래그 해제·대기 중 원샷 취소
 } ChordActionType;
+
+// 포인터 속도 프로필 (§6.5) — 가속(px/s^2)·상한(px/s), 휠은 노치/s
+#define CPROF_SLOW   0
+#define CPROF_NORMAL 1
+#define CPROF_FAST   2
+#define CPROF_SCROLL 3
 
 typedef struct {
     unsigned mask;         // 눌린 글쇠 비트마스크
@@ -42,7 +53,8 @@ typedef struct {
     int keyExt;            // CA_KEY 확장키 여부 (화살표·오른쪽 모디파이어·키패드 Enter/÷ 등)
     int mod;               // CA_MOD_ONESHOT 비트마스크 / CA_KEY 시 함께 적용
     int targetLayer;       // CA_LAYER_*
-    int p1, p2;            // 마우스 파라미터
+    int p1, p2;            // 마우스 파라미터 (3판 포인터: move/wheel = dx,dy / btn = 버튼,동작)
+    int prof;              // 3판 포인터 속도 프로필 (CPROF_*)
 } ChordEntry;
 
 // 3판 조합 판정 정책 (RFC-0016 §7.1)
@@ -77,6 +89,15 @@ typedef struct {
     int oneshotLayer;    // -1 없음, 아니면 다음 조합에만 적용할 레이어
     int oneshotMod;      // 대기 중 원샷 모디파이어 비트마스크
     bool pendClosed;     // 3판: 형성 중 조합의 첫 글쇠가 떨어져 조합이 닫혔다 (새 글쇠는 다음 조합)
+    // 3판 연속 포인터 (§6.5): 글쇠마다 제 몫을 기억해 두었다가 그 글쇠를 떼면 그만큼만 뺀다.
+    signed char ptrKeyX[256], ptrKeyY[256];   // 이동 방향 (-1/0/1)
+    signed char whKeyX[256], whKeyY[256];     // 휠 방향
+    unsigned char ptrKeyProf[256], whKeyProf[256];
+    int ptrX, ptrY, whX, whY;                 // 지금 활성 합 (반대 방향은 상쇄)
+    int ptrProf, whProf;                      // 활성 프로필 (가장 빠른 쪽)
+    unsigned long ptrStart, ptrLast, whStart, whLast;
+    int ptrRemX, ptrRemY, whRemX, whRemY;     // 1/1000 픽셀·노치 잔량 (timer 지터·저속 끊김 방지)
+    int dragBtn;                              // drag-toggle 로 누르고 있는 버튼 (-1 없음)
 } ChordKbContext;
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);

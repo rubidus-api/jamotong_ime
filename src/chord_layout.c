@@ -320,7 +320,45 @@ static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int
         e->targetLayer = LayerFindOrAdd(cl, arg);
         return e->targetLayer >= 0 ? PA_OK : PA_BAD;
     }
-    if (!_wcsicmp(t[0], L"mouse")) return ParseAction(cl, e, rhs);   // 2판 마우스 문법 그대로 (포인터 문법은 P6)
+    if (!_wcsicmp(t[0], L"pointer")) {                      // §6.5: pointer move/click/down/up/drag-toggle/wheel
+        if (n < 2 || n > 3) return PA_BAD;
+        e->prof = -1;
+        if (n == 3) {
+            if (!ParenArg(t[2], L"profile", arg, 32)) return PA_BAD;
+            if (!_wcsicmp(arg, L"slow")) e->prof = CPROF_SLOW;
+            else if (!_wcsicmp(arg, L"normal")) e->prof = CPROF_NORMAL;
+            else if (!_wcsicmp(arg, L"fast")) e->prof = CPROF_FAST;
+            else if (!_wcsicmp(arg, L"scroll")) e->prof = CPROF_SCROLL;
+            else return PA_BAD;
+        }
+        if (ParenArg(t[1], L"move", arg, 32) || ParenArg(t[1], L"wheel", arg, 32)) {
+            bool wheel = (towlower(t[1][0]) == L'w');
+            wchar_t *comma = wcschr(arg, L',');
+            if (!comma) return PA_BAD;
+            *comma = L'\0';
+            int dx, dy;
+            if (!StrictInt(arg, -10000, 10000, &dx) || !StrictInt(comma + 1, -10000, 10000, &dy)) return PA_BAD;
+            e->act = wheel ? CA_PTR_WHEEL : CA_PTR_MOVE; e->p1 = dx; e->p2 = dy;
+            if (e->prof < 0) e->prof = wheel ? CPROF_SCROLL : CPROF_NORMAL;
+            return PA_OK;
+        }
+        static const struct { const wchar_t *name; int action; } kActs[] = {
+            { L"click", 0 }, { L"down", 1 }, { L"up", 2 }, { L"drag-toggle", 3 }, { NULL, 0 } };
+        for (int i = 0; kActs[i].name; i++) {
+            if (!ParenArg(t[1], kActs[i].name, arg, 32)) continue;
+            int btn = !_wcsicmp(arg, L"left") ? 0 : !_wcsicmp(arg, L"right") ? 1 : !_wcsicmp(arg, L"middle") ? 2 : -1;
+            if (btn < 0) return PA_BAD;
+            e->act = CA_PTR_BTN; e->p1 = btn; e->p2 = kActs[i].action;
+            return PA_OK;
+        }
+        return PA_BAD;
+    }
+    if (!_wcsicmp(t[0], L"cancel")) {                       // cancel actions
+        if (n != 2 || _wcsicmp(t[1], L"actions")) return PA_BAD;
+        e->act = CA_CANCEL;
+        return PA_OK;
+    }
+    if (!_wcsicmp(t[0], L"mouse")) return ParseAction(cl, e, rhs);   // 2판 마우스 문법 그대로
     return PA_BAD;                                                    // 따옴표 없는 텍스트 등
 }
 
@@ -498,6 +536,7 @@ void ChordKb_Init(ChordKbContext *c) {
     memset(c, 0, sizeof(*c));
     c->momentaryLayer = -1;
     c->oneshotLayer = -1;
+    c->dragBtn = -1;
 }
 
 static int EffLayer(const ChordKbContext *c) {
@@ -512,7 +551,9 @@ static const ChordEntry *FindEntry(const ChordLayout *cl, unsigned mask, int lay
     return NULL;
 }
 // 지속형 hold (임시 레이어/모디파이어 = 누르고 있는 동안 유지). 나머지는 discrete(길게-누름) hold.
-static bool IsSustained(ChordActionType a) { return a == CA_LAYER_ONESHOT || a == CA_MOD_ONESHOT; }
+static bool IsSustained(ChordActionType a) {
+    return a == CA_LAYER_ONESHOT || a == CA_MOD_ONESHOT || a == CA_PTR_MOVE || a == CA_PTR_WHEEL;
+}
 
 // ── SendInput 실행 (모든 합성 입력에 JAMO_SYNTH_MARK 표식) ─────────────────────────
 static void SendMods(int mod, bool down) {
@@ -583,6 +624,63 @@ static void SendMouseWheel(int amt) {
     SendInput(1, &in, sizeof(INPUT));
 }
 
+// ── 3판 연속 포인터 (§6.5) ─────────────────────────────────────────────────────────────────
+//   프로필: {가속, 상한}. 이동은 px/s^2·px/s, 휠은 노치/s^2·노치/s.
+static const struct { int accel, maxv; } kPtrProf[4] = {
+    { 600, 250 },    // slow
+    { 2200, 900 },   // normal
+    { 4000, 1900 },  // fast
+    { 24, 12 },      // scroll (노치)
+};
+#define PTR_TICK_MS 15
+
+static void PtrSendBtn(int btn, bool down) {
+    DWORD dn = (btn==1)?MOUSEEVENTF_RIGHTDOWN : (btn==2)?MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_LEFTDOWN;
+    DWORD up = (btn==1)?MOUSEEVENTF_RIGHTUP   : (btn==2)?MOUSEEVENTF_MIDDLEUP   : MOUSEEVENTF_LEFTUP;
+    INPUT in; memset(&in, 0, sizeof(in));
+    in.type = INPUT_MOUSE; in.mi.dwExtraInfo = JAMO_SYNTH_MARK; in.mi.dwFlags = down ? dn : up;
+    SendInput(1, &in, sizeof(INPUT));
+}
+static void PtrReleaseDrag(ChordKbContext *c) {   // 소유한 드래그만 놓는다 (물리 버튼은 건드리지 않는다)
+    if (c->dragBtn < 0) return;
+    PtrSendBtn(c->dragBtn, false);
+    c->dragBtn = -1;
+}
+static void PtrStopContinuous(ChordKbContext *c) {
+    memset(c->ptrKeyX, 0, sizeof c->ptrKeyX); memset(c->ptrKeyY, 0, sizeof c->ptrKeyY);
+    memset(c->whKeyX, 0, sizeof c->whKeyX);   memset(c->whKeyY, 0, sizeof c->whKeyY);
+    c->ptrX = c->ptrY = c->whX = c->whY = 0;
+    c->ptrRemX = c->ptrRemY = c->whRemX = c->whRemY = 0;
+}
+// 활성 합과 프로필을 글쇠별 몫에서 다시 계산한다 (키를 떼면 그 몫만 빠진다)
+static void PtrRecalc(ChordKbContext *c) {
+    int px = 0, py = 0, wx = 0, wy = 0, pp = -1, wp = -1;
+    for (int k = 0; k < 256; k++) {
+        if (c->ptrKeyX[k] || c->ptrKeyY[k]) {
+            px += c->ptrKeyX[k]; py += c->ptrKeyY[k];
+            if ((int)c->ptrKeyProf[k] > pp) pp = (int)c->ptrKeyProf[k];
+        }
+        if (c->whKeyX[k] || c->whKeyY[k]) {
+            wx += c->whKeyX[k]; wy += c->whKeyY[k];
+            if ((int)c->whKeyProf[k] > wp) wp = (int)c->whKeyProf[k];
+        }
+    }
+    bool wasMoving = (c->ptrX || c->ptrY), wasWheel = (c->whX || c->whY);
+    c->ptrX = px; c->ptrY = py; c->whX = wx; c->whY = wy;
+    c->ptrProf = pp < 0 ? CPROF_NORMAL : pp;
+    c->whProf  = wp < 0 ? CPROF_SCROLL : wp;
+    unsigned long now = g_now();
+    if ((px || py) && !wasMoving) { c->ptrStart = now; c->ptrLast = now; c->ptrRemX = c->ptrRemY = 0; }
+    if ((wx || wy) && !wasWheel)  { c->whStart = now;  c->whLast = now;  c->whRemX = c->whRemY = 0; }
+}
+// 한 번 이동·스크롤 (Chord = tap 일 때)
+static void PtrStep(const ChordEntry *e) {
+    if (e->act == CA_PTR_MOVE) { if (e->p1 || e->p2) SendMouseMove(e->p1, e->p2); return; }
+    if (e->p2) { INPUT in; memset(&in, 0, sizeof in); in.type = INPUT_MOUSE; in.mi.dwExtraInfo = JAMO_SYNTH_MARK;
+                 in.mi.dwFlags = MOUSEEVENTF_HWHEEL; in.mi.mouseData = (DWORD)(e->p2 * WHEEL_DELTA); SendInput(1, &in, sizeof(INPUT)); }
+    if (e->p1) SendMouseWheel(e->p1 * WHEEL_DELTA);
+}
+
 static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry *e) {
     int mods = e->mod | c->oneshotMod;
     switch (e->act) {
@@ -596,11 +694,26 @@ static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry
         case CA_LAYER_ONESHOT: c->oneshotLayer = (e->targetLayer >= 0) ? e->targetLayer : -1; break;
         case CA_LAYER_TOGGLE:  c->curLayer = (c->curLayer == e->targetLayer && e->targetLayer >= 0) ? 0 : (e->targetLayer >= 0 ? e->targetLayer : 0); c->oneshotLayer = -1; break;
         case CA_LAYER_SWITCH:  c->curLayer = (e->targetLayer >= 0) ? e->targetLayer : 0; c->oneshotLayer = -1; break;
+        case CA_PTR_MOVE: case CA_PTR_WHEEL:   // tap 으로 쓰면 한 번 (Hold 면 ConfirmSustainedHold 가 연속으로 건다)
+            PtrStep(e); c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_PTR_BTN:
+            if (e->p2 == 3) {                  // drag-toggle
+                if (c->dragBtn == e->p1) PtrReleaseDrag(c);
+                else { PtrReleaseDrag(c); PtrSendBtn(e->p1, true); c->dragBtn = e->p1; }
+            } else {
+                if (e->p2 != 2) PtrSendBtn(e->p1, true);
+                if (e->p2 != 1) PtrSendBtn(e->p1, false);
+            }
+            c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_CANCEL:
+            PtrStopContinuous(c); PtrReleaseDrag(c);
+            c->oneshotMod = 0; c->oneshotLayer = -1; break;
     }
 }
 
 void ChordKb_ReleaseAll(ChordKbContext *c) {
     if (c->heldMod) SendMods(c->heldMod, false);   // 대상 앱에 Ctrl/Alt 가 눌린 채 남지 않게 (W1-09)
+    PtrReleaseDrag(c);                             // 소유한 드래그도 놓는다 (§6.5 — 포커스 상실·전환에서 정리)
     int keep = c->curLayer;
     ChordKb_Init(c);
     c->curLayer = keep;
@@ -631,6 +744,19 @@ static bool AnyChordCovers(const ChordLayout *cl, unsigned mask, int layer) {
 
 // 지속형 hold 확정: 형성 중 글쇠들을 hold 로 돌리고 레이어/모디파이어를 켠다.
 static void ConfirmSustainedHold(ChordKbContext *c, const ChordEntry *he) {
+    if (he->act == CA_PTR_MOVE || he->act == CA_PTR_WHEEL) {   // 연속 포인터: 이 조합의 글쇠마다 제 몫을 적어 둔다
+        int dx = he->p1 > 0 ? 1 : he->p1 < 0 ? -1 : 0, dy = he->p2 > 0 ? 1 : he->p2 < 0 ? -1 : 0;
+        for (int k = 0; k < 256; k++) {
+            if (c->role[k] != 1) continue;
+            if (he->act == CA_PTR_MOVE) { c->ptrKeyX[k] = (signed char)dx; c->ptrKeyY[k] = (signed char)dy; c->ptrKeyProf[k] = (unsigned char)he->prof; }
+            else { c->whKeyX[k] = (signed char)dx; c->whKeyY[k] = (signed char)dy; c->whKeyProf[k] = (unsigned char)he->prof; }
+        }
+        for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 2;
+        c->holdKeys = c->pendKeys;
+        c->pendMask = 0; c->pendKeys = 0; c->pendClosed = false;
+        PtrRecalc(c);
+        return;
+    }
     if (he->act == CA_LAYER_ONESHOT) {
         if (he->targetLayer >= 0) c->momentaryLayer = he->targetLayer;
     } else {   // CA_MOD_ONESHOT → 모디파이어를 누른 채 유지
@@ -689,6 +815,10 @@ bool ChordKb_KeyUp(ChordKbContext *c, const ChordLayout *cl, UINT vk) {
 
     if (r == 3) return true;   // 3판: 이미 확정된 조합의 남은 글쇠 — 뗌만 소비
     if (r == 2) {   // 지속형 hold 글쇠 해제
+        if (c->ptrKeyX[vk] || c->ptrKeyY[vk] || c->whKeyX[vk] || c->whKeyY[vk]) {   // 연속 포인터 몫 반환
+            c->ptrKeyX[vk] = c->ptrKeyY[vk] = c->whKeyX[vk] = c->whKeyY[vk] = 0;
+            PtrRecalc(c);
+        }
         if (c->holdKeys > 0) c->holdKeys--;
         if (c->holdKeys <= 0) {   // 모든 hold 글쇠 떨어짐 → 임시 레이어/모디파이어 복귀
             if (c->heldMod) { SendMods(c->heldMod, false); c->heldMod = 0; }
@@ -713,6 +843,7 @@ static const ChordEntry *PendingSustainedHold(const ChordKbContext *c, const Cho
     return (he && IsSustained(he->act)) ? he : NULL;
 }
 int ChordKb_NextTickMs(const ChordKbContext *c, const ChordLayout *cl) {
+    if (c->ptrX || c->ptrY || c->whX || c->whY) return PTR_TICK_MS;   // 연속 포인터가 돌고 있다 (§6.5)
     if (!PendingSustainedHold(c, cl)) return 0;
     unsigned long deadline = c->pendTick + (unsigned long)(cl->holdTermMs > cl->comboTermMs ? cl->holdTermMs : cl->comboTermMs) + 1;
     unsigned long now = g_now();
@@ -720,11 +851,50 @@ int ChordKb_NextTickMs(const ChordKbContext *c, const ChordLayout *cl) {
     long ms = (long)(deadline - now);
     return (ms > 60000) ? 60000 : (int)ms;
 }
+// 연속 이동·스크롤 한 틱. 가속은 시작 이후 경과로, 대각선은 정규화(×0.707), 잔량은 1/1000 단위로 누적.
+static bool PtrTick(ChordKbContext *c) {
+    bool did = false;
+    unsigned long now = g_now();
+    if (c->ptrX || c->ptrY) {
+        long el = (long)(now - c->ptrStart), dt = (long)(now - c->ptrLast);
+        if (dt < 0) dt = 0;
+        c->ptrLast = now;
+        long v = (long)kPtrProf[c->ptrProf].accel * el / 1000;
+        if (v > kPtrProf[c->ptrProf].maxv) v = kPtrProf[c->ptrProf].maxv;
+        long step = v * dt;                                   // 1/1000 픽셀
+        if (c->ptrX && c->ptrY) step = step * 707 / 1000;      // 대각선 정규화
+        c->ptrRemX += (int)(step * (c->ptrX > 0 ? 1 : c->ptrX < 0 ? -1 : 0));
+        c->ptrRemY += (int)(step * (c->ptrY > 0 ? 1 : c->ptrY < 0 ? -1 : 0));
+        int px = c->ptrRemX / 1000, py = c->ptrRemY / 1000;
+        if (px || py) { c->ptrRemX -= px * 1000; c->ptrRemY -= py * 1000; SendMouseMove(px, py); did = true; }
+    }
+    if (c->whX || c->whY) {
+        long el = (long)(now - c->whStart), dt = (long)(now - c->whLast);
+        if (dt < 0) dt = 0;
+        c->whLast = now;
+        long v = (long)kPtrProf[c->whProf].accel * el / 1000;
+        if (v > kPtrProf[c->whProf].maxv) v = kPtrProf[c->whProf].maxv;
+        long step = v * dt;                                   // 1/1000 노치
+        c->whRemX += (int)(step * (c->whX > 0 ? 1 : c->whX < 0 ? -1 : 0));
+        c->whRemY += (int)(step * (c->whY > 0 ? 1 : c->whY < 0 ? -1 : 0));
+        int nx = c->whRemX / 1000, ny = c->whRemY / 1000;
+        if (ny) { c->whRemY -= ny * 1000; SendMouseWheel(ny * WHEEL_DELTA); did = true; }
+        if (nx) {
+            c->whRemX -= nx * 1000;
+            INPUT in; memset(&in, 0, sizeof in); in.type = INPUT_MOUSE; in.mi.dwExtraInfo = JAMO_SYNTH_MARK;
+            in.mi.dwFlags = MOUSEEVENTF_HWHEEL; in.mi.mouseData = (DWORD)(nx * WHEEL_DELTA);
+            SendInput(1, &in, sizeof(INPUT)); did = true;
+        }
+    }
+    return did;
+}
+
 bool ChordKb_Tick(ChordKbContext *c, const ChordLayout *cl) {
+    bool moved = PtrTick(c);
     const ChordEntry *he = PendingSustainedHold(c, cl);
-    if (!he) return false;
+    if (!he) return moved;
     unsigned long el = g_now() - c->pendTick;
-    if (el <= (unsigned long)cl->comboTermMs || el < (unsigned long)cl->holdTermMs) return false;
+    if (el <= (unsigned long)cl->comboTermMs || el < (unsigned long)cl->holdTermMs) return moved;
     ConfirmSustainedHold(c, he);
     return true;
 }
