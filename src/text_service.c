@@ -795,7 +795,14 @@ static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult 
     do {
         EditSessionData esd = {0};
         lstrcpynW(esd.committed, p, 121);
-        p += wcslen(esd.committed);
+        size_t take = wcslen(esd.committed);
+        // 나눌 자리가 서로게이트 쌍 가운데면 한 글자 앞으로 당긴다 — 반쪽짜리 코드 단위를 보내면
+        // 그 글자는 문서에서 깨진다 (BMP 밖 글자를 내는 표에서만 나오지만, 나누는 쪽이 책임진다).
+        if (take > 1 && p[take] != L'\0'
+            && esd.committed[take - 1] >= 0xD800 && esd.committed[take - 1] <= 0xDBFF) {
+            esd.committed[--take] = L'\0';
+        }
+        p += take;
         if (!*p) lstrcpynW(esd.composing, r->composing, 128);
         RequestEditSessionData(obj, pic, &esd);
     } while (*p);
@@ -1497,6 +1504,21 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     // 확정하고, 원래 글쇠는 실제 이벤트로 다시 보낸다 (한글 어절 경계와 같은 길 —
                     // 편집세션 삽입이 안 통하는 터미널·방향키도 이 길이라야 제대로 산다).
                     SeqResult fr = SeqKb_Flush(&obj->seqKb, sl);
+                    // 사이띄개만은 **한 번의 삽입**으로 보낸다 (한글 FSM 과 같은 길). 공백은 제어키가
+                    // 아니라 문자라 삽입으로 전달되고, 가장 잦은 경계 글쇠다 — 확정과 공백을 한 편집
+                    // 세션에 넣으면 30ms 재전송과 확정이 경합할 창 자체가 없다. 엔터·탭·방향키는
+                    // 제어키라 앱이 네이티브로 받아야 하므로 지금처럼 재전송한다.
+                    if (wParam == VK_SPACE) {
+                        size_t n = wcslen(fr.committed);
+                        if (n + 2 <= sizeof fr.committed / sizeof fr.committed[0]) {
+                            fr.committed[n] = L' ';
+                            fr.committed[n + 1] = L'\0';
+                            SeqApply(obj, pic, &fr);
+                            if (pfEaten) *pfEaten = TRUE;
+                            goto kd_done;
+                        }
+                        // 자리가 없을 만큼 길면(병적인 표) 예전 길로 — 한 글자도 잃지 않는다
+                    }
                     SeqApply(obj, pic, &fr);
                     ScheduleKeyResend(obj, wParam, lParam);
                     if (pfEaten) *pfEaten = TRUE;

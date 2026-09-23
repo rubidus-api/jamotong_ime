@@ -329,7 +329,23 @@ static bool WriteFileUtf8FromEdit(const wchar_t *path) {
 
 static void SetEditText(const wchar_t *text) {
     g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord);
-    SetWindowTextW(g_hEdit, text ? text : L"");
+    if (!text || !text[0]) { SetWindowTextW(g_hEdit, L""); return; }
+    // EDIT 칸은 **CRLF 만** 줄바꿈으로 본다. `.jmt` 는 LF 로 저장하므로(저장 경로가 \r 을 떼어낸다),
+    // 그대로 넣으면 파일 전체가 한 줄로 보인다 — 예전부터 있던 표시 문제다(D7, 로더는 정상).
+    // 넣을 때만 CRLF 로 펴고, 저장할 때 다시 LF 로 돌아간다.
+    size_t n = wcslen(text), extra = 0;
+    for (size_t i = 0; i < n; i++) if (text[i] == L'\n' && (i == 0 || text[i-1] != L'\r')) extra++;
+    if (extra == 0) { SetWindowTextW(g_hEdit, text); return; }
+    wchar_t *buf = (wchar_t*)malloc((n + extra + 1) * sizeof(wchar_t));
+    if (!buf) { SetWindowTextW(g_hEdit, text); return; }
+    size_t w = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (text[i] == L'\n' && (i == 0 || text[i-1] != L'\r')) buf[w++] = L'\r';
+        buf[w++] = text[i];
+    }
+    buf[w] = L'\0';
+    SetWindowTextW(g_hEdit, buf);
+    free(buf);
 }
 
 static bool BrowseFile(bool save, wchar_t *path, int cch) {
