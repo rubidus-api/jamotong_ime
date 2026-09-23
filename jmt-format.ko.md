@@ -80,6 +80,7 @@ HoldPolicy  = interrupt  # interrupt(다른 키가 홀드를 확정) 또는 time
 Layer num                # 이 줄 뒤의 조합은 num 레이어
 Chord jk = text "the"    # 조합 (글쇠를 모두 뗄 때)
 Hold  jk = momentary layer(num)   # 누르고 있는 동안
+Hold  ;  = oneshot mod(shift)    # 길게 눌러 Shift 를 걸어 두고 떼면 다음 조합에 적용
 Macro 이름 ... EndMacro  # 유한한 동작열: text·key·pointer·wait·with mods(...)/endwith
 ```
 
@@ -111,8 +112,8 @@ Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으�
 | `text "..."` | 정확한 문자열을 문서로 |
 | `symbol "..."` | 엔진으로 보내는 논리 입력 (입력 자판에서만) |
 | `key 이름 [mods(ctrl,shift,alt,gui,lctrl,…)]` | 실제 키 이벤트 |
-| `oneshot mod(x)` / `oneshot layer(x)` | 다음 조합에만 |
-| `momentary mod(x)` / `momentary layer(x)` | 누르고 있는 동안 (`Hold` 전용) |
+| `oneshot mod(x)` / `oneshot layer(x)` | 다음 조합에만. `Hold` 에 붙이면 길게 눌러 걸어 두고, **떼어도** 다음 조합까지 살아 있다 |
+| `momentary mod(x)` / `momentary layer(x)` | 누르고 있는 **동안만** (`Hold` 전용) |
 | `toggle layer(x)` / `switch layer(x)` | 레이어 바꾸기 |
 | `pointer move(dx,dy) [profile(slow\|normal\|fast)]` | 마우스 이동 (`Hold` 면 연속) |
 | `pointer wheel(dx,dy) [profile(scroll)]` | 스크롤 |

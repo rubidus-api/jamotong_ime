@@ -82,6 +82,7 @@ HoldPolicy  = interrupt  # interrupt (another key confirms a hold) or timeout
 Layer num                # chords after this line belong to layer "num"
 Chord jk = text "the"    # a chord (all keys released)
 Hold  jk = momentary layer(num)   # while held
+Hold  ;  = oneshot mod(shift)    # hold to arm Shift for the next chord, then let go
 Macro name ... EndMacro  # a finite sequence: text, key, pointer, wait, with mods(...) / endwith
 ```
 
@@ -115,8 +116,8 @@ twice, and a `symbol` never goes back into the chord recognizer.
 | `text "..."` | exact string, straight to the document |
 | `symbol "..."` | logical input for the engine (input layouts only) |
 | `key NAME [mods(ctrl,shift,alt,gui,lctrl,...)]` | a real key event |
-| `oneshot mod(x)` / `oneshot layer(x)` | applies to the next chord only |
-| `momentary mod(x)` / `momentary layer(x)` | while the keys are held (`Hold` only) |
+| `oneshot mod(x)` / `oneshot layer(x)` | applies to the next chord only; on `Hold` it is armed when the hold fires and stays armed after you let go |
+| `momentary mod(x)` / `momentary layer(x)` | only while the keys are held (`Hold` only) |
 | `toggle layer(x)` / `switch layer(x)` | change the current layer |
 | `pointer move(dx,dy) [profile(slow\|normal\|fast)]` | move the mouse (continuous on `Hold`) |
 | `pointer wheel(dx,dy) [profile(scroll)]` | scroll |

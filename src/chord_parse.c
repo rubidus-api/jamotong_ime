@@ -285,7 +285,9 @@ static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int
     if (!_wcsicmp(t[0], L"oneshot") || !_wcsicmp(t[0], L"momentary")) {
         bool mom = !_wcsicmp(t[0], L"momentary");
         if (n != 2) return PA_BAD;
-        if (mom != (isHold != 0)) return PA_BAD;           // momentary = Hold 전용, oneshot = Chord 전용 (3판 초기)
+        if (mom && !isHold) return PA_BAD;                 // momentary 는 Hold 전용 (뗄 것이 있어야 한다)
+        // oneshot 은 Chord 와 Hold 둘 다 — Hold 에 붙으면 **길게 눌러 걸어 두는** 원샷이다.
+        e->holdOneshot = (!mom && isHold) ? 1 : 0;
         if (ParenArg(t[1], L"mod", arg, 32)) { e->act = CA_MOD_ONESHOT; e->mod = ModNameToBit(arg); return e->mod ? PA_OK : PA_BAD; }
         if (ParenArg(t[1], L"layer", arg, 32)) { e->act = CA_LAYER_ONESHOT; e->targetLayer = LayerFindOrAdd(cl, arg); return e->targetLayer >= 0 ? PA_OK : PA_BAD; }
         return PA_BAD;

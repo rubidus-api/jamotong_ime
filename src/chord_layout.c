@@ -305,9 +305,14 @@ static void ConfirmSustainedHold(ChordKbContext *c, const ChordEntry *he) {
         PtrRecalc(c);
         return;
     }
-    if (he->act == CA_LAYER_ONESHOT) {
+    if (he->holdOneshot) {
+        // 길게 눌러 거는 원샷: 떼어도 **다음 조합 하나**까지 살아 있다. 모디파이어를 실제로 누르지
+        // 않는다 — 조합이 낼 때 그 출력에만 씌운다(조합이 낸 원샷과 같은 자리).
+        if (he->act == CA_LAYER_ONESHOT) { if (he->targetLayer >= 0) c->oneshotLayer = he->targetLayer; }
+        else c->oneshotMod |= he->mod;
+    } else if (he->act == CA_LAYER_ONESHOT) {
         if (he->targetLayer >= 0) c->momentaryLayer = he->targetLayer;
-    } else {   // CA_MOD_ONESHOT → 모디파이어를 누른 채 유지
+    } else {   // momentary mod → 모디파이어를 누른 채 유지
         c->heldMod |= he->mod;
         SendMods(he->mod, true);
     }

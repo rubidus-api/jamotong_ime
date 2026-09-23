@@ -9,12 +9,12 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-0.48.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-0.49.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
-| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-demo-0.48.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
-| Japanese dictionary pack (full) | [jamotong-japanese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-full-0.48.0.zip) — the same, 500,000 entries (~5 MB) |
-| Chinese dictionary pack (demo) | [jamotong-chinese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-demo-0.48.0.zip) — experimental pinyin input, 50,000 entries (~0.5 MB) |
-| Chinese dictionary pack (full) | [jamotong-chinese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-full-0.48.0.zip) — the same, 470,000 entries (~4 MB) |
+| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
+| Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
+| Chinese dictionary pack (demo) | [jamotong-chinese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-chinese-demo-0.49.0.zip) — experimental pinyin input, 50,000 entries (~0.5 MB) |
+| Chinese dictionary pack (full) | [jamotong-chinese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-chinese-full-0.49.0.zip) — the same, 470,000 entries (~4 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -688,6 +688,7 @@ Chord j  = symbol "k"      # logical input for the engine, not a key event
 Chord jk = symbol "a"      # a bigger chord wins
 Chord l  = text "hello"    # text and key actions skip the engine and go out as real input
 Hold j   = momentary layer(num)
+Hold ;   = oneshot mod(shift)   # hold to arm Shift for the next chord, then let go
 ```
 
 A symbol the engine cannot use (no entry starts with it) is typed as it is, so nothing is lost.

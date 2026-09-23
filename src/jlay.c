@@ -128,6 +128,7 @@ static ChordLayout *ReadChordTable(Rd *r) {
         e->vk = GetI32(r); e->keyExt = GetI32(r); e->mod = GetI32(r);
         e->targetLayer = GetI32(r);
         e->p1 = GetI32(r); e->p2 = GetI32(r); e->prof = GetI32(r);
+        e->holdOneshot = GetI32(r);   // 판 4 (Hold 의 원샷) — 판이 다르면 위에서 이미 거절된다
     }
     // 참조 무결성: 매크로 단계·레이어 번호가 실제로 있는 것을 가리켜야 한다
     for (int i = 0; i < macros && !r->bad; i++)

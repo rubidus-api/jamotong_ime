@@ -9,12 +9,12 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-0.48.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-0.49.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
-| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-demo-0.48.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
-| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-japanese-full-0.48.0.zip) — 같은 것, 50만 항목(약 5MB) |
-| 중국어 사전 팩 (시범) | [jamotong-chinese-demo-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-demo-0.48.0.zip) — 시범 병음 입력, 5만 항목(약 0.5MB) |
-| 중국어 사전 팩 (추가) | [jamotong-chinese-full-0.48.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.48.0/jamotong-chinese-full-0.48.0.zip) — 같은 것, 47만 항목(약 4MB) |
+| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
+| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
+| 중국어 사전 팩 (시범) | [jamotong-chinese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-chinese-demo-0.49.0.zip) — 시범 병음 입력, 5만 항목(약 0.5MB) |
+| 중국어 사전 팩 (추가) | [jamotong-chinese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-chinese-full-0.49.0.zip) — 같은 것, 47만 항목(약 4MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -636,6 +636,7 @@ Chord j  = symbol "k"      # 엔진으로 보내는 논리 입력 (키 이벤트
 Chord jk = symbol "a"      # 더 큰 조합이 이긴다
 Chord l  = text "hello"    # text·key 는 엔진을 건너뛰고 실제 입력으로 나간다
 Hold j   = momentary layer(num)
+Hold ;   = oneshot mod(shift)   # 길게 눌러 Shift 를 걸어 두고 떼면 다음 조합에 적용
 ```
 
 엔진이 못 받는 symbol(그 글자로 시작하는 항목이 사전에 없다)은 친 그대로 찍혀 사라지지 않는다.

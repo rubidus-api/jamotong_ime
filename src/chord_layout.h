@@ -76,6 +76,9 @@ typedef struct {
     int keyExt;            // CA_KEY 확장키 여부 (화살표·오른쪽 모디파이어·키패드 Enter/÷ 등)
     int mod;               // CA_MOD_ONESHOT 비트마스크 / CA_KEY 시 함께 적용
     int targetLayer;       // CA_LAYER_*
+    // CA_MOD_ONESHOT·CA_LAYER_ONESHOT 이 `Hold` 에 붙었을 때: 0 = momentary(누르고 있는 동안만),
+    // 1 = oneshot(길게 눌러 걸어 두고, 떼어도 **다음 조합 하나**에 적용된다 — RFC-0016 §6.2).
+    int holdOneshot;
     int p1, p2;            // 마우스 파라미터 (3판 포인터: move/wheel = dx,dy / btn = 버튼,동작)
     int prof;              // 3판 포인터 속도 프로필 (CPROF_*)
 } ChordEntry;

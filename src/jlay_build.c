@@ -95,6 +95,7 @@ static void WriteChord(Buf *b, const ChordLayout *cl) {
         Put32(b, (unsigned)e->vk); Put32(b, (unsigned)e->keyExt); Put32(b, (unsigned)e->mod);
         Put32(b, (unsigned)e->targetLayer);
         Put32(b, (unsigned)e->p1); Put32(b, (unsigned)e->p2); Put32(b, (unsigned)e->prof);
+        Put32(b, (unsigned)e->holdOneshot);   // 판 4: Hold 에 건 원샷인가 (momentary 와 구분)
     }
 }
 static void WriteSeq(Buf *b, const SeqLayout *sl) {
