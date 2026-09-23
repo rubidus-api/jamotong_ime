@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.36.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.36.0/jamotong-0.36.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.43.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.43.0/jamotong-0.43.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
