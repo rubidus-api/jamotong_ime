@@ -224,6 +224,7 @@ static int ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
 
 // ── 3판 동작 (RFC-0016 §4·§6.2, 2026-09-23 오너 "추천대로") ──────────────────────────────────────────
 #define PA_STRING 3   // 문자열 문법 오류 (E-JMT-STRING)
+#define PA_MACRO  4   // 모르는 매크로 이름 (E-JMT-MACRO)
 
 // "…" 문자열: \" \\ \n \t \u{hex}. 잘못된 이스케이프·닫히지 않음·고립 서로게이트·NUL·U+10FFFF 초과는 오류.
 //   *pp 는 여는 따옴표를 가리키고, 성공하면 닫는 따옴표 다음을 가리킨다. out 은 UTF-16.
@@ -353,6 +354,12 @@ static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int
         }
         return PA_BAD;
     }
+    if (!_wcsicmp(t[0], L"macro")) {                        // macro <이름> (§6.6)
+        if (n != 2) return PA_BAD;
+        for (int i = 0; i < cl->macroCount; i++)
+            if (!wcscmp(cl->macros[i].name, t[1])) { e->act = CA_MACRO; e->p1 = i; return PA_OK; }
+        return PA_MACRO;
+    }
     if (!_wcsicmp(t[0], L"cancel")) {                       // cancel actions
         if (n != 2 || _wcsicmp(t[1], L"actions")) return PA_BAD;
         e->act = CA_CANCEL;
@@ -360,6 +367,60 @@ static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int
     }
     if (!_wcsicmp(t[0], L"mouse")) return ParseAction(cl, e, rhs);   // 2판 마우스 문법 그대로
     return PA_BAD;                                                    // 따옴표 없는 텍스트 등
+}
+
+// 매크로 한 단계 파싱 (§6.6). 반환은 PA_*; wait 범위 오류는 PA_MACRO 로 구분한다.
+static int ParseMacroStep(ChordLayout *cl, ChordMacroStep *st, const wchar_t *line, int *withDepth) {
+    const wchar_t *p = SkipWs(line);
+    if (!wcsncmp(p, L"text", 4) && (p[4] == L' ' || p[4] == L'\t' || p[4] == L'"')) {
+        p = SkipWs(p + 4);
+        wchar_t buf[256];
+        if (*p != L'"') return PA_BAD;
+        if (!ParseQuoted(&p, buf, 256)) return PA_STRING;
+        if (!AtEnd(p)) return PA_BAD;
+        size_t len = wcslen(buf);
+        if (cl->macroTextLen + (int)len + 1 > CL_MACRO_TEXT) return PA_TEXT_LONG;
+        st->kind = MS_TEXT; st->textOff = (unsigned short)cl->macroTextLen; st->textLen = (unsigned short)len;
+        wmemcpy(cl->macroText + cl->macroTextLen, buf, len + 1);
+        cl->macroTextLen += (int)len + 1;
+        return PA_OK;
+    }
+    wchar_t t[ACT_MAXTOK][32];
+    int n = ActTokens(p, t);
+    if (n < 1) return PA_BAD;
+    wchar_t arg[32];
+    if (!_wcsicmp(t[0], L"wait")) {
+        int ms;
+        if (n != 2 || !StrictInt(t[1], 1, 2000, &ms)) return PA_MACRO;
+        st->kind = MS_WAIT; st->p1 = ms; return PA_OK;
+    }
+    if (!_wcsicmp(t[0], L"with")) {
+        if (n != 2 || !ParenArg(t[1], L"mods", arg, 32) || *withDepth != 0) return PA_BAD;
+        int mod = 0;
+        for (wchar_t *m = arg; *m; ) {
+            wchar_t *c2 = wcschr(m, L',');
+            if (c2) *c2 = L'\0';
+            int bit = ModNameToBit(m);
+            if (!bit) return PA_BAD;
+            mod |= bit;
+            if (!c2) break;
+            m = c2 + 1;
+        }
+        st->kind = MS_WITH; st->mod = mod; (*withDepth)++; return PA_OK;
+    }
+    if (!_wcsicmp(t[0], L"endwith")) {
+        if (n != 1 || *withDepth != 1) return PA_BAD;
+        st->kind = MS_ENDWITH; (*withDepth)--; return PA_OK;
+    }
+    // key / pointer 는 조합 동작과 같은 문법을 쓴다
+    ChordEntry tmp; memset(&tmp, 0, sizeof tmp); tmp.targetLayer = -1;
+    int rc = ParseActionV3(cl, &tmp, p, 0);
+    if (rc != PA_OK) return rc == PA_STRING ? PA_STRING : PA_BAD;
+    if (tmp.act == CA_KEY) { st->kind = MS_KEY; st->vk = tmp.vk; st->mod = tmp.mod; st->p1 = tmp.keyExt; return PA_OK; }
+    if (tmp.act == CA_PTR_MOVE || tmp.act == CA_PTR_BTN || tmp.act == CA_PTR_WHEEL) {
+        st->kind = MS_PTR; st->vk = (int)tmp.act; st->p1 = tmp.p1; st->p2 = tmp.p2; st->prof = tmp.prof; return PA_OK;
+    }
+    return PA_BAD;   // 매크로 안에서는 레이어·원샷·매크로 호출을 쓰지 않는다 (§6.6: 유한한 동작열)
 }
 
 // 오류를 모두 기록 (RFC-0011 P1) — col 은 1-based.
@@ -395,6 +456,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
     wcscpy_s(cl->layerNames[0], 32, L"base");
     cl->layerCount = 1;
     int curLayer = 0;
+    int inMacro = -1, withDepth = 0, macroLine = 0;   // Macro 블록 (§6.6)
     bool bad = false;   // 잘못된 글쇠/동작 참조 발견 시 파일 전체 거부 (RFC-0004 P1-3)
     // 3판 여부: 줄에서 직접 본다 (진단 없이 불리는 LoadFromFile 경로도 같게). 기본 판정 설정.
     for (int li = 0; li < L->n; li++) {
@@ -434,6 +496,35 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                 if ((unsigned)keys[i] < 128 && b >= 0 && b < 32) cl->keyBit[(int)keys[i]] = b;
                 else { FAIL(col0 + 4 + (int)i, L"E-JMT-RANGE", L"Key: bit out of range (0..31) or non-ASCII key", L"bits 0..31; a key list takes consecutive bits from the start bit"); break; }
             }
+        }
+        else if (cl->v3 && !wcsncmp(p, L"Macro ", 6)) {   // Macro <이름> … EndMacro (§6.6)
+            wchar_t mname[32] = {0};
+            if (swscanf(p + 6, L"%31ls", mname) != 1) { FAIL(col0, L"E-JMT-MACRO", L"Macro needs a name", NULL); continue; }
+            if (inMacro >= 0) { FAIL(col0, L"E-JMT-MACRO", L"a Macro block cannot contain another Macro", NULL); continue; }
+            bool dup = false;
+            for (int i = 0; i < cl->macroCount; i++) if (!wcscmp(cl->macros[i].name, mname)) dup = true;
+            if (dup) { FAIL(col0, L"E-JMT-MACRO", L"this macro name is already used", NULL); continue; }
+            if (cl->macroCount >= CL_MAX_MACROS) { FAIL(col0, L"E-JMT-LIMIT", L"too many macros (max 8)", NULL); continue; }
+            inMacro = cl->macroCount++;
+            wcsncpy(cl->macros[inMacro].name, mname, 31);
+            cl->macros[inMacro].first = cl->stepCount;
+            cl->macros[inMacro].count = 0;
+            withDepth = 0; macroLine = lineno;
+        }
+        else if (cl->v3 && inMacro >= 0 && !_wcsicmp(p, L"EndMacro")) {
+            if (withDepth != 0) FAIL(col0, L"E-JMT-MACRO", L"'with mods(...)' is not closed by 'endwith'", NULL);
+            inMacro = -1;
+        }
+        else if (cl->v3 && inMacro >= 0) {   // 매크로 한 단계
+            if (cl->stepCount >= CL_MAX_STEPS) { FAIL(col0, L"E-JMT-LIMIT", L"too many macro steps (max 128)", NULL); continue; }
+            ChordMacroStep st; memset(&st, 0, sizeof st);
+            int rc = ParseMacroStep(cl, &st, p, &withDepth);
+            if (rc == PA_OK) { cl->steps[cl->stepCount++] = st; cl->macros[inMacro].count++; }
+            else if (rc == PA_STRING) FAIL(col0, L"E-JMT-STRING", L"bad string in a macro step", NULL);
+            else if (rc == PA_TEXT_LONG) FAIL(col0, L"E-JMT-LIMIT", L"macro text pool is full (max 512 characters)", NULL);
+            else if (rc == PA_MACRO) FAIL(col0, L"E-JMT-RANGE", L"wait must be 1..2000 ms", NULL);
+            else FAIL(col0, L"E-JMT-ACTION", L"unknown macro step",
+                      L"steps: text \"...\", key NAME [mods(...)], pointer ..., wait <ms>, with mods(...) / endwith");
         }
         else if (cl->v3 && !wcsncmp(p, L"ComboTermMs", 11)) {   // 3판 판정 설정 (§7.1)
             int v = 0; if (swscanf(p, L"ComboTermMs = %d", &v) != 1 || v < 1 || v > 1000) FAIL(col0, L"E-JMT-RANGE", L"ComboTermMs must be 1..1000", NULL); else cl->comboTermMs = v;
@@ -482,6 +573,9 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
                                           L"same chord defined twice in this file - the first definition is used",
                                           L"remove one of the two lines");
                     }
+                    else if (pr == PA_MACRO)
+                        FAIL(col0, L"E-JMT-MACRO", L"no macro with this name",
+                             L"define it first with 'Macro <name> ... EndMacro'");
                     else if (pr == PA_STRING)
                         FAIL(col0, L"E-JMT-STRING", L"bad string: unterminated, unknown escape, NUL, surrogate or too long",
                              L"write text \"...\" with escapes \\\" \\\\ \\n \\t \\u{hex}");
@@ -499,6 +593,7 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag) {
         else if (KlayHeader_IsKnownKey(p)) { /* 머리부 — 통합 로더가 읽는다 */ }
         else if (Klay_UnknownLine(diag, p, lineno, col0, kChordDirectives)) bad = true;   // v1 경고 / v2 오류 (P2)
     }
+    if (inMacro >= 0) { lineno = macroLine; FAIL(1, L"E-JMT-MACRO", L"Macro block is not closed by 'EndMacro'", NULL); }
     if (diag) diag->curFile = NULL;
     // W2-02: 참조만 되고 조합이 하나도 없는 레이어 = 대개 이름 오타 (layer nmu). 막지는 않고 알린다.
     for (int l = 1; !bad && l < cl->layerCount; l++) {
@@ -537,6 +632,7 @@ void ChordKb_Init(ChordKbContext *c) {
     c->momentaryLayer = -1;
     c->oneshotLayer = -1;
     c->dragBtn = -1;
+    c->macroIdx = -1;
 }
 
 static int EffLayer(const ChordKbContext *c) {
@@ -681,6 +777,46 @@ static void PtrStep(const ChordEntry *e) {
     if (e->p1) SendMouseWheel(e->p1 * WHEEL_DELTA);
 }
 
+// ── 3판 매크로 실행 (§6.6): 막지 않고 틱으로 한 단계씩. 취소는 자기가 누른 수정키만 놓는다 ──
+static void MacroCancel(ChordKbContext *c) {
+    if (c->macroIdx < 0) return;
+    if (c->macroMods) { SendMods(c->macroMods, false); c->macroMods = 0; }
+    c->macroIdx = -1; c->macroStep = 0;
+}
+static void MacroRun(ChordKbContext *c, const ChordLayout *cl) {
+    while (c->macroIdx >= 0) {
+        const ChordMacro *m = &cl->macros[c->macroIdx];
+        if (g_now() - c->macroStart > CL_MACRO_MAX_MS) { MacroCancel(c); return; }   // 전체 시간 상한
+        if (c->macroStep >= m->count) { MacroCancel(c); return; }                    // 끝 (수정키 정리 포함)
+        const ChordMacroStep *st = &cl->steps[m->first + c->macroStep];
+        c->macroStep++;
+        switch (st->kind) {
+            case MS_TEXT: SendText(cl->macroText + st->textOff, 0); break;
+            // with 로 이미 누르고 있는 수정키는 그대로 두고, 이 단계의 mods() 만 씌운다 (이중 누름 금지)
+            case MS_KEY:  SendVKey(st->vk, st->mod, st->p1 != 0); break;
+            case MS_PTR: {
+                ChordEntry e; memset(&e, 0, sizeof e);
+                e.act = (ChordActionType)st->vk; e.p1 = st->p1; e.p2 = st->p2; e.prof = st->prof;
+                if (e.act == CA_PTR_BTN) {
+                    if (e.p2 != 2) PtrSendBtn(e.p1, true);
+                    if (e.p2 != 1) PtrSendBtn(e.p1, false);
+                } else PtrStep(&e);
+                break; }
+            case MS_WITH:    if (st->mod) { c->macroMods |= st->mod; SendMods(st->mod, true); } break;
+            case MS_ENDWITH: if (c->macroMods) { SendMods(c->macroMods, false); c->macroMods = 0; } break;
+            case MS_WAIT:    c->macroResume = g_now() + (unsigned long)st->p1; return;   // 다음 틱에서 이어간다
+            default: break;
+        }
+    }
+}
+static void MacroStart(ChordKbContext *c, const ChordLayout *cl, int idx) {
+    if (idx < 0 || idx >= cl->macroCount) return;
+    MacroCancel(c);                    // 한 번에 하나 (§6.6) — 도는 중이면 먼저 취소한다
+    c->macroIdx = idx; c->macroStep = 0; c->macroMods = 0;
+    c->macroStart = c->macroResume = g_now();
+    MacroRun(c, cl);
+}
+
 static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry *e) {
     int mods = e->mod | c->oneshotMod;
     switch (e->act) {
@@ -706,14 +842,17 @@ static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry
             }
             c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_CANCEL:
-            PtrStopContinuous(c); PtrReleaseDrag(c);
+            PtrStopContinuous(c); PtrReleaseDrag(c); MacroCancel(c);
             c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_MACRO:
+            MacroStart(c, cl, e->p1); c->oneshotMod = 0; c->oneshotLayer = -1; break;
     }
 }
 
 void ChordKb_ReleaseAll(ChordKbContext *c) {
     if (c->heldMod) SendMods(c->heldMod, false);   // 대상 앱에 Ctrl/Alt 가 눌린 채 남지 않게 (W1-09)
     PtrReleaseDrag(c);                             // 소유한 드래그도 놓는다 (§6.5 — 포커스 상실·전환에서 정리)
+    MacroCancel(c);                                // 실행 중 매크로도 취소하고 그 수정키를 놓는다 (§6.6)
     int keep = c->curLayer;
     ChordKb_Init(c);
     c->curLayer = keep;
@@ -782,6 +921,8 @@ bool ChordKb_KeyDown(ChordKbContext *c, const ChordLayout *cl, UINT vk, wchar_t 
     }
 
     unsigned long now = g_now();
+    // 사용자의 일반 키는 매크로를 취소한 뒤 처리한다 (§6.6 — 교차 실행 금지)
+    if (c->macroIdx >= 0) MacroCancel(c);
     // 3판 겹친 세대(rolling): 첫 글쇠가 떨어져 닫힌 조합이 있으면 먼저 확정하고, 남은 글쇠의 뗌은 소비한다 (§7.1).
     if (cl->v3 && c->pendClosed && c->pendMask) {
         for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 3;
@@ -843,6 +984,10 @@ static const ChordEntry *PendingSustainedHold(const ChordKbContext *c, const Cho
     return (he && IsSustained(he->act)) ? he : NULL;
 }
 int ChordKb_NextTickMs(const ChordKbContext *c, const ChordLayout *cl) {
+    if (c->macroIdx >= 0) {                                           // 매크로가 기다리는 중 (§6.6)
+        long ms = (long)(c->macroResume - g_now());
+        return ms <= 0 ? 1 : (ms > 2000 ? 2000 : (int)ms);
+    }
     if (c->ptrX || c->ptrY || c->whX || c->whY) return PTR_TICK_MS;   // 연속 포인터가 돌고 있다 (§6.5)
     if (!PendingSustainedHold(c, cl)) return 0;
     unsigned long deadline = c->pendTick + (unsigned long)(cl->holdTermMs > cl->comboTermMs ? cl->holdTermMs : cl->comboTermMs) + 1;
@@ -891,6 +1036,7 @@ static bool PtrTick(ChordKbContext *c) {
 
 bool ChordKb_Tick(ChordKbContext *c, const ChordLayout *cl) {
     bool moved = PtrTick(c);
+    if (c->macroIdx >= 0 && (long)(g_now() - c->macroResume) >= 0) { MacroRun(c, cl); moved = true; }
     const ChordEntry *he = PendingSustainedHold(c, cl);
     if (!he) return moved;
     unsigned long el = g_now() - c->pendTick;

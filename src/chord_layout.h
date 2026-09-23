@@ -34,8 +34,27 @@ typedef enum {
     CA_PTR_MOVE,        // pointer move(dx,dy): Hold = 누르는 동안 연속 이동, Chord = 한 번 dx,dy 픽셀
     CA_PTR_BTN,         // pointer click/down/up/drag-toggle(btn): p1=버튼, p2=0 click 1 down 2 up 3 drag-toggle
     CA_PTR_WHEEL,       // pointer wheel(dx,dy): Hold = 연속 스크롤, Chord = 한 번 (노치 단위)
-    CA_CANCEL           // cancel actions: 연속 동작 정지·드래그 해제·대기 중 원샷 취소
+    CA_CANCEL,          // cancel actions: 연속 동작 정지·드래그 해제·대기 중 원샷 취소·매크로 취소
+    CA_MACRO            // macro <이름>: 유한한 동작열 실행 (p1 = 매크로 번호)
 } ChordActionType;
+
+// ── 3판 매크로 (RFC-0016 §6.6): 이름 붙인 정적 동작열. 반복·조건·외부 실행은 없다 ──────────
+#define CL_MAX_MACROS   8
+#define CL_MAX_STEPS    128
+#define CL_MACRO_TEXT   512
+#define CL_MACRO_MAX_MS 3000    // 한 번 실행의 전체 시간 상한
+#define MS_TEXT     0
+#define MS_KEY      1
+#define MS_PTR      2           // vk 자리에 CA_PTR_* 를 담는다
+#define MS_WAIT     3           // p1 = ms
+#define MS_WITH     4           // mod = 누를 수정키
+#define MS_ENDWITH  5
+typedef struct {
+    unsigned char kind;
+    int vk, mod, p1, p2, prof;
+    unsigned short textOff, textLen;
+} ChordMacroStep;
+typedef struct { wchar_t name[32]; int first, count; } ChordMacro;
 
 // 포인터 속도 프로필 (§6.5) — 가속(px/s^2)·상한(px/s), 휠은 노치/s
 #define CPROF_SLOW   0
@@ -63,6 +82,10 @@ typedef struct {
 
 typedef struct ChordLayout {
     wchar_t name[64];
+    ChordMacro macros[CL_MAX_MACROS];
+    ChordMacroStep steps[CL_MAX_STEPS];
+    wchar_t macroText[CL_MACRO_TEXT];
+    int macroCount, stepCount, macroTextLen;
     int v3;                          // FormatVersion 3 — 3판 문법·판정 (1·2판은 기존 동작 유지, §7.1)
     int comboTermMs;                 // 3판: 첫 down 뒤 이 시간 안(경계 포함)이면 더 큰 조합을 기다린다
     int holdTermMs;                  // 3판: tap/hold 판정 시간
@@ -98,6 +121,9 @@ typedef struct {
     unsigned long ptrStart, ptrLast, whStart, whLast;
     int ptrRemX, ptrRemY, whRemX, whRemY;     // 1/1000 픽셀·노치 잔량 (timer 지터·저속 끊김 방지)
     int dragBtn;                              // drag-toggle 로 누르고 있는 버튼 (-1 없음)
+    // 3판 매크로 실행 상태 (§6.6): 한 번에 하나, 취소되면 자기가 누른 수정키만 놓는다
+    int macroIdx, macroStep, macroMods;
+    unsigned long macroResume, macroStart;
 } ChordKbContext;
 
 ChordLayout *ChordLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
