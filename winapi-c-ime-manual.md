@@ -3119,7 +3119,7 @@ failure on the third file rolled back the first two, downgrade with the same scr
 | Ghost-key self-heal (§13.5), reset choke point (§13.7) | `src/chord.c`, `src/chord_layout.c`, `ResetComposition` in `text_service.c` |
 | Codepoint input popup (with character name) | `src/code_input.c` |
 | Manager app (`.jmt` editor / validate / settings / TSF-less input test) | `src/tray_app.c` |
-| `.jmt` loaders + parse diagnostics (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
+| `.jmt` loaders + parse diagnostics (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | (dead) IMM32 IME attempt | `src/imm/` |
 
 

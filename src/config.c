@@ -9,6 +9,7 @@
 #include "layout.h"   // KBD_DUBEOL / KBD_SEBEOL
 #include "hangul_layout.h"   // HangulLayout_Free (LAYOUT_TYPE_HANGUL_CUSTOM 소유)
 #include "chord_layout.h"    // ChordLayout_Free (LAYOUT_TYPE_CHORD 소유)
+#include "seq_layout.h"      // SeqLayout_Free (LAYOUT_TYPE_SEQUENCE 소유)
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>   // _wcsdup / free (레이아웃 name·플러그인 리소스 소유권 관리)
@@ -173,6 +174,7 @@ static void Layout_FreeResources(LayoutConfig *L) {
     }
     if (L->pHangulLayout) { HangulLayout_Free((HangulLayout*)L->pHangulLayout); L->pHangulLayout = NULL; }
     if (L->pChordLayout) { ChordLayout_Free((ChordLayout*)L->pChordLayout); L->pChordLayout = NULL; }
+    if (L->pSeqLayout) { SeqLayout_Free((SeqLayout*)L->pSeqLayout); L->pSeqLayout = NULL; }
     if (L->name) { free((void*)L->name); L->name = NULL; }
 }
 static bool Config_HasLayout(const JamotongConfig *cfg, const LayoutConfig *L) {

@@ -2853,7 +2853,7 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 | 유령 키 자가치유 (§13.5)·리셋 진입점 (§13.7) | `src/chord.c`, `src/chord_layout.c`, `text_service.c`의 `ResetComposition` |
 | 코드포인트 입력 팝업 (문자명 표시) | `src/code_input.c` |
 | 관리 앱 (`.jmt` 편집/검증/설정/TSF 없는 입력 테스트) | `src/tray_app.c` |
-| `.jmt` 로더 + 파싱 진단 (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c` |
+| `.jmt` 로더 + 파싱 진단 (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | (사망) IMM32 IME 시도 | `src/imm/` |
 
 

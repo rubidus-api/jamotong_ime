@@ -25,6 +25,7 @@
 #include "chord.h"
 #include "chord_layout.h"
 #include "klay.h"      // Klay_Load + KlayDiag (레이아웃 검증)
+#include "seq_layout.h"   // 순차 변환 자판 시험 (RFC-0016 §6.3)
 #include "settings_ui.h"
 #include "version.h"
 
@@ -128,11 +129,13 @@ static void UpdateStatus(void) {
 static void ResetComp(void) { g_compLen = 0; }
 
 // 자모 결과를 에디트에 반영: 조합 구간을 (commit+preedit)로 치환, 새 조합 구간=preedit(하이라이트).
-static void ApplyResult(wchar_t commit, wchar_t preedit) {
-    wchar_t rep[4]; int n = 0;
-    if (commit) rep[n++] = commit;
-    if (preedit) rep[n++] = preedit;
-    rep[n] = 0;
+// 확정 글자열 + 조합 중 글자열을 시험칸에 반영한다. 한글·정적 자판은 한 글자씩, 순차 변환
+// 자판(RFC-0016 §6.3)은 여러 글자를 한 번에 낸다 — 같은 선택 규칙을 길이로 일반화했다.
+static void ApplyStrings(const wchar_t *commit, const wchar_t *preedit) {
+    wchar_t rep[320];
+    lstrcpynW(rep, commit ? commit : L"", 320);
+    size_t cn = wcslen(rep);
+    if (preedit) lstrcpynW(rep + cn, preedit, (int)(320 - cn));
     if (g_compLen > 0) {
         SendMessageW(g_hTarget, EM_SETSEL, g_compStart, g_compStart + g_compLen);
     } else {
@@ -140,14 +143,20 @@ static void ApplyResult(wchar_t commit, wchar_t preedit) {
         g_compStart = (int)a;
     }
     SendMessageW(g_hTarget, EM_REPLACESEL, TRUE, (LPARAM)rep);
-    g_compStart += (commit ? 1 : 0);
-    g_compLen = preedit ? 1 : 0;
+    g_compStart += (int)cn;
+    g_compLen = preedit ? (int)wcslen(preedit) : 0;
     if (g_compLen > 0) SendMessageW(g_hTarget, EM_SETSEL, g_compStart, g_compStart + g_compLen);
     else { int c = g_compStart; SendMessageW(g_hTarget, EM_SETSEL, c, c); }
+}
+static void ApplyResult(wchar_t commit, wchar_t preedit) {
+    wchar_t c[2] = { commit, 0 }, p[2] = { preedit, 0 };
+    ApplyStrings(c, p);
 }
 
 // 키다운 처리(테스트 모드). true=소비(에디트 기본처리 생략), false=에디트에 위임.
 // 오토마타가 쓸 자판: 시험칸에서 "이 파일로 시험" 중이면 그 파일 자판, 아니면 IME 의 현재 자판.
+static SeqState g_seq;   // 순차 변환 자판의 보류 입력 (시험칸 하네스)
+
 static LayoutConfig *ActiveLayout(void) {
     if (g_hTarget == g_hTry && g_tryFile && g_fileLayout.name) return &g_fileLayout;
     return Config_GetCurrentLayout(&g_config);
@@ -206,6 +215,21 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
                 ApplyResult(Fsm_Flush(&g_fsm), 0); ResetComp();
             }
             return false;
+        }
+        case LAYOUT_TYPE_SEQUENCE: {
+            // 순차 변환(로마자→가나류): 보류 입력은 선택된 글자로 보이고, 표가 맞으면 바뀐다.
+            const SeqLayout *sl = (const SeqLayout*)L->pSeqLayout;
+            if (!sl) return false;
+            SeqResult r;
+            if (vk == VK_BACK)        r = SeqKb_Backspace(&g_seq, sl);
+            else if (vk == VK_ESCAPE) r = SeqKb_Cancel(&g_seq);
+            else {
+                wchar_t kc = GetQwertyChar(vk, shift);
+                if (!kc) return false;
+                r = SeqKb_Key(&g_seq, sl, kc);
+            }
+            if (r.committed[0] || r.eaten) ApplyStrings(r.committed, r.composing);
+            return r.eaten;
         }
         case LAYOUT_TYPE_CHORD:
             return false;   // ARTSEY류 SendInput 기반 — 하네스 미지원
@@ -348,7 +372,9 @@ static bool CheckEditor(LayoutConfig *keep, bool show, const wchar_t *title) {
     static wchar_t body[6144], msg[6400];
     Klay_DiagFormat(&diag, fname, body, 6144);
     if (ok) {
-        const wchar_t *type = lc.type == LAYOUT_TYPE_STATIC_MAP ? L"static" : lc.type == LAYOUT_TYPE_CHORD ? L"chord" : L"hangul";
+        const wchar_t *type = lc.type == LAYOUT_TYPE_STATIC_MAP ? L"static"
+                            : lc.type == LAYOUT_TYPE_CHORD ? L"chord"
+                            : lc.type == LAYOUT_TYPE_SEQUENCE ? L"sequence input" : L"hangul";
         _snwprintf(msg, 6400, L"OK - loads as a valid %ls layout.\nName: %ls%ls%ls\n\n%ls",
                    type, lc.name ? lc.name : L"?", meta.version[0] ? L"   Version: " : L"", meta.version, body);
         msg[6399] = L'\0';
@@ -388,7 +414,7 @@ static void TryThisFile(void) {
     _snwprintf(lbl, 80, L"Try [%ls]:", lc.name ? lc.name : L"file"); lbl[79] = L'\0';
     SetWindowTextW(g_hTryLabel, lbl);
     SetWindowTextW(g_hTry, L"");
-    g_hTarget = g_hTry; g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord);
+    g_hTarget = g_hTry; g_compLen = 0; Fsm_Init(&g_fsm); Chord_Init(&g_chord); SeqKb_Init(&g_seq);
     SetFocus(g_hTry);
 }
 

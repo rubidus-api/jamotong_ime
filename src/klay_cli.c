@@ -3,6 +3,7 @@
 #include "klay.h"
 #include "hangul_layout.h"
 #include "chord_layout.h"
+#include "seq_layout.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,7 @@ static const wchar_t *TypeName(int t) {
         case LAYOUT_TYPE_STATIC_MAP: return L"static";
         case LAYOUT_TYPE_PASSTHROUGH: return L"static";   // Identity = passthrough
         case LAYOUT_TYPE_CHORD: return L"chord";
+        case LAYOUT_TYPE_SEQUENCE: return L"input";   // 3판 공통 표면 + Engine = sequence
         default: return L"hangul";
     }
 }
@@ -50,9 +52,27 @@ static void W(WBuf *b, const wchar_t *fmt, ...) {
     va_end(ap);
     if (n > 0) b->o += (size_t)n;
 }
+// 3판 문자열 리터럴로 (RFC-0016 §6.2): ASCII 는 그대로, 그 밖은 \u{...} 로 적어 파일이 ASCII 로 남게.
+static void QuoteStr(const wchar_t *s, wchar_t *o, size_t cch) {
+    size_t k = 0;
+    if (cch < 4) { if (cch) o[0] = L'\0'; return; }
+    o[k++] = L'"';
+    for (; *s && k + 12 < cch; s++) {
+        if (*s == L'"' || *s == L'\\') { o[k++] = L'\\'; o[k++] = *s; }
+        else if (*s == L'\n') { o[k++] = L'\\'; o[k++] = L'n'; }
+        else if (*s == L'\t') { o[k++] = L'\\'; o[k++] = L't'; }
+        else if (*s >= 0x20 && *s < 0x7F) o[k++] = *s;
+        else k += (size_t)swprintf(o + k, cch - k, L"\\u{%04X}", (unsigned)*s);
+    }
+    o[k++] = L'"';
+    o[k] = L'\0';
+}
+
 static void WriteHeader(WBuf *b, const LayoutConfig *lc, const KlayMeta *m) {
     W(b, L"# written by jamotong --expand/--export (canonical form: comments and order are not kept)\n");
-    W(b, L"FormatVersion = 2\nType = %ls\n", TypeName(lc->type));
+    // 판은 원본의 것을 지킨다 — 3판 문법(문자열 동작·순차 표)을 2판으로 적으면 못 읽는 파일이 된다.
+    W(b, L"FormatVersion = %d\nType = %ls\n", m->formatVersion >= 2 ? m->formatVersion : 2, TypeName(lc->type));
+    if (lc->type == LAYOUT_TYPE_SEQUENCE) W(b, L"Engine = sequence\n");
     if (m->id[0]) W(b, L"Id = %ls\n", m->id);
     W(b, L"Name = %ls\n", lc->name ? lc->name : L"layout");
     if (lc->abbrev[0]) W(b, L"Abbrev = %ls\n", lc->abbrev);
@@ -84,6 +104,17 @@ static bool WriteCanonical(const wchar_t *src, const LayoutConfig *lc, const Kla
     if (lc->type == LAYOUT_TYPE_STATIC_MAP) {
         for (int c = 33; c < 256; c++)
             if (lc->charMap[c] != (wchar_t)c && lc->charMap[c] > L' ') W(b, L"Map %lc = %lc\n", (wchar_t)c, lc->charMap[c]);
+        return true;
+    }
+    if (lc->type == LAYOUT_TYPE_SEQUENCE) {
+        const SeqLayout *sl = (const SeqLayout*)lc->pSeqLayout;
+        if (sl->onUnmatched == SEQ_UNMATCHED_CANCEL) W(b, L"OnUnmatched = cancel\n");
+        for (int i = 0; i < sl->count; i++) {
+            wchar_t in[64], out[160];
+            QuoteStr(sl->v[i].in, in, 64);
+            QuoteStr(sl->v[i].out, out, 160);
+            W(b, L"Sequence %ls = emit %ls\n", in, out);
+        }
         return true;
     }
     // chord: 동작 표를 다시 글로 옮기는 대신, Extends/Include 를 편 원문 줄을 쓴다(자립 파일).

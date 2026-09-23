@@ -520,6 +520,43 @@ Chord j   = text "1"
 - 3판에서는 따옴표 없는 문자열, 동작 뒤의 여분 낱말, 한 파일 안의 같은 조합 두 번이 오류다. 마우스 동작은 2판과 같은
   낱말을 쓴다.
 
+#### 순차 입력 (형식 3판)
+
+**순차 변환 자판**은 친 글쇠의 *열*을 다른 글자로 바꾼다 — 로마자를 가나로 바꾸는 식이다. 사전이
+아니며 후보창도 없다. 파일에 적은 표가 전부다. `Type = input` 으로 적고 `Engine = sequence` 로
+엔진을 고른다.
+
+```ini
+FormatVersion    = 3
+Type             = input
+Engine           = sequence
+RequiresJamotong = 0.37.0
+Name             = romaji kana
+Abbrev           = KANA
+OnUnmatched      = flush     # flush(기본): 보류한 글자를 그대로 친다. cancel: 버린다
+
+Sequence "a"   = emit "\u{3042}"
+Sequence "ka"  = emit "\u{304B}"
+Sequence "ki"  = emit "\u{304D}"
+Sequence "ko"  = emit "\u{3053}"
+Sequence "n"   = emit "\u{3093}"
+Sequence "na"  = emit "\u{306A}"
+Sequence "ni"  = emit "\u{306B}"
+Sequence "chi" = emit "\u{3061}"
+Sequence "ha"  = emit "\u{306F}"
+```
+
+- **최장 일치가 이긴다.** 표에 `n`·`na`·`ni` 가 있으면 `n` 은 기다린다. `ni` 는 に 가 되고, `nk` 는
+  ん 을 확정한 뒤 `k` 로 다시 시작한다. `konnichiha` 를 치면 こんにちは 가 된다.
+- **보류한 글자는 보여줄 뿐 넣지 않는다.** 캐럿 옆 미리보기 칩에 뜨고(관리 앱 시험칸에서는 선택된
+  글자로), 판정이 끝나야 문서로 들어간다.
+- **백스페이스**는 보류한 글자 하나를 되돌린다. 이미 문서에 들어간 글자는 건드리지 않는다. **Esc**
+  는 보류를 버린다. 자판을 바꾸거나 창을 떠나면 보류한 것을 친 그대로 확정한다.
+- **사이띄개·엔터·탭은 응용의 것이다.** 보류가 있었으면 먼저 확정하고 넘긴다.
+- 입력 쪽은 볼 수 있는 ASCII 글자 8자까지, `emit` 은 16자까지이며 문자열 표기는 조합 자판과 같다.
+  한 표에 512개까지 적을 수 있다. 한 파일 안의 같은 입력 두 번은 오류이고, `Extends` 로 물려받은
+  자판의 순서는 파생 파일이 덮어쓸 수 있다.
+
 ## 삭제 (언인스톨)
 
 1. `uninstall.bat` 을 관리자 권한으로 실행한다 — zip 안의 것이든 `C:\Program Files\Jamotong` 안의 사본이든.

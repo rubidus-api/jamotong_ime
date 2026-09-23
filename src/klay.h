@@ -53,6 +53,10 @@ bool Klay_UnknownLine(KlayDiag *d, const wchar_t *line, int lineno, int col, con
 bool Klay_ParseKeyHead(const wchar_t *p, wchar_t *out, size_t cch, const wchar_t **specPos,
                        KlayDiag *d, int lineno, int col0);
 
+// "…" 문자열 (3판, RFC-0016 §6.2): \" \\ \n \t \u{hex}. 조합·순차 자판이 함께 쓴다.
+//   *pp 는 여는 따옴표를 가리키고, 성공하면 닫는 따옴표 다음을 가리킨다. out 은 UTF-16.
+bool Klay_ParseQuoted(const wchar_t **pp, wchar_t *out, size_t cap);
+
 // "a.b.c" 판 비교 (-1/0/1). 모자란 자리는 0.
 int Klay_CompareVersion(const wchar_t *a, const wchar_t *b);
 
@@ -77,6 +81,8 @@ bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *wh
 //   Type = static   1:1 문자 리맵 (드보락류)          → LAYOUT_TYPE_STATIC_MAP (charMap)
 //   Type = hangul   세벌식 계열 한글 (초/중/종성·결합) → LAYOUT_TYPE_HANGUL_CUSTOM (기본값)
 //   Type = chord    조합→동작 (ARTSEY류·레이어·마우스) → LAYOUT_TYPE_CHORD
+//   Type = input    3판 공통 표면. `Engine =` 이 엔진을 고른다:
+//                   Engine = sequence  글자열 변환 (로마자→가나류) → LAYOUT_TYPE_SEQUENCE
 // 성공 시 out(LayoutConfig)을 채우고 true. name/리소스는 live config가 소유(Config_Free가 해제).
 // diag(NULL 허용): 진단을 모은다(경고 포함). meta(NULL 허용): 머리부 메타데이터.
 bool Klay_Load(const wchar_t *path, LayoutConfig *out, KlayDiag *diag);

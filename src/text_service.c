@@ -224,6 +224,14 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
                 wcscpy(esd.committed, pRes.wszCommitted);
                 RequestEditSessionData(obj, pic, &esd);
             }
+        } else if (cur && cur->type == LAYOUT_TYPE_SEQUENCE) {
+            // 순차 변환: 보류한 입력을 잃지 않도록 리터럴로 확정한다 (RFC-0016 §6.3)
+            SeqResult r = SeqKb_Flush(&obj->seqKb, (const SeqLayout*)cur->pSeqLayout);
+            if (r.committed[0]) {
+                EditSessionData esd = {0};
+                lstrcpynW(esd.committed, r.committed, 128);
+                RequestEditSessionData(obj, pic, &esd);
+            }
         } else if (obj->fsm.state != STATE_EMPTY) {
             FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
             OutputResultSeq(obj, pic, res, TRUE);   // 키 이벤트 안 — 동기 세션 허용
@@ -233,6 +241,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
     }
     Jamotong_ChordTimerCancel(obj);      // 조합 판정 타이머도 함께 (경계에서 늦은 콜백 금지)
     ChordKb_ReleaseAll(&obj->chordKb);   // 합성 Ctrl/Alt 가 대상 앱에 눌린 채 남지 않게 (W1-09 후반)
+    SeqKb_Init(&obj->seqKb);             // 순차 변환의 보류 입력도 경계에서 비운다
     ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상 정리
     CodeInput_Hide();
     CandidateUI_Cancel();                // 콜백 경유로 pic 참조까지 정리
@@ -736,6 +745,22 @@ static void ScheduleChordTick(JamotongTextService *obj) {
     if (!g_chordTimer) g_chordTimerOwner = NULL;
 }
 
+// 순차 변환 자판(RFC-0016 §6.3)의 결과를 문서에 넣는다. 플러그인 자판과 같은 모양이다:
+//   확정 글자는 삽입하고, 아직 보류 중인 입력은 문서가 아니라 캐럿 옆 미리보기 칩으로만 보여준다.
+static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r) {
+    if (!pic) return;
+    EditSessionData esd = {0};
+    lstrcpynW(esd.committed, r->committed, 128);
+    lstrcpynW(esd.composing, r->composing, 128);
+    RequestEditSessionData(obj, pic, &esd);
+    RECT rc;
+    if (obj->config.options.showPreview && r->composing[0] && GetCaretScreenRect(obj, &rc))
+        PreeditOverlay_Show(&rc, r->composing, obj->config.options.previewFont,
+                            obj->config.options.previewFontSize);
+    else
+        PreeditOverlay_Hide();
+}
+
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
 bool Jamotong_HasPendingTimers(void) { return g_pendResendTimer != 0 || g_chordTimer != 0; }
 
@@ -953,6 +978,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
                 jt = hl ? hl->keymap[(int)qc].type : Layout_MapKeyToJamo(qc, layout->kbdVariant).type;
             if (jt != JAMO_NONE) {
                 if (pfEaten) *pfEaten = TRUE;   // 자모 키만 소비 (자판별로 판정)
+            }
+        } else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
+            const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+            bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            wchar_t qc = GetQwertyChar(wParam, isShift);
+            bool pend = obj->seqKb.pending[0] != L'\0';
+            if (SeqKb_WouldEat(&obj->seqKb, sl, qc) || (pend && (wParam == VK_BACK || wParam == VK_ESCAPE))) {
+                if (pfEaten) *pfEaten = TRUE;
             }
         } else if (layout && layout->type == LAYOUT_TYPE_CHORD) {
             const ChordLayout *cl = (const ChordLayout*)layout->pChordLayout;
@@ -1328,6 +1361,24 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                                     obj->config.options.previewFontSize);
             else
                 PreeditOverlay_Hide();
+        }
+        goto kd_done;
+    }
+
+    if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
+        // 순차 변환 자판: 친 글자열을 표대로 바꾼다 (로마자→가나류). 보류는 미리보기로만 보인다.
+        const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        if (sl) {
+            SeqResult r;
+            if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
+            else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
+            else {
+                wchar_t qc = GetQwertyChar(wParam, isShift);
+                if (!qc) goto kd_done;
+                r = SeqKb_Key(&obj->seqKb, sl, qc);
+            }
+            if (r.committed[0] || r.eaten) SeqApply(obj, pic, &r);
+            if (r.eaten && pfEaten) *pfEaten = TRUE;
         }
         goto kd_done;
     }
@@ -1808,6 +1859,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     // RFC-0008 W0-02: 보류 중인 경계키 재전송을 지금 방출하고 타이머를 끈다.
     FlushPendingKeyResend(obj);
     Jamotong_ChordTimerCancel(obj);   // 3판 조합 판정 타이머 (§7.1) — 해제된 코드로 콜백이 들어오지 않게
+    SeqKb_Init(&obj->seqKb);          // 순차 변환의 보류 입력 (재활성 뒤 유령 입력 방지)
     UiCandHide(obj);   // RFC-0015: 헬퍼에 띄워 둔 후보창도 함께 내린다
     UiCodeHide(obj);
 

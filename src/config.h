@@ -47,7 +47,8 @@ typedef enum {
     LAYOUT_TYPE_STATIC_MAP = 2, // .jamo 1:1 텍스트 매핑 자판
     LAYOUT_TYPE_DLL_PLUGIN = 3, // .dll 외부 라이브러리 엔진
     LAYOUT_TYPE_HANGUL_CUSTOM = 4, // .jmt 설정파일 기반 사용자 한글 자판(세벌식 계열·결합규칙)
-    LAYOUT_TYPE_CHORD = 5       // .cord 설정파일 기반 일반 코드 자판(ARTSEY류 조합→출력)
+    LAYOUT_TYPE_CHORD = 5,      // .cord 설정파일 기반 일반 코드 자판(ARTSEY류 조합→출력)
+    LAYOUT_TYPE_SEQUENCE = 6    // .jmt 3판 `Type = input`+`Engine = sequence` 순차 변환(로마자→가나류)
 } LayoutType;
 
 // 레이아웃 메타데이터
@@ -65,6 +66,8 @@ typedef struct {
     void* pHangulLayout;
     // LAYOUT_TYPE_CHORD용 로드된 코드 자판 (ChordLayout*). live config가 소유.
     void* pChordLayout;
+    // LAYOUT_TYPE_SEQUENCE용 로드된 순차 변환표 (SeqLayout*). live config가 소유.
+    void* pSeqLayout;
 
     // LAYOUT_TYPE_DLL_PLUGIN용 함수 포인터 및 컨텍스트
     HMODULE hPluginModule;

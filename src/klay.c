@@ -2,6 +2,7 @@
 #include "layout.h"          // KBD_SEBEOL
 #include "hangul_layout.h"
 #include "chord_layout.h"
+#include "seq_layout.h"
 #include "version.h"   // RequiresJamotong 비교
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 //   full=false(DLL 로드 경로)면 본문 지시문을 만나는 곳에서 멈춘다 — 머리부는 앞에 둔다는 약속.
 typedef struct { int lnFv, lnReq, lnAbbrev; } HeaderLines;
 static bool IsBodyDirective(const wchar_t *p) {
-    static const wchar_t *const k[] = { L"Key ", L"Map ", L"Combine ", L"Chord ", L"Hold ", L"Layer ", L"Begin ", NULL };
+    static const wchar_t *const k[] = { L"Key ", L"Map ", L"Combine ", L"Chord ", L"Hold ", L"Layer ", L"Begin ", L"Sequence ", NULL };
     for (int i = 0; k[i]; i++) if (!wcsncmp(p, k[i], wcslen(k[i]))) return true;
     return false;
 }
@@ -19,9 +20,9 @@ static void TrimTail(wchar_t *s) {
     size_t n = wcslen(s);
     while (n > 0 && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
-static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *abbrev, KlayMeta *m, HeaderLines *ln) {
+static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *engine, wchar_t *abbrev, KlayMeta *m, HeaderLines *ln) {
     // 줄 목록 전체를 훑고 뒤가 이긴다 — 기반 자판(Extends) 줄이 앞, 자기 줄이 뒤다 (RFC-0011 P4).
-    type[0] = L'\0'; abbrev[0] = L'\0';
+    type[0] = L'\0'; engine[0] = L'\0'; abbrev[0] = L'\0';
     for (int i = 0; i < L->n; i++) {
         wchar_t line[256];
         lstrcpynW(line, L->v[i].text, 256);
@@ -36,6 +37,7 @@ static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *abbrev, KlayMeta
         const int lineno = L->v[i].line;
         const bool top = (L->v[i].file == 0);   // 최상위 파일 — 신원·저작 정보는 여기서만 (기반의 것을 물려받지 않는다)
         if      (!wcscmp(key, L"Type"))             lstrcpynW(type, v, 32);
+        else if (!wcscmp(key, L"Engine"))           lstrcpynW(engine, v, 32);
         else if (!wcscmp(key, L"Abbrev"))           { lstrcpynW(abbrev, v, 16); if (top) ln->lnAbbrev = lineno; }
         else if (!top) {
             // 기반 자판이 더 높은 판을 요구하면 그 요구는 파생에도 걸린다
@@ -54,6 +56,45 @@ static void Prescan(const KlayLines *L, wchar_t *type, wchar_t *abbrev, KlayMeta
     }
 }
 
+// "…" 문자열: \" \\ \n \t \u{hex}. 잘못된 이스케이프·닫히지 않음·고립 서로게이트·NUL·U+10FFFF 초과는 오류.
+//   *pp 는 여는 따옴표를 가리키고, 성공하면 닫는 따옴표 다음을 가리킨다. out 은 UTF-16.
+bool Klay_ParseQuoted(const wchar_t **pp, wchar_t *out, size_t cap) {
+    const wchar_t *p = *pp;
+    if (*p != L'"') return false;
+    p++;
+    size_t n = 0;
+    for (;;) {
+        wchar_t ch = *p;
+        if (ch == L'\0' || ch == L'\n' || ch == L'\r') return false;       // 닫히지 않음
+        if (ch == L'"') { p++; break; }
+        unsigned long cp;
+        if (ch == L'\\') {
+            wchar_t e2 = p[1];
+            if (e2 == L'"' || e2 == L'\\') { cp = e2; p += 2; }
+            else if (e2 == L'n') { cp = L'\n'; p += 2; }
+            else if (e2 == L't') { cp = L'\t'; p += 2; }
+            else if (e2 == L'u' && p[2] == L'{') {
+                const wchar_t *q = p + 3; cp = 0; int digits = 0;
+                while (digits < 7 && ((*q >= L'0' && *q <= L'9') || (*q >= L'a' && *q <= L'f') || (*q >= L'A' && *q <= L'F'))) {
+                    cp = cp * 16 + (unsigned long)(*q <= L'9' ? *q - L'0' : (*q | 0x20) - L'a' + 10); q++; digits++;
+                }
+                if (!digits || *q != L'}') return false;
+                p = q + 1;
+            } else return false;                                              // 모르는 이스케이프
+        } else { cp = (unsigned long)ch; p++; }
+        if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        if (cp >= 0x10000) {
+            if (n + 2 >= cap) return false;
+            cp -= 0x10000; out[n++] = (wchar_t)(0xD800 + (cp >> 10)); out[n++] = (wchar_t)(0xDC00 + (cp & 0x3FF));
+        } else {
+            if (n + 1 >= cap) return false;
+            out[n++] = (wchar_t)cp;
+        }
+    }
+    out[n] = L'\0';
+    *pp = p;
+    return n > 0;
+}
 static const wchar_t *const kStaticDirectives[] = { L"Map", L"Identity", NULL };
 
 static bool LoadStatic(const KlayLines *L, LayoutConfig *out, KlayDiag *diag) {
@@ -135,11 +176,11 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
     KlayDiag_Init(diag);
     KlayMeta m; memset(&m, 0, sizeof(m)); m.formatVersion = 1;
     HeaderLines hl0 = {0};
-    wchar_t type[32] = L"", abbrev[16] = L"";
+    wchar_t type[32] = L"", engine[32] = L"", abbrev[16] = L"";
     memset(out, 0, sizeof(*out));
     KlayLines L;   // 파일을 한 번 읽고 Extends/Include 를 푼다 (RFC-0011 P4)
     if (!KlayLines_Build(&L, path, diag)) { KlayLines_Free(&L); return false; }
-    Prescan(&L, type, abbrev, &m, &hl0);
+    Prescan(&L, type, engine, abbrev, &m, &hl0);
     if (m.formatVersion < 1) m.formatVersion = 1;
     diag->formatVersion = m.formatVersion;
     if (meta) *meta = m;
@@ -173,14 +214,33 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
                      L"use 1 to 4 characters");
 
     bool ok = false;
-    if (type[0] && _wcsicmp(type, L"static") && _wcsicmp(type, L"chord") && _wcsicmp(type, L"hangul")) {
+    const bool isInput = !_wcsicmp(type, L"input") && m.formatVersion >= 3;   // 3판 공통 표면 (RFC-0016 §6.3)
+    if (type[0] && !isInput && _wcsicmp(type, L"static") && _wcsicmp(type, L"chord") && _wcsicmp(type, L"hangul")) {
         // RFC-0008 W2-02: 예전엔 모르는 Type 이 조용히 hangul 로 읽혔다
         wchar_t msg[160]; swprintf(msg, 160, L"unknown Type '%ls'", type);
-        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-TYPE-UNKNOWN", msg, L"Type must be static, hangul or chord");
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-TYPE-UNKNOWN", msg,
+                     m.formatVersion >= 3 ? L"Type must be static, hangul, chord or input"
+                                          : L"Type must be static, hangul or chord");
         KlayLines_Free(&L);
         return false;
     }
-    if (!_wcsicmp(type, L"static")) {
+    if (isInput && _wcsicmp(engine, L"sequence")) {
+        // `Type = input` 은 엔진을 반드시 고른다 — 빠지면 조용히 다른 엔진으로 읽힐 자리다.
+        wchar_t msg[160];
+        if (engine[0]) swprintf(msg, 160, L"this Jamotong does not have the input engine '%ls'", engine);
+        else wcscpy(msg, L"'Type = input' must say which engine it uses");
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-ENGINE", msg, L"add 'Engine = sequence'");
+        KlayLines_Free(&L);
+        return false;
+    }
+    if (isInput) {
+        SeqLayout *sl = SeqLayout_LoadFromLines(&L, diag);
+        if (sl) {
+            out->type = LAYOUT_TYPE_SEQUENCE; out->pSeqLayout = sl;
+            out->name = _wcsdup(sl->name[0] ? sl->name : L"sequence");
+            if (out->name) ok = true; else SeqLayout_Free(sl);
+        }
+    } else if (!_wcsicmp(type, L"static")) {
         ok = LoadStatic(&L, out, diag);
     } else if (!_wcsicmp(type, L"chord")) {
         ChordLayout *cl = ChordLayout_LoadFromLines(&L, diag);

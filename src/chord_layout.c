@@ -226,45 +226,6 @@ static int ParseAction(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs) {
 #define PA_STRING 3   // 문자열 문법 오류 (E-JMT-STRING)
 #define PA_MACRO  4   // 모르는 매크로 이름 (E-JMT-MACRO)
 
-// "…" 문자열: \" \\ \n \t \u{hex}. 잘못된 이스케이프·닫히지 않음·고립 서로게이트·NUL·U+10FFFF 초과는 오류.
-//   *pp 는 여는 따옴표를 가리키고, 성공하면 닫는 따옴표 다음을 가리킨다. out 은 UTF-16.
-static bool ParseQuoted(const wchar_t **pp, wchar_t *out, size_t cap) {
-    const wchar_t *p = *pp;
-    if (*p != L'"') return false;
-    p++;
-    size_t n = 0;
-    for (;;) {
-        wchar_t ch = *p;
-        if (ch == L'\0' || ch == L'\n' || ch == L'\r') return false;       // 닫히지 않음
-        if (ch == L'"') { p++; break; }
-        unsigned long cp;
-        if (ch == L'\\') {
-            wchar_t e2 = p[1];
-            if (e2 == L'"' || e2 == L'\\') { cp = e2; p += 2; }
-            else if (e2 == L'n') { cp = L'\n'; p += 2; }
-            else if (e2 == L't') { cp = L'\t'; p += 2; }
-            else if (e2 == L'u' && p[2] == L'{') {
-                const wchar_t *q = p + 3; cp = 0; int digits = 0;
-                while (digits < 7 && ((*q >= L'0' && *q <= L'9') || (*q >= L'a' && *q <= L'f') || (*q >= L'A' && *q <= L'F'))) {
-                    cp = cp * 16 + (unsigned long)(*q <= L'9' ? *q - L'0' : (*q | 0x20) - L'a' + 10); q++; digits++;
-                }
-                if (!digits || *q != L'}') return false;
-                p = q + 1;
-            } else return false;                                              // 모르는 이스케이프
-        } else { cp = (unsigned long)ch; p++; }
-        if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
-        if (cp >= 0x10000) {
-            if (n + 2 >= cap) return false;
-            cp -= 0x10000; out[n++] = (wchar_t)(0xD800 + (cp >> 10)); out[n++] = (wchar_t)(0xDC00 + (cp & 0x3FF));
-        } else {
-            if (n + 1 >= cap) return false;
-            out[n++] = (wchar_t)cp;
-        }
-    }
-    out[n] = L'\0';
-    *pp = p;
-    return n > 0;
-}
 static const wchar_t *SkipWs(const wchar_t *p) { while (*p == L' ' || *p == L'\t') p++; return p; }
 static bool AtEnd(const wchar_t *p) { p = SkipWs(p); return *p == L'\0' || *p == L'#'; }
 // name(arg) — 공백 없이. 성공하면 arg 에 담고 true.
@@ -280,7 +241,7 @@ static int ParseActionV3(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int
     if (!wcsncmp(p, L"text", 4) && (p[4] == L' ' || p[4] == L'\t' || p[4] == L'"')) {
         p = SkipWs(p + 4);
         if (*p != L'"') return PA_BAD;
-        if (!ParseQuoted(&p, e->text, sizeof(e->text) / sizeof(e->text[0]))) return PA_STRING;
+        if (!Klay_ParseQuoted(&p, e->text, sizeof(e->text) / sizeof(e->text[0]))) return PA_STRING;
         e->act = CA_TEXT;
         return AtEnd(p) ? PA_OK : PA_BAD;
     }
@@ -376,7 +337,7 @@ static int ParseMacroStep(ChordLayout *cl, ChordMacroStep *st, const wchar_t *li
         p = SkipWs(p + 4);
         wchar_t buf[256];
         if (*p != L'"') return PA_BAD;
-        if (!ParseQuoted(&p, buf, 256)) return PA_STRING;
+        if (!Klay_ParseQuoted(&p, buf, 256)) return PA_STRING;
         if (!AtEnd(p)) return PA_BAD;
         size_t len = wcslen(buf);
         if (cl->macroTextLen + (int)len + 1 > CL_MACRO_TEXT) return PA_TEXT_LONG;

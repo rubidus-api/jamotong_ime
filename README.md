@@ -564,6 +564,43 @@ Chord j   = text "1"
 - In version 3 an unquoted text, a word after an action, or the same chord twice in one file
   is an error. Mouse actions use the same words as version 2.
 
+#### Sequence input (format version 3)
+
+A **sequence layout** turns a *run* of Latin keys into other letters — romaji to kana, for
+example. It is not a dictionary and there is no candidate window: the file's table is all there
+is. Write `Type = input` and pick the engine with `Engine = sequence`.
+
+```ini
+FormatVersion    = 3
+Type             = input
+Engine           = sequence
+RequiresJamotong = 0.37.0
+Name             = romaji kana
+Abbrev           = KANA
+OnUnmatched      = flush     # flush (default): type the pending letters. cancel: drop them
+
+Sequence "a"   = emit "\u{3042}"
+Sequence "ka"  = emit "\u{304B}"
+Sequence "ki"  = emit "\u{304D}"
+Sequence "ko"  = emit "\u{3053}"
+Sequence "n"   = emit "\u{3093}"
+Sequence "na"  = emit "\u{306A}"
+Sequence "ni"  = emit "\u{306B}"
+Sequence "chi" = emit "\u{3061}"
+Sequence "ha"  = emit "\u{306F}"
+```
+
+- **Longest match wins.** With `n`, `na` and `ni` in the table, `n` waits: `ni` becomes に, while
+  `nk` types ん and starts a new `k`. Typing `konnichiha` gives こんにちは.
+- **Pending letters are shown, not inserted.** They appear in the preview chip next to the caret
+  (in the manager's test box, as selected text) and only reach the document once they are decided.
+- **Backspace** takes back one pending letter; letters already in the document are left alone.
+  **Esc** drops the pending input. Switching layouts or leaving the window types what was pending.
+- **Space, Enter and Tab belong to the application.** If something was pending, it is typed first.
+- The input side is printable ASCII (up to 8 letters), `emit` takes up to 16 characters with the
+  same string escapes as chord layouts. A table holds up to 512 sequences. The same input twice in
+  one file is an error; a file that `Extends` another may override the base file's sequences.
+
 ## Uninstall
 
 1. Run `uninstall.bat` as administrator — from the zip, or the copy in

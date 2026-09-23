@@ -11,6 +11,7 @@
 #include "display_attr.h"
 #include "chord.h"
 #include "chord_layout.h"
+#include "seq_layout.h"
 
 // Jamotong IME CLSID: {C471BCF2-343F-4187-A103-24151C3E20B9}
 DEFINE_GUID(CLSID_JamotongIME, 
@@ -120,6 +121,7 @@ typedef struct JamotongTextService {
     FsmContext fsm;
     ChordContext chord;       // 모아치기(동시치기) 상태 (Moachigi=1 한글 자판)
     ChordKbContext chordKb;   // 일반 코드 자판(ARTSEY류) 상태
+    SeqState seqKb;           // 순차 변환 자판(로마자→가나류) 보류 입력 (RFC-0016 §6.3)
 
     // UI Elements
     JamotongLangBarItem *pLangBarItem;
