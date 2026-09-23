@@ -161,13 +161,14 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
         L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
         L"  jamotong --build-dir <folder>\n"
-        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N]\n", ctx);
+        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n", ctx);
     return 2;
 }
 
 int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx) {
     const wchar_t *cmd = NULL, *arg = NULL, *outPath = NULL;
     int json = 0, limit = 0;
+    const wchar_t *dictName = NULL, *dictLicense = NULL;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
@@ -175,6 +176,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--limit") && i + 1 < argc) limit = (int)wcstol(argv[++i], NULL, 10);
+        else if (!wcscmp(argv[i], L"--name") && i + 1 < argc) dictName = argv[++i];
+        else if (!wcscmp(argv[i], L"--license") && i + 1 < argc) dictLicense = argv[++i];
         else if (!wcscmp(argv[i], L"--json")) json = 1;
     }
     if (!cmd || !arg) return Usage(out, ctx);
@@ -226,7 +229,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         DictImportResult ir;
         const wchar_t *sbase = arg;
         for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
-        if (!DictImport_Run(arg, outPath, limit, &ir)) {
+        DictImportMeta meta = { dictName, dictLicense };
+        if (!DictImport_Run(arg, outPath, limit, &meta, &ir)) {
             Outf(out, ctx, L"%ls: error: %ls\n", sbase, ir.error[0] ? ir.error : L"cannot import");
             return 1;
         }
@@ -302,6 +306,11 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
                 const SeqLayout *sl = (const SeqLayout*)lc.pSeqLayout;
                 Outf(out, ctx, L"%ls: OK - %ls layout '%ls' with dictionary '%ls' (%d entries), %d warning(s)\n",
                      base, TypeName(lc.type), lc.name ? lc.name : L"", sl->dictFile, JDict_Count(sl->dict), d->warnings);
+                // 후보 사전도 이름을 대 준다 — 자판을 고를 때 이것까지 전수로 보므로, 무엇을 보았는지
+                // 말해 주어야 사전 팩을 쓴 사람이 제 사전이 실린 것을 확인할 수 있다.
+                if (sl->cand)
+                    Outf(out, ctx, L"   candidates: '%ls' (%d entries)%ls%ls\n", sl->candFile, JDict_Count(sl->cand),
+                         JDict_License(sl->cand)[0] ? L" - " : L"", JDict_License(sl->cand));
             } else {
                 Outf(out, ctx, L"%ls: OK - %ls layout '%ls', %d warning(s)\n", base, TypeName(lc.type), lc.name ? lc.name : L"", d->warnings);
             }

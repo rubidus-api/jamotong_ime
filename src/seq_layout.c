@@ -117,7 +117,9 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
     } else {
         FlushBuf(st, sl, buf, &r, false);          // 확정 + 한 번의 재처리
     }
-    lstrcpynW(r.composing, st->pending, SEQ_MAX_IN + 1);
+    // 보류만 싣지 않는다 — **읽기까지** 보여야 한다. 읽기만 있고 보류가 없을 때 빈 문자열을
+    // 돌려주면, 후보 사전을 쓰는 자판에서 친 글자가 화면 어디에도 안 보인다(실기 2026-09-24).
+    SeqComposing(st, &r);
     return r;
 }
 
@@ -186,8 +188,24 @@ SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl) {
 }
 
 // ── 후보 (RFC-0016 §6.4) ───────────────────────────────────────────────────────────
+// 변환 글쇠를 지금 받을 수 있는가. 읽기가 비어 있어도 **보류한 글자**가 있으면 받는다 —
+// 보류를 먼저 읽기로 정착시키기 때문이다(아래 SeqKb_Convert).
+bool SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl) {
+    return st && sl && sl->cand && (st->reading[0] || st->pending[0]);
+}
+
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
-    if (!st || !sl || !sl->cand || !out || !st->reading[0]) return false;
+    if (!st || !sl || !sl->cand || !out) return false;
+    // 보류한 글자를 먼저 읽기로 정착시킨다. `nihon` 의 끝 `n` 처럼 **더 자랄 수 있는 항목**은
+    // 변환 글쇠를 누른 순간 경계로 보고 확정해야 한다 — 아니면 `にほん` 이 영영 서지 않는다.
+    if (st->pending[0]) {
+        wchar_t buf[SEQ_MAX_IN + 2];
+        lstrcpynW(buf, st->pending, SEQ_MAX_IN + 2);
+        SeqResult tmp; memset(&tmp, 0, sizeof tmp);
+        FlushBuf(st, sl, buf, &tmp, true);
+        // 읽기에 못 들어가고 밖으로 나간 글자가 있으면(읽기가 꽉 찼을 때) 그건 이미 문서의 것이다.
+    }
+    if (!st->reading[0]) return false;
     int first = 0, count = 0;
     if (!JDict_Candidates(sl->cand, st->reading, &first, &count)) return false;
     memset(out, 0, sizeof *out);

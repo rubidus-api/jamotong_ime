@@ -17,6 +17,14 @@ typedef struct DictImportResult {
     wchar_t error[200];   // 실패 사유 (성공이면 빈 문자열)
 } DictImportResult;
 
+// 사전에 새길 이름과 라이선스 (둘 다 NULL 허용). 구운 `.jdb` 가 이 두 줄을 싣고 다니므로, 남에게
+// 넘어간 사전도 제 출처를 말할 수 있다. 줄바꿈·탭은 자리를 망가뜨리므로 사이띄개로 바꾼다.
+typedef struct DictImportMeta {
+    const wchar_t *name;      // NULL = "imported"
+    const wchar_t *license;   // NULL = License 줄을 쓰지 않는다
+} DictImportMeta;
+
 // srcPath 를 읽어 outPath 에 `.jdt` 를 쓴다. limit > 0 이면 **비용이 낮은 것부터** 그만큼만 남긴다
-// (0 = 전부, 사전 한도까지). 실패하면 false 이고 res->error 에 사유.
-bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit, DictImportResult *res);
+// (0 = 전부, 사전 한도까지). meta 는 NULL 허용. 실패하면 false 이고 res->error 에 사유.
+bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
+                    const DictImportMeta *meta, DictImportResult *res);

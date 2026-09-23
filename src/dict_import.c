@@ -59,7 +59,16 @@ static int Utf16Len(const char *s) {
     return units;
 }
 
-bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit, DictImportResult *res) {
+// 머리부 한 줄에 쓸 수 있게 다듬는다: 줄바꿈·탭은 사이띄개로, 길이는 한 줄 안에.
+static void OneLine(const wchar_t *in, wchar_t *out, int cap) {
+    int n = 0;
+    for (const wchar_t *p = in; *p && n < cap - 1; p++)
+        out[n++] = (*p == L'\n' || *p == L'\r' || *p == L'\t') ? L' ' : *p;
+    out[n] = 0;
+}
+
+bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
+                    const DictImportMeta *meta, DictImportResult *res) {
     DictImportResult dummy;
     if (!res) res = &dummy;
     memset(res, 0, sizeof *res);
@@ -113,17 +122,43 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit, D
     fclose(in);
     if (ok && n == 0) { Fail(res, L"the source has no usable rows"); ok = false; }
 
+    if (ok) qsort(v, (size_t)n, sizeof(Entry), CmpEntry);
+    // 같은 (읽기, 표기)가 여러 번 오는 자료가 많다 (품사·연결비용만 다른 줄). 후보창은 16칸뿐이라
+    // 중복을 두면 쓸 후보가 밀려난다. 정렬이 싼 것을 앞에 두었으므로 **읽기 묶음 안에서 처음 나온
+    // 표기만** 남긴다 — 같은 읽기라도 비용이 다르면 서로 떨어져 있어 이웃 비교로는 못 잡는다.
+    if (ok && n > 1) {
+        int w = 0;
+        for (int i = 0; i < n; ) {
+            int j = i;
+            while (j < n && strcmp(v[j].key, v[i].key) == 0) j++;   // [i, j) = 읽기 하나
+            int keptHere = 0;
+            for (int k = i; k < j; k++) {
+                bool dup = false;
+                for (int m = 0; m < keptHere; m++)
+                    if (strcmp(v[k].val, v[w - keptHere + m].val) == 0) { dup = true; break; }
+                if (dup) { free(v[k].key); free(v[k].val); res->skipped++; }
+                else { v[w++] = v[k]; keptHere++; }
+            }
+            i = j;
+        }
+        n = w;
+    }
+
+    // 한도는 **중복을 지운 뒤** 건다. 먼저 걸면 버려질 중복이 자리를 차지해 요청한 수보다 적게 남는다.
+    bool trimmed = false;
     if (ok && limit > 0 && n > limit) {     // 싼 것부터 남긴다
         qsort(v, (size_t)n, sizeof(Entry), CmpCost);
         for (int i = limit; i < n; i++) { free(v[i].key); free(v[i].val); }
         n = limit;
+        trimmed = true;
     }
     if (ok && n > JDICT_MAX_ENTRIES) {
         qsort(v, (size_t)n, sizeof(Entry), CmpCost);
         for (int i = JDICT_MAX_ENTRIES; i < n; i++) { free(v[i].key); free(v[i].val); }
         n = JDICT_MAX_ENTRIES;
+        trimmed = true;
     }
-    if (ok) qsort(v, (size_t)n, sizeof(Entry), CmpEntry);
+    if (ok && trimmed) qsort(v, (size_t)n, sizeof(Entry), CmpEntry);   // 한도를 건 뒤 다시 키 차례로
 
     if (ok) {
         FILE *out = _wfopen(outPath, L"wb");
@@ -131,8 +166,12 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit, D
         else {
             const wchar_t *base = srcPath;
             for (const wchar_t *q = srcPath; *q; q++) if (*q == L'\\' || *q == L'/') base = q + 1;
+            wchar_t nameLine[120], licLine[200];
+            OneLine(meta && meta->name ? meta->name : L"imported", nameLine, 120);
+            OneLine(meta && meta->license ? meta->license : L"", licLine, 200);
             fprintf(out, "JamotongData 1\nType = candidates\n");
-            fprintf(out, "Name = imported\n");
+            fprintf(out, "Name = %ls\n", nameLine[0] ? nameLine : L"imported");
+            if (licLine[0]) fprintf(out, "License = %ls\n", licLine);
             fprintf(out, "Source = %ls (converted by jamotong --import-dict)\n", base);
             fprintf(out, "# The data keeps the licence of the file it came from - write it here before sharing.\n");
             for (int i = 0; i < n; i++) fprintf(out, "%s\t%s\n", v[i].key, v[i].val);

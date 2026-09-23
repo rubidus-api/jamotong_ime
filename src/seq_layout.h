@@ -96,7 +96,10 @@ SeqResult SeqKb_Cancel(SeqState *st);
 SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym);
 // 지금 읽기 (우리 소유 preedit). 후보 사전이 없으면 언제나 빈 문자열.
 const wchar_t *SeqKb_Reading(const SeqState *st);
-// 변환 글쇠: 지금 읽기의 후보를 내놓는다. 읽기가 비었거나 후보가 없으면 false.
+// 변환 글쇠를 지금 받을 수 있는가 (보류만 있어도 받는다 — 보류를 먼저 읽기로 정착시킨다).
+bool      SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl);
+// 변환 글쇠: 보류한 글자를 읽기로 정착시킨 뒤 그 읽기의 후보를 내놓는다. 읽기가 비었거나
+// 후보가 없으면 false.
 bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
 // 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다.
 SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index);

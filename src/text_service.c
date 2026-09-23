@@ -1054,7 +1054,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             wchar_t qc = GetQwertyChar(wParam, isShift);
             bool pend = obj->seqKb.pending[0] != L'\0' || SeqKb_Reading(&obj->seqKb)[0] != L'\0';
-            if (sl && sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_Reading(&obj->seqKb)[0]) {
+            if (sl && sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_CanConvert(&obj->seqKb, sl)) {
                 if (pfEaten) *pfEaten = TRUE;   // 변환 글쇠 (§6.4)
                 goto tk_done;
             }
@@ -1459,9 +1459,15 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         }
         if (sl) {
             SeqResult r;
-            if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_Reading(&obj->seqKb)[0]) {
+            if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_CanConvert(&obj->seqKb, sl)) {
                 // §6.4: 읽기를 후보로 바꾼다. 후보가 없으면 이 글쇠는 응용의 것이다.
                 if (SeqKb_Convert(&obj->seqKb, sl, &g_seqCands)) {
+                    // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
+                    // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
+                    SeqResult cr; memset(&cr, 0, sizeof cr);
+                    cr.eaten = true;
+                    lstrcpynW(cr.composing, SeqKb_Reading(&obj->seqKb), (int)(sizeof cr.composing / sizeof cr.composing[0]));
+                    SeqApply(obj, pic, &cr);
                     for (int i = 0; i < g_seqCands.count; i++) g_seqCandPtrs[i] = g_seqCands.items[i];
                     RECT rc; int x = 0, y = 0, caretTop = 0;
                     if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom; caretTop = rc.top; }

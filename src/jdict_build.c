@@ -226,8 +226,11 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
             if (!ok) break;
         }
         if (nrows >= cap) {
+            // 두 배씩 늘리되 **한도에서 멈춘다**. 넘겨 잡고 거절하면 한도의 절반(262144)에서 걸려,
+            // 문서가 말하는 50만을 실제로는 못 굽는다 (2026-09-24 실측으로 드러난 결함).
             int ncap = cap ? cap * 2 : 1024;
-            if (ncap > JD_MAX_ROWS) { Fail(res, lineno, L"E-DICT-LIMIT", L"too many entries (max 500000)", NULL); ok = false; break; }
+            if (ncap > JD_MAX_ROWS) ncap = JD_MAX_ROWS;
+            if (ncap <= nrows) { Fail(res, lineno, L"E-DICT-LIMIT", L"too many entries (max 500000)", NULL); ok = false; break; }
             Row *nr = (Row *)realloc(rows, (size_t)ncap * sizeof(Row));
             if (!nr) { Fail(res, lineno, L"E-DICT-MEMORY", L"out of memory", NULL); ok = false; break; }
             rows = nr; cap = ncap;

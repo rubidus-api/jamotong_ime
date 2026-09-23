@@ -9,8 +9,10 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.43.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.43.0/jamotong-0.43.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-0.44.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
+| Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-japanese-demo-0.44.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
+| Japanese dictionary pack (full) | [jamotong-japanese-full-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-japanese-full-0.44.0.zip) — the same, 500,000 entries (~5 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -695,7 +697,8 @@ the ones worth using are other people's work. Jamotong ships none of them; it co
 choose:
 
 ```sh
-jamotong --import-dict japanese.txt -o kana-words.jdt --limit 50000
+jamotong --import-dict japanese.txt -o kana-words.jdt --limit 50000 \
+         --name "Japanese words" --license "see DICTIONARY-LICENSE.txt"
 jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 ```
 
@@ -706,11 +709,24 @@ first. `--limit N` keeps the N cheapest rows, which is how you cut a 90 MB dicti
 something that opens instantly. A reading may be kana, Hangul or any other text, up to 32 bytes
 of UTF-8 (about ten kana); a surface is up to 64 characters. Comments, blank lines, rows that are
 too long and rows whose text is not valid UTF-8 are skipped and counted — the importer never
-writes a row the compiler would refuse. The entries keep the licence of the file they came from,
+writes a row the compiler would refuse. The same reading and surface twice (common in word data
+that differs only in part of speech) is kept once, so the candidate list is not filled with
+repeats, and `--limit` is applied after that. `--name` and `--license` are written into the
+dictionary itself, so a dictionary that is passed on still says where it came from. The entries keep the licence of the file they came from,
 so check it before you pass the result on.
 
 Measured on one 7 MB shard of an open Japanese dictionary (128,908 rows): 123,381 entries kept,
 5,527 readings too long, 0.08 s to convert, 0.08 s to build, 5.3 MB of `.jdb`, 1.6 ms to open.
+
+**Ready-made Japanese (experimental).** Two dictionary packs are published beside the installer,
+so the installer itself stays small and the word data keeps its own licence file next to it:
+a demo pack (50,000 entries, about 0.5 MB) and a full pack (500,000 entries, about 5 MB, the most
+one dictionary can hold). Each holds a kana-to-kanji dictionary, a romaji-to-kana table, the
+layout that ties them together and the licence of the word data. Unpack it, copy the two `.jdb`
+files into `%APPDATA%\Jamotong\dicts` and the `.jmt` into `%APPDATA%\Jamotong\layouts`, then
+start the manager. Type `nihon`, press space, pick 日本. The word data comes from the open-source
+Mozc dictionary; no native speaker has reviewed this profile yet, so it is offered as an
+experiment rather than as finished Japanese support.
 
 - Limits: the typed side is printable ASCII up to 32 characters, one entry emits up to 64
   characters, and a dictionary holds up to 500,000 entries.

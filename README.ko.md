@@ -9,8 +9,10 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.43.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.43.0/jamotong-0.43.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-0.44.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
+| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-japanese-demo-0.44.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
+| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.44.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.44.0/jamotong-japanese-full-0.44.0.zip) — 같은 것, 50만 항목(약 5MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
@@ -642,7 +644,8 @@ Hold j   = momentary layer(num)
 그런 자료를 동봉하지 않는다 — 고른 것을 바꿔 줄 뿐이다:
 
 ```sh
-jamotong --import-dict japanese.txt -o kana-words.jdt --limit 50000
+jamotong --import-dict japanese.txt -o kana-words.jdt --limit 50000 \
+         --name "Japanese words" --license "see DICTIONARY-LICENSE.txt"
 jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 ```
 
@@ -651,11 +654,20 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 싼(흔한) 후보가 먼저 나온다. `--limit N` 은 싼 것부터 N줄만 남긴다 — 90MB 짜리 사전을 바로
 열리는 크기로 줄이는 방법이다. 읽기는 가나·한글 등 어떤 글자든 되고 UTF-8 32바이트(가나 열 자
 남짓)까지, 표기는 64글자까지다. 주석·빈 줄·한도를 넘는 줄·UTF-8 이 깨진 줄은 건너뛰고 세어
-알려 준다 — 변환기는 **컴파일러가 거절할 줄을 내놓지 않는다**. 들여온 항목은 원래 파일의
+알려 준다 — 변환기는 **컴파일러가 거절할 줄을 내놓지 않는다**. 같은 (읽기, 표기)가 여러 번 오면
+(품사만 다른 자료에서 흔하다) 한 번만 남겨 후보창이 중복으로 차지 않게 하고, `--limit` 는 그 뒤에
+건다. `--name`·`--license` 는 사전 자체에 새겨져, 남에게 넘어간 사전도 제 출처를 말한다. 들여온 항목은 원래 파일의
 라이선스를 그대로 따르니, 남에게 넘기기 전에 확인할 것.
 
 열린 일본어 사전 한 조각(7MB, 128,908줄)으로 실측: 123,381항목을 남기고 5,527줄은 읽기가 길어
 제외, 변환 0.08초·굽기 0.08초, `.jdb` 5.3MB, 여는 데 1.6ms.
+
+**바로 쓰는 일본어(시범).** 설치본은 가볍게 두고, 일본어 자료는 **사전 팩**으로 따로 낸다:
+시범팩(5만 항목, 약 0.5MB)과 추가팩(50만 항목, 약 5MB — 사전 한 벌의 한도). 각 팩에는 가나→한자
+사전, 로마자→가나 표, 둘을 묶는 자판, 그리고 낱말 자료의 라이선스 원문이 들어 있다. 풀어서 `.jdb`
+두 개를 `%APPDATA%\Jamotong\dicts` 에, `.jmt` 를 `%APPDATA%\Jamotong\layouts` 에 넣고 관리 앱을
+실행하면 된다. `nihon` 을 치고 사이띄개를 누르면 日本 이 나온다. 낱말 자료는 오픈소스 Mozc 사전에서
+왔고, 아직 일본어 화자의 확인을 받지 않아 **시범**으로 낸다.
 
 - 한도: 친 쪽은 볼 수 있는 ASCII 32자까지, 한 항목이 내는 글자는 64자까지, 사전 하나에 50만 항목까지.
 - **자판을 읽을 때 사전을 전수로 본다** — 검사합·키 차례·키 글자. 그래서 사전이 깨졌으면 그 자판은
