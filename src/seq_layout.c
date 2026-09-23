@@ -153,6 +153,42 @@ static bool ResolveDict(const wchar_t *layoutPath, const wchar_t *file, wchar_t 
     return false;
 }
 
+// 사전을 찾아 열고 전수 점검한다. 자판 파일(.jmt)과 구운 자판(.jmb)이 같은 길을 쓴다 —
+// 사전은 자판 밖에 있으므로, 어느 쪽으로 자판이 들어오든 여기서 한 번 본다 (RFC-0016 P5).
+bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
+    if (!sl || !sl->dictFile[0]) return false;
+    wchar_t full[MAX_PATH];
+    if (!ResolveDict(layoutPath, sl->dictFile, full, MAX_PATH)) {
+        wchar_t msg[200];
+        _snwprintf(msg, 200, L"the dictionary '%ls' was not found", sl->dictFile);
+        msg[199] = L'\0';
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg,
+                     L"put it beside the layout file or in the dictionary folder");
+        return false;
+    }
+    JDictError derr = JDICT_OK;
+    JDict *d = JDict_Open(full, &derr);
+    if (!d) {
+        wchar_t msg[200];
+        _snwprintf(msg, 200, L"the dictionary '%ls' cannot be used: %ls", sl->dictFile, JDict_ErrorText(derr));
+        msg[199] = L'\0';
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg,
+                     L"build it again with 'jamotong --build-dict'");
+        return false;
+    }
+    if (JDict_Kind(d) != JDICT_KIND_SEQUENCE) {
+        JDict_Close(d);
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-KIND",
+                     L"this dictionary is not a sequence dictionary", L"build it with 'Type = sequence'");
+        return false;
+    }
+    if (sl->dict) JDict_Close(sl->dict);
+    sl->dict = d;
+    lstrcpynW(sl->dictPath, full, 260);
+    sl->maxIn = JDict_MaxKeyLen(d);
+    return SeqLayout_Verify(sl, diag);   // 내용까지 본다 — 성한 사전만 자판을 세운다
+}
+
 SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath, KlayDiag *diag) {
     SeqLayout *sl = (SeqLayout *)calloc(1, sizeof(SeqLayout));
     if (!sl) return NULL;
@@ -218,35 +254,7 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
         bad = true;
     }
 
-    if (!bad) {   // 사전을 지금 연다 — 사전이 성하지 않으면 이 자판은 서지 않는다
-        wchar_t full[MAX_PATH];
-        if (!ResolveDict(layoutPath, sl->dictFile, full, MAX_PATH)) {
-            wchar_t msg[200];
-            _snwprintf(msg, 200, L"the dictionary '%ls' was not found", sl->dictFile);
-            msg[199] = L'\0';
-            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg,
-                         L"put it beside the layout file or in the dictionary folder");
-            bad = true;
-        } else {
-            JDictError derr = JDICT_OK;
-            sl->dict = JDict_Open(full, &derr);
-            if (!sl->dict) {
-                wchar_t msg[200];
-                _snwprintf(msg, 200, L"the dictionary '%ls' cannot be used: %ls", sl->dictFile, JDict_ErrorText(derr));
-                msg[199] = L'\0';
-                KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg,
-                             L"build it again with 'jamotong --build-dict'");
-                bad = true;
-            } else if (JDict_Kind(sl->dict) != JDICT_KIND_SEQUENCE) {
-                KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-KIND",
-                             L"this dictionary is not a sequence dictionary", L"build it with 'Type = sequence'");
-                bad = true;
-            } else {
-                lstrcpynW(sl->dictPath, full, 260);
-                sl->maxIn = JDict_MaxKeyLen(sl->dict);
-            }
-        }
-    }
+    if (!bad && !SeqLayout_OpenDict(sl, layoutPath, diag)) bad = true;
 
     if (bad) { SeqLayout_Free(sl); return NULL; }
     return sl;

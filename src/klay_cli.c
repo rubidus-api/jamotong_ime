@@ -5,6 +5,8 @@
 #include "chord_layout.h"
 #include "seq_layout.h"
 #include "jdict_build.h"
+#include "jlay.h"
+#include "jlay_build.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +24,8 @@ static void Outf(KlayCliOut out, void *ctx, const wchar_t *fmt, ...) {
 int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
-            || !wcscmp(argv[i], L"--build-dict")) return 1;
+            || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
+            || !wcscmp(argv[i], L"--build-dir")) return 1;
     return 0;
 }
 
@@ -154,7 +157,9 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --check  <file.jmt> [--json]\n"
         L"  jamotong --export <@ko_3bul|@en_dvorak|@en_qwerty|file.jmt> -o <out.jmt>\n"
         L"  jamotong --expand <file.jmt> -o <out.jmt>\n"
-        L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n", ctx);
+        L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
+        L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
+        L"  jamotong --build-dir <folder>\n", ctx);
     return 2;
 }
 
@@ -163,7 +168,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     int json = 0;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
-            || !wcscmp(argv[i], L"--build-dict")) {
+            || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
+            || !wcscmp(argv[i], L"--build-dir")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--json")) json = 1;
@@ -211,6 +217,41 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         return 0;
     }
 
+    // --build: 자판 원본을 구워 입력기가 읽을 파일(.jmb)을 만든다 (오너 결정 2026-09-23).
+    if (!wcscmp(cmd, L"--build")) {
+        wchar_t out2[MAX_PATH];
+        if (!outPath) {   // -o 를 안 주면 원본 옆에 같은 이름으로
+            lstrcpynW(out2, arg, MAX_PATH);
+            size_t n = wcslen(out2);
+            if (n < 5 || _wcsicmp(out2 + n - 4, L".jmt") != 0) { Outf(out, ctx, L"error: --build needs a .jmt file\n"); return 2; }
+            wcscpy(out2 + n - 4, L".jmb");
+            outPath = out2;
+        }
+        KlayDiag *bd = (KlayDiag*)malloc(sizeof(KlayDiag));
+        if (!bd) return 1;
+        const wchar_t *sbase = arg;
+        for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
+        bool ok2 = JLay_Build(arg, outPath, bd);
+        if (bd->count) {
+            wchar_t *txt = (wchar_t*)malloc(16384 * sizeof(wchar_t));
+            if (txt) { Klay_DiagFormat(bd, sbase, txt, 16384); out(txt, ctx); free(txt); }
+        }
+        free(bd);
+        if (!ok2) { Outf(out, ctx, L"%ls: not built\n", sbase); return 1; }
+        Outf(out, ctx, L"built %ls\n", outPath);
+        return 0;
+    }
+    // --build-dir: 폴더 안의 원본 가운데 산출물이 없거나 낡은 것을 굽는다 (설치 스크립트·관리 앱).
+    if (!wcscmp(cmd, L"--build-dir")) {
+        int built = 0, failed = 0;
+        if (!JLay_BuildDir(arg, &built, &failed)) {
+            Outf(out, ctx, L"%ls: no layouts to build\n", arg);
+            return 0;
+        }
+        Outf(out, ctx, L"%ls: %d built, %d failed\n", arg, built, failed);
+        return failed ? 1 : 0;
+    }
+
     KlayDiag *d = (KlayDiag*)malloc(sizeof(KlayDiag));
     if (!d) return 1;
     KlayMeta m;
@@ -244,6 +285,17 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
                      base, TypeName(lc.type), lc.name ? lc.name : L"", sl->dictFile, JDict_Count(sl->dict), d->warnings);
             } else {
                 Outf(out, ctx, L"%ls: OK - %ls layout '%ls', %d warning(s)\n", base, TypeName(lc.type), lc.name ? lc.name : L"", d->warnings);
+            }
+            // 입력기는 구운 자판만 읽는다 — 상태만 알려 주고 여기서 굽지는 않는다 (오너 결정 2026-09-23).
+            wchar_t built[MAX_PATH];
+            lstrcpynW(built, arg, MAX_PATH);
+            size_t bn = wcslen(built);
+            if (bn > 4 && _wcsicmp(built + bn - 4, L".jmt") == 0) {
+                wcscpy(built + bn - 4, L".jmb");
+                if (JLay_IsStale(built, arg))
+                    Outf(out, ctx, L"%ls: not built yet (or older than the source) - run 'jamotong --build %ls'\n", base, base);
+                else
+                    Outf(out, ctx, L"%ls: the built layout beside it is up to date\n", base);
             }
         }
     } else if (ok) {   // --expand / --export <file>

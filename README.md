@@ -199,11 +199,31 @@ kinds, selected by the `Type =` line:
 | `static` | 1:1 character remap (Dvorak, Colemak, …) |
 | `hangul` | Hangul automata layout (Sebeolsik-family, custom combination rules) |
 | `chord`  | Chorded keyboard (ARTSEY-style): key combos → text/keys/mouse, with layers and tap-hold |
+| `input`  | Format 3 common surface; `Engine = sequence` turns a run of keys into other letters |
+
+**A layout is compiled before it is used.** The IME reads only built layouts (`.jmb`); the
+`.jmt` file is the source you edit. Compiling checks the whole file and, for a sequence layout,
+its dictionary too — so a layout that is offered in the list is one that loads cleanly.
+
+```sh
+jamotong --build my-layout.jmt          # writes my-layout.jmb beside it
+jamotong --build-dir "%APPDATA%\Jamotong\layouts"
+jamotong --check my-layout.jmt          # checks the source and says whether the build is current
+```
+
+You rarely need to run these by hand:
+
+- `install.bat` builds the layouts that ship with Jamotong and the ones already in the
+  machine-wide and your own layout folders.
+- The manager app (`jamotong.exe`, the tray icon) builds anything new or edited when it starts,
+  and after Settings → Layouts → **Apply**.
+- Settings → Layouts → **Add** builds the file you pick and reports any error in it.
 
 **Loading a layout** — either:
 
-- copy the `.jmt` file next to `jamotong.dll` (it is auto-detected at IME start,
-  added to the layout list **disabled**; turn it on in Settings → Layouts), or
+- copy the `.jmt` file into `%APPDATA%\Jamotong\layouts` (or next to `jamotong.dll`) and start
+  the manager app once, so it gets built; it is added to the layout list **disabled** at the next
+  IME start (turn it on in Settings → Layouts), or
 - Settings → Layouts → **Add** and pick the file (added enabled).
 
 At most 8 layouts can be active in the list. The bundled `example.jmt`,
@@ -603,7 +623,7 @@ Then the layout file only says which dictionary it uses:
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.38.0
+RequiresJamotong = 0.39.0
 Name             = romaji kana
 Abbrev           = KANA
 Dictionary       = romaji-kana.jdb

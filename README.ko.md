@@ -171,11 +171,29 @@ Import가 다른 PC에서 자판을 복원한다. 파일을 지우면 공장 기
 | `static` | 1:1 문자 리맵 (드보락, 콜맥 등) |
 | `hangul` | 한글 조합 자판 (세벌식 계열, 결합 규칙 자유) |
 | `chord`  | 코드(조합) 자판 (ARTSEY류): 글쇠 조합 → 텍스트/특수키/마우스, 레이어·탭-홀드 |
+| `input`  | 3판 공통 표면. `Engine = sequence` 면 친 글자열을 다른 글자로 바꾼다 |
+
+**자판은 쓰기 전에 컴파일한다.** 입력기는 구운 자판(`.jmb`)만 읽고, `.jmt` 는 사람이 고치는
+원본이다. 굽는 동안 파일 전체를 검사하고, 순차 자판이면 사전까지 본다 — 그래서 목록에 뜨는
+자판은 깨끗하게 읽힌 자판이다.
+
+```sh
+jamotong --build 내자판.jmt          # 옆에 내자판.jmb 를 만든다
+jamotong --build-dir "%APPDATA%\Jamotong\layouts"
+jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
+```
+
+손으로 칠 일은 거의 없다:
+
+- `install.bat` 이 배포 자판과, 기계 전체·내 자판 폴더에 이미 있는 자판을 굽는다.
+- 관리 앱(`jamotong.exe`, 트레이 아이콘)이 뜰 때 새로 넣었거나 고친 것을 굽고, 설정 →
+  Layouts → **Apply** 뒤에도 굽는다.
+- 설정 → Layouts → **Add** 는 고른 파일을 구워 보고, 잘못이 있으면 그 자리에서 알려 준다.
 
 **자판 로드 방법** — 둘 중 하나:
 
-- `.jmt` 파일을 `jamotong.dll` 옆에 복사 (IME 시작 시 자동 감지, 목록에 **꺼진 상태로**
-  추가됨 → 설정 → Layouts에서 켜기), 또는
+- `.jmt` 파일을 `%APPDATA%\Jamotong\layouts` (또는 `jamotong.dll` 옆)에 넣고 관리 앱을 한 번
+  띄워 굽게 한다 → 다음 IME 시작 때 목록에 **꺼진 상태로** 추가됨 (설정 → Layouts에서 켜기), 또는
 - 설정 → Layouts → **Add**로 파일 선택 (켜진 상태로 추가).
 
 자판 목록은 최대 8개. 배포판의 `example.jmt`·`example-dvorak.jmt`·`example-artsey.jmt`가
@@ -557,7 +575,7 @@ jamotong --build-dict romaji-kana.jdt -o romaji-kana.jdb
 FormatVersion    = 3
 Type             = input
 Engine           = sequence
-RequiresJamotong = 0.38.0
+RequiresJamotong = 0.39.0
 Name             = romaji kana
 Abbrev           = KANA
 Dictionary       = romaji-kana.jdb

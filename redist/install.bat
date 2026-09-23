@@ -117,6 +117,15 @@ for %%F in (install.bat install-user.bat upgrade-user.bat uninstall-user.bat ins
 rem A pending clean-up from an earlier uninstall must not touch this new install
 reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" /v JamotongCleanup /f >nul 2>&1
 >>"%LOG%" echo committed
+
+rem ---- 7) Build the layouts ---------------------------------------------------------------------
+rem The IME reads only built layouts (.jmb). Compile the sources that ship here and the ones already
+rem in the machine-wide and this user's layout folders. The manager app rebuilds the rest when it runs.
+echo [5/5] Building layouts ...
+"%DEST%\jamotong.exe" --build-dir "%DEST%" >>"%LOG%" 2>&1
+if exist "%ProgramData%\Jamotong\layouts" "%DEST%\jamotong.exe" --build-dir "%ProgramData%\Jamotong\layouts" >>"%LOG%" 2>&1
+if exist "%APPDATA%\Jamotong\layouts" "%DEST%\jamotong.exe" --build-dir "%APPDATA%\Jamotong\layouts" >>"%LOG%" 2>&1
+
 call :migrate
 
 echo.

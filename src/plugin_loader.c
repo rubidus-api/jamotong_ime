@@ -1,16 +1,19 @@
 #include "plugin_loader.h"
-#include "klay.h"
+#include "jlay.h"   // 입력기는 구운 자판만 읽는다 (RFC-0016 P5b-2)
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 extern HINSTANCE g_hInst;
 
-// dir 안의 *.jmt 전부 로드해 목록에 추가 (기본 꺼짐). 같은 이름 자판이 이미 있으면(예: DLL 옆과
-// 사용자 저장소에 같은 파일) 새 로드본의 리소스를 해제하고 건너뛴다.
+// dir 안의 *.jmb(구운 자판) 전부 로드해 목록에 추가 (기본 꺼짐). 같은 이름 자판이 이미 있으면
+// (예: DLL 옆과 사용자 저장소에 같은 파일) 새 로드본의 리소스를 해제하고 건너뛴다.
+//   오너 결정 2026-09-23: 입력기는 **구운 자판만** 읽는다. `.jmt` 를 굽는 일은 도구가 한다
+//   (설치 스크립트가 폴더를 훑고, 관리 앱이 뜰 때 다시 굽는다). 구운 파일은 열면서 검사합과
+//   (순차 자판이면) 사전까지 본다 — 성한 자판만 목록에 오른다.
 static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
     wchar_t searchPath[MAX_PATH];
-    swprintf(searchPath, MAX_PATH, L"%s\\*.jmt", dir);
+    swprintf(searchPath, MAX_PATH, L"%s\\*.jmb", dir);
     WIN32_FIND_DATAW fd;
     HANDLE hFind = FindFirstFileW(searchPath, &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
@@ -20,7 +23,7 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
         swprintf(fullPath, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
         LayoutConfig lc;
         memset(&lc, 0, sizeof(lc));
-        if (!Klay_Load(fullPath, &lc, NULL)) continue;
+        if (!JLay_Load(fullPath, &lc, NULL)) continue;
         bool dup = false;
         for (int i = 0; i < config->layoutCount; i++) {
             if (config->layouts[i].name && lc.name && wcscmp(config->layouts[i].name, lc.name) == 0) { dup = true; break; }
@@ -42,7 +45,7 @@ void PluginLoader_LoadAll(JamotongConfig *config) {
         *lastSlash = L'\0';
     }
 
-    // 통합 자판 설정파일 로드: *.jmt (Type = static | hangul | chord). 자판 데이터는 사용자 파일.
+    // 구운 자판 로드: *.jmb. 원본(.jmt)은 도구가 굽고, 입력기는 그 산출물만 읽는다.
     // 탐색 순서(RFC-0011 P0 명문화): ① 사용자 %APPDATA%\Jamotong\layouts → ② 기계 전체
     // %PROGRAMDATA%\Jamotong\layouts → ③ DLL 옆 폴더(v1 호환). 같은 이름은 **먼저 읽은 쪽이
     // 이긴다** = 사용자 자판이 기계 전체/내장 배포본을 덮어쓸 수 있다(예전엔 DLL 옆이 먼저라

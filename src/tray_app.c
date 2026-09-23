@@ -26,6 +26,7 @@
 #include "chord_layout.h"
 #include "klay.h"      // Klay_Load + KlayDiag (레이아웃 검증)
 #include "seq_layout.h"   // 순차 변환 자판 시험 (RFC-0016 §6.3)
+#include "jlay_build.h"   // 뜰 때 자판 굽기 (RFC-0016 P5b-2)
 #include "settings_ui.h"
 #include "version.h"
 
@@ -659,12 +660,18 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
     if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand")
-                || wcsstr(cmd, L"--build-dict"))) {
+                || wcsstr(cmd, L"--build"))) {
         int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
         if (rc >= 0) return rc;
     }
 
-    { wchar_t dictDir[MAX_PATH]; Config_UserDictDir(dictDir, MAX_PATH); }   // 사전 폴더를 만들어 둔다
+    // 사전 폴더를 만들어 두고, 사용자 자판 폴더의 원본 가운데 아직 안 구웠거나 낡은 것을 굽는다.
+    //   입력기는 구운 자판만 읽는다 — 설치 스크립트가 한 번 굽고, 그 뒤에 넣은 파일은 여기서 굽힌다.
+    {
+        wchar_t dir[MAX_PATH];
+        Config_UserDictDir(dir, MAX_PATH);
+        if (Config_UserLayoutDir(dir, MAX_PATH)) JLay_BuildDir(dir, NULL, NULL);
+    }
 
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     BOOL (WINAPI *pSetCtx)(HANDLE) = (void*)GetProcAddress(u32, "SetProcessDpiAwarenessContext");

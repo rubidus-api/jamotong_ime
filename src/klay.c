@@ -235,10 +235,8 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
     }
     if (isInput) {
         SeqLayout *sl = SeqLayout_LoadFromLines(&L, path, diag);
-        // 오너 지시 2026-09-23: 자판을 고를 때 문법과 사전 데이터를 모두 본다. 자판이 목록에
-        // 오르는 길이 여럿이라(자동 로드·설정창 Add·가져오기·관리 앱 검사) 로더 한 곳에서 한다 —
-        // 여기서 통과 못 한 자판은 어느 길로도 목록에 들어가지 못한다.
-        if (sl && !SeqLayout_Verify(sl, diag)) { SeqLayout_Free(sl); sl = NULL; }
+        // 오너 지시 2026-09-23: 자판이 설 때 문법과 사전 데이터를 모두 본다. 사전 전수 점검은
+        // SeqLayout_OpenDict 안에서 끝난다 (자판 파일·구운 자판이 같은 길을 쓴다).
         if (sl) {
             out->type = LAYOUT_TYPE_SEQUENCE; out->pSeqLayout = sl;
             out->name = _wcsdup(sl->name[0] ? sl->name : L"sequence");

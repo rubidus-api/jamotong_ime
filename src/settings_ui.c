@@ -1,6 +1,6 @@
 #include "settings_ui.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
-#include "klay.h"      // Klay_Load — Add 버튼으로 .jmt 자판 불러오기
+#include "jlay.h"      // 구운 자판 읽기 (Add 는 관리 앱을 불러 굽는다)
 #include <commctrl.h>
 #include <stdio.h>
 
@@ -32,6 +32,58 @@ static void DiscardPendingFileOps(void) {
 }
 
 // Apply: 적어 둔 파일 작업을 저장소에 반영한다. 반환 = 실패 개수.
+// 자판 컴파일러는 관리 앱(jamotong.exe)에 있다 — 설정창은 입력기 프로세스 안이라 텍스트 파서를
+// 갖지 않는다(오너 결정 2026-09-23: 입력기는 구운 자판만 읽는다). DLL 옆의 관리 앱을 불러 굽고,
+// 낸 말은 파일로 받아 그대로 보여 준다(줄·칸·코드·고치는 법이 그 안에 있다).
+static bool RunLayoutBuilder(const wchar_t *args, const wchar_t *logPath, DWORD waitMs) {
+    wchar_t exe[MAX_PATH];
+    if (!GetModuleFileNameW(g_hInst, exe, MAX_PATH)) return false;
+    wchar_t *slash = wcsrchr(exe, L'\\');
+    if (!slash) return false;
+    wcscpy(slash + 1, L"jamotong.exe");
+    if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) return false;
+
+    wchar_t cmd[MAX_PATH * 3];
+    _snwprintf(cmd, MAX_PATH * 3, L"\"%ls\" %ls", exe, args);
+    cmd[MAX_PATH * 3 - 1] = L'\0';
+
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE hLog = INVALID_HANDLE_VALUE;
+    if (logPath)
+        hLog = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    STARTUPINFOW si; memset(&si, 0, sizeof si); si.cb = sizeof si;
+    PROCESS_INFORMATION pi = {0};
+    if (hLog != INVALID_HANDLE_VALUE) {
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdOutput = hLog;
+        si.hStdError = hLog;
+        si.hStdInput = NULL;
+    }
+    BOOL started = CreateProcessW(NULL, cmd, NULL, NULL, hLog != INVALID_HANDLE_VALUE, CREATE_NO_WINDOW,
+                                  NULL, NULL, &si, &pi);
+    if (hLog != INVALID_HANDLE_VALUE) CloseHandle(hLog);
+    if (!started) return false;
+    WaitForSingleObject(pi.hProcess, waitMs);
+    DWORD rc = 1;
+    GetExitCodeProcess(pi.hProcess, &rc);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return rc == 0;
+}
+// 로그 파일(관리 앱이 낸 진단)을 문자열로. 없으면 빈 문자열.
+static void ReadLogText(const wchar_t *path, wchar_t *out, size_t cch) {
+    out[0] = L'\0';
+    FILE *f = _wfopen(path, L"rb");
+    if (!f) return;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    MultiByteToWideChar(CP_UTF8, 0, buf, -1, out, (int)cch);
+    out[cch - 1] = L'\0';
+}
+
 static int CommitPendingFileOps(void) {
     int failed = 0;
     wchar_t store[MAX_PATH];
@@ -55,6 +107,13 @@ static int CommitPendingFileOps(void) {
         else failed += g_stagedImport.count;
     }
     g_stagedImport.count = 0;
+    // 입력기는 구운 자판만 읽는다 — 저장소에 들어온 원본을 지금 굽는다 (관리 앱이 컴파일러다).
+    {
+        wchar_t args[MAX_PATH + 32];
+        _snwprintf(args, MAX_PATH + 32, L"--build-dir \"%ls\"", store);
+        args[MAX_PATH + 31] = L'\0';
+        RunLayoutBuilder(args, NULL, 15000);
+    }
     return failed;
 }
 static JamotongConfig g_LastSavedConfig;
@@ -776,9 +835,18 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                                     break;
                             }
                         }
+                        // 고른 원본을 관리 앱이 임시로 굽고, 그 산출물을 읽는다.
+                        wchar_t tmpDir[MAX_PATH], tmpJmb[MAX_PATH], tmpLog[MAX_PATH], args[MAX_PATH * 2];
+                        if (!GetTempPathW(MAX_PATH, tmpDir)) tmpDir[0] = L'\0';
+                        _snwprintf(tmpJmb, MAX_PATH, L"%lsjamotong_add.jmb", tmpDir);
+                        _snwprintf(tmpLog, MAX_PATH, L"%lsjamotong_add.log", tmpDir);
+                        tmpJmb[MAX_PATH - 1] = tmpLog[MAX_PATH - 1] = L'\0';
+                        DeleteFileW(tmpJmb);
+                        _snwprintf(args, MAX_PATH * 2, L"--build \"%ls\" -o \"%ls\"", szFile, tmpJmb);
+                        args[MAX_PATH * 2 - 1] = L'\0';
+                        bool builtOk = RunLayoutBuilder(args, tmpLog, 15000);
                         LayoutConfig lc; memset(&lc, 0, sizeof(lc));
-                        KlayDiag diag = {0};
-                        if (Klay_Load(szFile, &lc, &diag)) {
+                        if (builtOk && JLay_Load(tmpJmb, &lc, NULL)) {
                             lc.enabled = true;
                             g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
                             RefreshLists(hwnd);
@@ -792,12 +860,11 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                                 pa->layoutName = lc.name;   // Apply 전에 Del 하면 이것으로 찾아 뺀다
                             }
                         } else {
-                            // 파서 진단을 그대로 보여준다 — 줄:열, 코드, 고치는 법, 여러 개 (RFC-0011 P1).
+                            // 컴파일러가 낸 진단을 그대로 보여준다 — 줄:열, 코드, 고치는 법 (RFC-0011 P1).
                             static wchar_t msg[3072], body[2816];
-                            const wchar_t *base = wcsrchr(szFile, L'\\');
-                            Klay_DiagFormat(&diag, base ? base + 1 : szFile, body, 2816);
-                            _snwprintf(msg, 3072, L"Failed to load the layout (.jmt) file.\n\n%ls",
-                                       body[0] ? body : L"invalid or empty file");
+                            ReadLogText(tmpLog, body, 2816);
+                            _snwprintf(msg, 3072, L"Failed to build the layout (.jmt) file.\n\n%ls",
+                                       body[0] ? body : L"invalid or empty file (is jamotong.exe beside the IME?)");
                             msg[3071] = L'\0';
                             MessageBoxW(hwnd, msg, L"Error", MB_ICONERROR);
                         }

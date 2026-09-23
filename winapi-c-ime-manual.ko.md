@@ -2855,6 +2855,7 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 | 관리 앱 (`.jmt` 편집/검증/설정/TSF 없는 입력 테스트) | `src/tray_app.c` |
 | `.jmt` 로더 + 파싱 진단 (`KlayDiag`) | `src/klay.c`, `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | 사전 파일: 컴파일러(도구에만)와 읽기 전용 매핑 로더 | `src/jdict_build.c`, `src/jdict.c` |
+| 구운 자판: 컴파일러(도구에만)와 입력기가 쓰는 읽개 | `src/jlay_build.c`, `src/jlay.c` |
 | (사망) IMM32 IME 시도 | `src/imm/` |
 
 
