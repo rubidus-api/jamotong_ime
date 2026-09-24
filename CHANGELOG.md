@@ -13,13 +13,14 @@
 - **MSI 설치 패키지** (RFC-0019) — `jamotong-0.60.0.msi` 를 두 번 누르면 설치되고, "설치된 앱"에서
   제거된다. 관리자 권한은 설치 때 한 번만 묻는다. 재부팅은 걸지 않는다(`REBOOT=ReallySuppress`):
   그때 돌던 앱은 이전 사본을 쓰다가 다시 로그인하면 새 판을 쓴다. zip + `install.bat` 도 당분간 같이 낸다.
-- **`jamotong.exe --register` · `--unregister`** — 등록의 뜻을 한 곳에 모았다. 64비트 DLL 은 자기등록
+- **`jamotong.exe --register` · `--unregister`** — MSI 가 부르는 등록 동사. 64비트 DLL 은 자기등록
   함수를 직접 부르고(COM 초기화 포함), 32비트 DLL 은 SysWOW64 의 regsvr32 에 맡기며, 이어서 설치 폴더와
   사용자 자판 폴더의 자판을 굽는다. 승격되지 않았으면 아무것도 하지 않고 그렇게 적는다. 로그는
   `%ProgramData%\Jamotong\install.log`.
 
 ### Changed
-- README 한/영의 내려받기 표와 설치 절이 MSI 를 주 경로로 안내한다.
+- README 한/영의 내려받기 표와 설치 절이 MSI 를 주 경로로 안내한다. `install.bat` 은 제 트랜잭션을
+  그대로 쓴다(비트별 경로 확인·이전 등록 복원) — 다음 판에서 bat 을 없앨 때 `--register` 하나만 남는다.
 
 실기(Win11): MSI 설치 → 파일·"앱 및 기능" 항목·TSF 프로파일 확인 → 제거 → 셋 다 사라짐 → 재설치 종료값 0.
 자판 굽기 9벌 성공. 실제 타이핑 시험은 대화형 세션이 필요해 NOT RUN.

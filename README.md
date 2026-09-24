@@ -27,7 +27,10 @@ All versions and release notes: [Releases](https://github.com/rubidus-api/jamoto
   apps that were already running keep the previous copy until you sign in again.
 - **The zip with `install.bat`**: the older way, still shipped for now. It does the same work.
 
-Both put the files in the same place, so you can move between them.
+Both put the files in the same place, so you can move between them. Once you are on the MSI, though,
+**remove it only from Installed apps.** An older zip install may have left
+`C:\Program Files\Jamotong\uninstall.bat` behind; running that unregisters the IME while Windows still
+believes the product is installed.
 
 ### Where it installs
 
