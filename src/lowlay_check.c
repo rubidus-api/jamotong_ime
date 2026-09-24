@@ -11,7 +11,7 @@
 // 아는 머리 이름 — 낱말은 예산이다(RFC-0018 §3.9). 여기 없는 것은 오류다.
 static const wchar_t *const kHeads[] = {
     L"layout", L"engine", L"requires", L"pipeline", L"dictionary", L"chordterm",
-    L"guard", L"store", L"var", L"keys", L"combine",
+    L"guard", L"store", L"var", L"keys", L"combine", L"holdterm", L"holdpolicy", L"moachigi",
     L"key", L"map", L"chord", L"hold", L"behavior", L"layer", L"macro", L"group",
     NULL
 };
@@ -226,10 +226,17 @@ static bool CheckForm(const LowForm *f, LowCheckResult *r, KlayDiag *diag, bool 
         if (n != 2 || !IsTokKind(a1, LOW_STR)) CHK_ERR(f, L"E-LOW-SHAPE", L"dictionary takes a file name string", NULL);
         return ok;
     }
-    if (!wcscmp(head, L"chordterm")) {
-        if (n != 2 || !IsTokKind(a1, LOW_INT)) CHK_ERR(f, L"E-LOW-SHAPE", L"chordterm takes a number of milliseconds", NULL);
+    if (!wcscmp(head, L"chordterm") || !wcscmp(head, L"holdterm")) {
+        if (n != 2 || !IsTokKind(a1, LOW_INT)) CHK_ERR(f, L"E-LOW-SHAPE", L"this directive takes a number of milliseconds", NULL);
         return ok;
     }
+    if (!wcscmp(head, L"holdpolicy")) {
+        const wchar_t *v = ItemName(a1);
+        if (n != 2 || !v || (wcscmp(v, L"interrupt") && wcscmp(v, L"timeout")))
+            CHK_ERR(f, L"E-LOW-KIND", L"holdpolicy is interrupt or timeout", NULL);
+        return ok;
+    }
+    if (!wcscmp(head, L"moachigi")) { if (n != 1) CHK_ERR(f, L"E-LOW-SHAPE", L"moachigi takes no argument", NULL); return ok; }
     if (!wcscmp(head, L"keys")) {
         if (n < 2) CHK_ERR(f, L"E-LOW-SHAPE", L"keys takes the key strings of this layout", NULL);
         for (int i = 1; i < n; i++) if (!IsTokKind(&f->items[i], LOW_STR))

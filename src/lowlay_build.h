@@ -10,6 +10,9 @@
 //   combine           → 낱자 결합표 (겹받침·겹모음·된소리)
 // 낱자는 자모 글자로 적혀 있다(`"ㄱ"`). 번호로 적은 파일도 받는다.
 bool LowBuild_IsV4(const wchar_t *src);                     // 첫 `layout` 폼이 있으면 v4
+// 조합 자판(chord/hold/keys 가 있는 파일)을 엔진 표로 — lowlay_chord.c
+struct ChordLayout;
+bool LowBuild_Chord(const LowTree *t, const LowCheckResult *c, struct ChordLayout *cl, KlayDiag *diag);
 bool LowBuild_Hangul(const LowTree *t, const LowCheckResult *c, HangulLayout *out, KlayDiag *diag);
 // 파일 하나를 읽어 LayoutConfig 로. v4 가 아니면 거짓(그러면 호출자가 옛 경로로 간다).
 // isV4 로 "이 파일이 v4 였는가"를 알린다 — v4 인데 실패하면 호출자가 옛 경로로 되돌아가면 안 된다.

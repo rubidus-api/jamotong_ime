@@ -4,6 +4,7 @@
 #include "lowlay_build.h"
 #include "lowlay_parse.h"
 #include "lowlay_expr.h"
+#include "chord_layout.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -297,6 +298,28 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
     bool ok = LowParse_Run(src, &tree, diag);
     LowCheckResult res;
     if (ok) ok = LowCheck_Run(&tree, &res, diag);
+    // 조합 자판인가 — chord/hold/keys 폼이 있으면 그것이다 (engine 은 none 이다)
+    bool isChord = false;
+    for (int i = 0; ok && i < tree.n; i++) {
+        const wchar_t *h = LowForm_Head(tree.forms[i]);
+        if (h && (!wcscmp(h, L"chord") || !wcscmp(h, L"hold") || !wcscmp(h, L"keys"))) { isChord = true; break; }
+    }
+    if (ok && isChord) {
+        ChordLayout *cl = (ChordLayout*)calloc(1, sizeof *cl);
+        if (!cl) ok = false;
+        else if (!LowBuild_Chord(&tree, &res, cl, diag)) { free(cl); ok = false; }
+        else {
+            memset(out, 0, sizeof *out);
+            out->type = LAYOUT_TYPE_CHORD;
+            out->pChordLayout = cl;
+            out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
+            lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+            if (!out->name) { free(cl); ok = false; }
+        }
+        LowTree_Free(&tree);
+        free(src);
+        return ok;
+    }
     if (ok && (!wcscmp(res.engine, L"none") || !wcscmp(res.engine, L"static"))) {
         ok = BuildStatic(&tree, &res, out, diag);
         LowTree_Free(&tree);

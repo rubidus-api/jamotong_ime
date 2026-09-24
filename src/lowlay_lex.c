@@ -209,7 +209,11 @@ bool LowLex_Run(const wchar_t *src, LowTokens *out, KlayDiag *diag) {
         }
 
         // 수 — 십진·십육진·이진, 자리 사이 밑줄. 팔진은 없다(앞의 0 은 십진).
-        if (IsDigit(*p)) {
+        //   숫자에 **붙은** 빼기표는 음수 리터럴의 일부다(`-12`). 떨어져 있으면 이 언어에 없는 기호다 —
+        //   연산자를 들여오지 않으면서 포인터 이동 같은 음수를 적을 수 있다.
+        if (IsDigit(*p) || (*p == L'-' && IsDigit(p[1]))) {
+            bool neg = false;
+            if (*p == L'-') { neg = true; p++; col++; }
             int base = 10;
             if (p[0] == L'0' && (p[1] == L'x' || p[1] == L'X')) { base = 16; p += 2; col += 2; }
             else if (p[0] == L'0' && (p[1] == L'b' || p[1] == L'B')) { base = 2; p += 2; col += 2; }
@@ -227,7 +231,7 @@ bool LowLex_Run(const wchar_t *src, LowTokens *out, KlayDiag *diag) {
             if (!digits) { FAIL(L"E-LOW-NUM", L"a number needs at least one digit", NULL); continue; }
             if (over)    { FAIL(L"E-LOW-NUM", L"number is too large", NULL); continue; }
             if (IsNameStart(*p)) { FAIL(L"E-LOW-NUM", L"a number cannot be followed by a letter", NULL); while (IsNameCh(*p)) { p++; col++; } continue; }
-            tok.kind = LOW_INT; tok.num = v;
+            tok.kind = LOW_INT; tok.num = neg ? -v : v;
             if (!Push(out, &tok)) return false;
             continue;
         }

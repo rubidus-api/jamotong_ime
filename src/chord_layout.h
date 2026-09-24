@@ -143,6 +143,14 @@ ChordLayout *ChordLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   //
 ChordLayout *ChordLayout_LoadFromLinesEx(const KlayLines *L, KlayDiag *diag, bool forInput);
 // 줄 목록에 조합 지시문(Key/Chord/Hold/Layer/Macro)이 하나라도 있는가 — 앞단을 둘지 정한다.
 bool ChordLayout_LinesHaveChords(const KlayLines *L);
+
+// ── v4 문법(RFC-0018)이 쓰는 다리 ──────────────────────────────────────────────
+// 동작의 뜻을 두 번 적지 않으려고, v4 빌더는 폼을 3판 동작 **문자열**로 되적어 이 두 함수에 넘긴다.
+//   rhs 예: `text "the"` · `key back` · `oneshot mod(shift)` · `momentary layer(num)` · `macro sign`
+// 0 이면 성공, 아니면 사유 코드(PA_*). isHold 는 Hold 자리인지, forInput 은 입력 자판인지.
+int ChordLayout_ActionText(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int isHold, bool forInput);
+int ChordLayout_MacroStepText(ChordLayout *cl, ChordMacroStep *st, const wchar_t *line, int *withDepth);
+int ChordLayout_LayerId(ChordLayout *cl, const wchar_t *name);   // 없으면 만든다. 가득 차면 -1
 void ChordLayout_Free(ChordLayout *cl);
 
 void ChordKb_Init(ChordKbContext *c);

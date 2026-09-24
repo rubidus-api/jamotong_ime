@@ -1,89 +1,96 @@
-# jamotong 통합 자판 정의 (.jmt) — 코드(조합) 자판 예제 (ARTSEY.io 류)
-#
-# 몇 개의 글쇠 "조합(chord)"을 함께 눌렀다 모두 떼면 그 조합의 동작을 수행합니다.
-# 실제 키/마우스 이벤트를 SendInput 으로 냅니다(텍스트·특수키·모디파이어·레이어전환·마우스).
-# 이 파일에는 특정 저작 자판의 조합표를 담지 마세요 — 아래는 문법 예시일 뿐입니다.
-# (ARTSEY 등 공개 자판의 조합표를 이 형식으로 옮겨 쓰시면 됩니다.)
-#
-# ── 지시문 ────────────────────────────────────────────────────────────────
-#   Type = chord
-#   Name = <이름>
-#   Key <키> = <비트0~31>          코드 글쇠 정의 (그 키가 내는 문자 기준). 조합보다 먼저.
-#   Key <키…> = <시작비트>          키 나열 = 배열 지정: 시작 비트부터 연속 배정.
-#                                  예) Key jkl; = 0  →  j=0 k=1 l=2 ;=3
-#   Layer <이름>                  이후의 Chord 들이 이 레이어에 속함 (base = 기본 레이어)
-#   Chord <글쇠들> = <동작>         조합 → 동작 (짧게 누름 = tap)
-#   Hold  <글쇠들> = <동작>         같은 조합의 hold 동작.
-#                                 · layer/mod 이면 "지속형": 그 조합을 누른 채 다른 키를 누르면
-#                                   발동, 누르고 있는 동안 임시 레이어/모디파이어 유지, 떼면 복귀.
-#                                 · 그 외(text/key/mouse)면 방해 없이 길게(≥0.2초) 눌렀다 떼면 발동.
-#
-# ── 동작(<동작>) 종류 ──────────────────────────────────────────────────────
-#   <문자열>                       텍스트 입력 (\n \t \s=스페이스 \\=역슬래시)
-#   key <이름>                     특수키. 방향/네비(확장키): left right up down home end pgup pgdn ins del
-#                                  키패드(방향키와 구분): kp0~kp9 kpadd kpsub kpmul kpdiv kpdot kpenter
-#                                  좌우 구분 모디파이어를 키로: lshift rshift lctrl rctrl lalt ralt lwin rwin
-#                                  기타: back enter tab space esc caps scroll pause apps prtsc numlock
-#                                  미디어: volup voldown mute mplay mnext mprev mstop
-#                                          browserback browserfwd browserrefresh browserhome mail sleep
-#                                  f1~f24 (보이지 않는 f13~f24 포함), 또는 단일 문자
-#   mod <이름>                     원샷 모디파이어. shift/ctrl/alt/gui(기본 왼쪽) · rshift/rctrl/ralt/rgui(오른쪽)
-#   layer <이름>                   원샷 레이어 (다음 조합만 그 레이어에서)
-#   tlayer <이름>                  레이어 토글 (그 레이어 ↔ base)
-#   slayer <이름>                  레이어 전환 (계속 유지)
-#   mouse move <dx> <dy>           마우스 상대 이동
-#   mouse click|down|up <left|right|middle>   버튼
-#   mouse wheel <up|down|양수/음수>            휠 스크롤
+rem 자모통 자판 정의 (.jmt) — 조합 자판 예제 (여덟 글쇠)
+rem   몇 글쇠를 함께 눌렀다 모두 떼면 그 조합의 동작을 한다. 실제 키·마우스 이벤트를 낸다.
+rem   조합표는 문법을 보이려는 예시다 — 남의 자판 조합표를 그대로 옮겨 적지 마시라.
+note DOC
+  적는 법
+    keys "arts" "eyio" .            이 자판이 쓰는 글쇠와 비트 차례 (조합보다 먼저)
+    chordterm 50 .                  더 큰 조합을 기다리는 시간(ms)
+    holdterm 200 .                  탭/홀드 판정(ms)
+    holdpolicy interrupt .          interrupt | timeout
+    chord "ar" be <동작> .          조합을 짧게 눌렀다 뗄 때
+    hold  "e"  be <동작> .          같은 조합을 누르고 있을 때
+    layer 이름 do … end             그 안의 조합은 이 레이어
+    macro 이름 do … end             유한한 동작열
+  동작
+    text "the"                      글월 입력
+    key enter                       특수키 (back space tab esc f1 … volup)
+    key f4 (mods ctrl alt)          수정키를 얹어서
+    mod shift · layer num           chord 자리면 원샷, hold 자리면 누르는 동안
+    oneshot (mod shift)             한 번만 먹는 수정키 (sticky 도 같은 뜻)
+    momentary (layer num)           누르고 있는 동안만 그 레이어
+    toggle (layer mouse)            레이어 토글 · switch (layer x) 는 계속 유지
+    pointer (move 12 0)             마우스 이동 · (click left) · (wheel 0 1)
+    macro 이름 · cancel             매크로 실행 · 하던 동작 멈추기
+DOC
 
-Type = chord
-Name = ex_chord
-Abbrev = ART
+layout name "ex_chord" .
+layout format 4 .
+engine none .
 
-# 코드 글쇠 (오른손 홈열 4키 + 왼손 4키 예시 — 배열 지정: 시작 비트부터 연속)
-Key jkl; = 0
-Key fdsa = 4
+keys "arts" "eyio" .                        rem 이 자판이 쓰는 글쇠와 비트 차례
+chordterm 50 .                              rem 더 큰 조합을 기다리는 시간
+holdterm 200 .                              rem 탭/홀드 판정
+holdpolicy interrupt .
 
-# ── 기본 레이어 (문자) ──
-Layer base
-Chord j = a
-Chord k = r
-Chord l = t
-Chord ; = s
-Chord jk = e
-Chord kl = n
-Chord jkl = the
-Chord fd = key back
-Chord ds = key space
-Chord sa = key enter
-Chord f = mod shift        # 원샷 시프트 → 다음 문자 대문자/조합
-Chord a = layer num        # 원샷: 다음 조합만 숫자 레이어
-Chord fa = tlayer mouse    # 마우스 레이어 토글
+rem ── 홑글쇠 ────────────────────────────────────────────────────────────────
+chord "a" be text "a" .
+chord "r" be text "r" .
+chord "t" be text "t" .
+chord "s" be text "s" .
+chord "i" be text "i" .
+chord "o" be text "o" .
 
-# tap-vs-hold / 모멘터리 hold 예시 (같은 조합에 tap=Chord, hold=Hold)
-Hold jk = layer num        # jk를 누른 채 다른 키 → 임시 숫자 레이어(모멘터리), 떼면 복귀
-Hold kl = mod lctrl        # kl을 누른 채 다른 키 → 왼쪽 Ctrl 유지 (예: kl+? = Ctrl+?)
-Hold jkl = key enter       # jkl 짧게=the(위 Chord), 길게(≥0.2초)=Enter
+rem ── 조합 ──────────────────────────────────────────────────────────────────
+chord "ar" be text "b" .
+chord "at" be text "c" .
+chord "as" be text "d" .
+chord "rt" be text "f" .
+chord "rs" be text "g" .
+chord "ts" be text "h" .
+chord "ae" be text "j" .
+chord "re" be text "k" .
+chord "ay" be text "n" .
+chord "ao" be text "th" .
+chord "ro" be text "ing" .
 
-# 볼륨/미디어 특수 기능키 예시
-Chord l; = key volup
-Chord k; = key voldown
-Chord j; = key mplay       # 재생/일시정지
+rem ── 탭과 홀드 — 같은 글쇠에 두 줄 ─────────────────────────────────────────
+chord "e" be text " " .
+hold  "e" be momentary (layer num) .        rem 누르고 있는 동안만 숫자 레이어
+chord "y" be key back .
+hold  "y" be mod lctrl .                    rem 누른 채 다른 글쇠를 치면 Ctrl
 
-# ── 숫자 레이어 (원샷 layer 로 진입) ──
-Layer num
-Chord j = 1
-Chord k = 2
-Chord l = 3
-Chord jk = 0
+rem ── 끈적이 수정키 — 한 번만 먹는다 ────────────────────────────────────────
+chord "aeo" be oneshot (mod shift) .
+chord "rti" be oneshot (mod alt) .
 
-# ── 마우스 레이어 (tlayer 로 토글) ──
-Layer mouse
-Chord j = mouse move -20 0
-Chord l = mouse move 20 0
-Chord k = mouse move 0 20
-Chord ; = mouse move 0 -20
-Chord jk = mouse click left
-Chord kl = mouse click right
-Chord fd = mouse wheel up
-Chord ds = mouse wheel down
-Chord fa = tlayer mouse    # 다시 눌러 base 로
+rem ── 레이어 ────────────────────────────────────────────────────────────────
+layer num do
+  chord "a" be text "1" .
+  chord "r" be text "2" .
+  chord "t" be text "3" .
+  chord "s" be text "4" .
+  chord "e" be text "5" .
+  chord "y" be text "6" .
+  chord "i" be text "7" .
+  chord "o" be text "8" .
+  chord "ar" be text "9" .
+  chord "at" be text "0" .
+end
+
+layer mouse do
+  chord "a" be pointer (move -12 0) .
+  chord "r" be pointer (move 0 12) .
+  chord "t" be pointer (move 0 -12) .
+  chord "s" be pointer (move 12 0) .
+  chord "ar" be pointer (click left) .
+  chord "at" be pointer (click right) .
+  chord "rt" be pointer (wheel 0 1) .
+end
+chord "as" be toggle (layer mouse) .
+
+rem ── 매크로 ────────────────────────────────────────────────────────────────
+macro sign do
+  text "chorded" .
+  key enter .
+end
+chord "arts" be macro sign .

@@ -615,3 +615,14 @@ ChordLayout *ChordLayout_LoadFromLinesEx(const KlayLines *L, KlayDiag *diag, boo
     return cl;
 }
 #undef FAIL
+
+// ── v4 빌더가 쓰는 다리 (RFC-0018) ────────────────────────────────────────────
+int ChordLayout_ActionText(ChordLayout *cl, ChordEntry *e, const wchar_t *rhs, int isHold, bool forInput) {
+    return ParseActionV3(cl, e, rhs, isHold, forInput);
+}
+int ChordLayout_MacroStepText(ChordLayout *cl, ChordMacroStep *st, const wchar_t *line, int *withDepth) {
+    return ParseMacroStep(cl, st, line, withDepth);
+}
+int ChordLayout_LayerId(ChordLayout *cl, const wchar_t *name) {
+    return LayerFindOrAdd(cl, name);
+}

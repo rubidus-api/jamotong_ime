@@ -107,11 +107,47 @@ read** and travels into the built layout (`.jmb`), so nothing extra happens whil
 Limits: an expression holds at most 64 tokens and 8 levels of parentheses; a layout holds at most 128
 guarded keys.
 
+### Chord layouts - keys pressed together do something
+
+```lowlayout
+layout name "eight keys" .
+layout format 4 .
+engine none .
+
+keys "arts" "eyio" .            rem the chord keys and their bit order (before any chord)
+chordterm 50 .                  rem how long to wait for a bigger chord (ms)
+holdterm  200 .                 rem tap versus hold (ms)
+holdpolicy interrupt .          rem interrupt | timeout
+
+chord "ar" be text "b" .        rem tapped and released
+hold  "e"  be momentary (layer num) .   rem that layer only while it is held
+
+layer num do
+  chord "a" be text "1" .
+end
+
+macro sign do
+  text "hello" .
+  key enter .
+end
+chord "arts" be macro sign .
+```
+
+The actions are: `text "..."` · `key enter` · `key f4 (mods ctrl alt)` ·
+`mod shift` / `layer num` (one-shot on a chord, held on a hold) · `oneshot (mod shift)` (also
+spelled `sticky`) · `momentary (layer num)` · `toggle (layer x)` · `switch (layer x)` ·
+`pointer (move 12 0)`, `pointer (click left)`, `pointer (wheel 0 1)` with an optional
+`(profile fast)` · `mouse move 12 0` · `macro <name>` · `cancel`.
+
+A minus sign **attached** to digits makes a negative number (`pointer (move -12 0)`); standing alone
+it is a symbol this language does not have.
+
 ### What still uses the older grammar
 
-**Chord layouts (`Type = chord`) and sequential input layouts (`Type = input`) are written in the
+**Sequential input layouts (`Type = input`, the dictionary and sequence engines) are written in the
 1-3 grammar below.** Jamotong reads both: a file with a `layout` form is read as v4, otherwise as the
-older grammar. `jamotong --export` writes hangul and static layouts in v4.
+older grammar. `jamotong --export` writes hangul and static layouts in v4 (chord layouts still export
+in the older grammar).
 
 ---
 
@@ -322,6 +358,9 @@ there is something to suggest. Warnings do not stop a load; errors do.
 | `E-JMT-SYMBOL` | 'symbol' needs an input engine | use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
 | `E-JMT-TEXT-LONG` | chord text is longer than 23 characters | shorten the text (at most 23 characters after \\n, \\t and \\s) |
 | `E-JMT-TOO-LONG` | file has more than 20000 lines | - |
+| `E-JMT-CHORD-KEY` | a chord uses a key the v4 chord layout never declared | declare them first: keys "arts" "eyio" . |
+| `E-JMT-KIND` | a v4 value is not one of the kinds this directive takes | holdpolicy is interrupt or timeout |
+| `E-JMT-SHAPE` | a v4 form has the wrong shape | write: chord "<keys>" be <action> . |
 | `E-JMT-TYPE` | Key: type must be C, M or T | C = choseong, M = jungseong, T = jongseong |
 | `E-JMT-TYPE-UNKNOWN` | unknown Type | Type must be static, hangul, chord or (format 3) input |
 | `E-JMT-UNDECLARED` | chord references a key not declared with 'Key' | declare every chord key first, e.g. 'Key j = 0' |

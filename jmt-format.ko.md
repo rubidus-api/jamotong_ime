@@ -97,11 +97,45 @@ map mid do                 "f" "ㅏ" .  end     rem 아니면 모음
 
 한도: 식은 토큰 64개·괄호 깊이 8, 가드 붙은 글쇠는 자판당 128개.
 
+### 조합 자판 — 글쇠를 모아 쳐서 동작을 낸다
+
+```lowlayout
+layout name "여덟 글쇠" .
+layout format 4 .
+engine none .
+
+keys "arts" "eyio" .            rem 이 자판이 쓰는 글쇠와 비트 차례 (조합보다 먼저)
+chordterm 50 .                  rem 더 큰 조합을 기다리는 시간(ms)
+holdterm  200 .                 rem 탭/홀드 판정(ms)
+holdpolicy interrupt .          rem interrupt | timeout
+
+chord "ar" be text "b" .        rem 짧게 눌렀다 떼면
+hold  "e"  be momentary (layer num) .   rem 누르고 있는 동안만 그 레이어
+
+layer num do
+  chord "a" be text "1" .
+end
+
+macro sign do
+  text "안녕" .
+  key enter .
+end
+chord "arts" be macro sign .
+```
+
+동작은 이렇게 적는다 — `text "글월"` · `key enter` · `key f4 (mods ctrl alt)` ·
+`mod shift`/`layer num`(chord 자리면 원샷, hold 자리면 누르는 동안) · `oneshot (mod shift)`(=`sticky`) ·
+`momentary (layer num)` · `toggle (layer x)` · `switch (layer x)` ·
+`pointer (move 12 0)` `pointer (click left)` `pointer (wheel 0 1)` [`(profile fast)`] ·
+`mouse move 12 0` · `macro 이름` · `cancel`.
+
+숫자에 **붙은** 빼기표는 음수다(`pointer (move -12 0)`). 떨어져 있으면 이 언어에 없는 기호다.
+
 ### 아직 옛 문법으로 적는 것
 
-**조합 자판(`Type = chord`)과 순차 입력 자판(`Type = input`)은 아래의 1~3판 문법으로 적는다.**
+**순차 입력 자판(`Type = input`, 사전·시퀀스 엔진)은 아래의 1~3판 문법으로 적는다.**
 자모통은 두 문법을 모두 읽는다 — 파일에 `layout` 폼이 있으면 v4 로, 없으면 옛 문법으로 읽는다.
-`jamotong --export` 는 한글·정적 자판을 v4 로 적어 준다.
+`jamotong --export` 는 한글·정적 자판을 v4 로 적어 준다(조합 자판은 아직 옛 꼴로 내보낸다).
 
 ---
 
@@ -307,6 +341,9 @@ kya	きゃ
 | `E-JMT-SYMBOL` | symbol 은 엔진이 있는 자판에서만 | use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
 | `E-JMT-TEXT-LONG` | 조합 문자열이 23자를 넘는다 (2판) | shorten the text (at most 23 characters after \\n, \\t and \\s) |
 | `E-JMT-TOO-LONG` | 파일이 2만 줄을 넘는다 | - |
+| `E-JMT-CHORD-KEY` | v4 조합 자판에서 선언하지 않은 글쇠를 조합에 썼다 | declare them first: keys "arts" "eyio" . |
+| `E-JMT-KIND` | v4 값의 갈래가 잘못됐다 (holdpolicy 등) | holdpolicy is interrupt or timeout |
+| `E-JMT-SHAPE` | v4 폼의 모양이 잘못됐다 | write: chord "<keys>" be <action> . |
 | `E-JMT-TYPE` | Type 값이 잘못됐다 | C = choseong, M = jungseong, T = jongseong |
 | `E-JMT-TYPE-UNKNOWN` | 모르는 Type | Type must be static, hangul, chord or (format 3) input |
 | `E-JMT-UNDECLARED` | Key 로 선언하지 않은 글쇠를 조합에 썼다 | declare every chord key first, e.g. 'Key j = 0' |

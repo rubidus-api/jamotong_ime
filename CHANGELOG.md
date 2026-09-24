@@ -7,6 +7,23 @@
 
 (비어 있음)
 
+## [0.58.0] - 2026-09-24
+
+### Added
+- **조합 자판도 v4 문법으로 적는다** (RFC-0018). `keys "arts" "eyio" .` 로 글쇠와 비트 차례를 정하고,
+  `chord "ar" be text "b" .` · `hold "e" be momentary (layer num) .` · `layer 이름 do … end` ·
+  `macro 이름 do … end` 로 적는다. 타이밍은 `chordterm` · `holdterm` · `holdpolicy`.
+- 동작의 **뜻은 한 곳에만 있다** — v4 폼을 3판 동작 문자열로 되적어 기존 해석기에 넘긴다. 그래서
+  `text`·`key`·`mod`·`layer`·`oneshot`·`momentary`·`toggle`·`switch`·`pointer`·`mouse`·`macro`·`cancel`
+  이 전부 같은 뜻으로 동작한다. 짧게 적은 `mod shift`·`layer num` 은 자리에 맞게 편다(chord=원샷, hold=누르는 동안).
+- **음수 리터럴** — 숫자에 붙은 빼기표는 값의 일부다(`pointer (move -12 0)`). 떨어져 있으면 여전히
+  이 언어에 없는 기호다: 연산자를 들여오지 않고 포인터 이동을 적을 수 있다.
+
+### Changed
+- **동봉하는 예제 셋을 v4 로 다시 썼다** — `example.jmt`(한글)·`example-dvorak.jmt`(정적)·
+  `example-artsey.jmt`(조합). 파일 머리의 `note … ` 주석이 그 갈래의 문법을 요약한다.
+- 형식 문서 한/영에 조합 자판 절을 넣었다. 이제 옛 문법으로 적는 것은 **순차 입력 자판(`Type = input`)** 뿐이다.
+
 ## [0.57.0] - 2026-09-24
 
 ### Changed
