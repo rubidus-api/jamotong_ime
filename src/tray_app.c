@@ -26,6 +26,7 @@
 #include "chord_layout.h"
 #include "klay.h"      // Klay_Load + KlayDiag (레이아웃 검증)
 #include "seq_layout.h"   // 순차 변환 자판 시험 (RFC-0016 §6.3)
+#include "setup_cmd.h"
 #include "jlay_build.h"   // 뜰 때 자판 굽기 (RFC-0016 P5b-2)
 #include "settings_ui.h"
 #include "version.h"
@@ -674,6 +675,9 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     if (cmd && wcsstr(cmd, L"/uninstallime")) return UninstallIme();   // 구버전 IMM32 잔재 정리 전용
     // RFC-0015: UWP 호스트 안의 TIP 은 창을 못 띄운다 → 이 프로세스가 대신 그려 주는 모드.
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
+    // RFC-0019: 설치기(MSI·install.bat)가 부르는 등록 동사. 창도 트레이도 없이 하고 끝난다.
+    if (cmd && wcsstr(cmd, L"--unregister")) return Setup_Register(true);
+    if (cmd && wcsstr(cmd, L"--register")) return Setup_Register(false);
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
     if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand")
                 || wcsstr(cmd, L"--build") || wcsstr(cmd, L"--import-dict") || wcsstr(cmd, L"--import-klc")

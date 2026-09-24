@@ -9,7 +9,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.59.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.59.0/jamotong-0.59.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.60.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi)** — 두 번 눌러 설치. 제거는 "앱 및 기능"에서 |
+| 자모통 zip (예전 방식) | [jamotong-0.60.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip) — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -18,9 +19,19 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
+### 설치 방법 둘
+
+- **MSI (권장)**: `jamotong-0.60.0.msi` 를 두 번 누르면 설치됩니다. 관리자 권한을 한 번 묻습니다(입력기 등록은
+  기계 전체 자리에 써야 합니다 — 윈도가 그렇게 정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고,
+  제거는 **설정 ▸ 앱 ▸ 설치된 앱**에서 "Jamotong" 을 제거하면 됩니다. 재부팅은 걸지 않습니다 — 그때 돌고 있던
+  앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을 씁니다.
+- **zip + `install.bat`**: 예전 방식이며 당분간 같이 냅니다. 하는 일은 MSI 와 같습니다.
+
+두 방식 모두 같은 자리에 넣으므로 섞어 써도 됩니다.
+
 ### 설치 위치
 
-`install.bat` 은 프로그램을 **`C:\Program Files\Jamotong`** 에 넣습니다 — 모든 앱(Store/UWP 앱 포함)이
+두 설치기 모두 프로그램을 **`C:\Program Files\Jamotong`** 에 넣습니다 — 모든 앱(Store/UWP 앱 포함)이
 읽을 수 있는 고정된 기계 전체 폴더입니다. 설정은 사용자별로 `%APPDATA%\Jamotong` 에 남습니다. 압축을 푼
 폴더는 원본일 뿐이니 설치 뒤 지워도 됩니다.
 

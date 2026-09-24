@@ -9,7 +9,8 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.59.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.59.0/jamotong-0.59.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer package (recommended)** | **[jamotong-0.60.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi)** — double-click to install; remove it from Installed apps |
+| Jamotong zip (the older way) | [jamotong-0.60.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip) — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -18,9 +19,19 @@ Framework) text service with no frameworks and no external libraries.
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
+### Two ways to install
+
+- **The MSI (recommended)**: double-click `jamotong-0.60.0.msi`. It asks for administrator rights once —
+  registering an input method writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by
+  running the newer MSI; remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart:
+  apps that were already running keep the previous copy until you sign in again.
+- **The zip with `install.bat`**: the older way, still shipped for now. It does the same work.
+
+Both put the files in the same place, so you can move between them.
+
 ### Where it installs
 
-`install.bat` puts the program in **`C:\Program Files\Jamotong`** — a fixed, machine-wide
+Both installers put the program in **`C:\Program Files\Jamotong`** — a fixed, machine-wide
 folder that every app, including Store (UWP) apps, can read. Your settings stay per user in
 `%APPDATA%\Jamotong`. The zip you extracted is only the source: delete it after installing.
 
