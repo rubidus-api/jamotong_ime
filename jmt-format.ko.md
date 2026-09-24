@@ -34,7 +34,7 @@ jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일
 
 ## 자판 원본 (`.jmt`) — **v4 문법**
 
-한글 자판과 정적 자판은 이 문법으로 적는다. 겉모습은 같은 일터의 로우엔트에서 가져왔다.
+한글 자판·정적 자판·조합 자판은 이 문법으로 적는다. 겉모습은 같은 일터의 로우엔트에서 가져왔다.
 
 ```lowlayout
 rem 줄 끝까지 주석. 기호로 된 주석 표시는 없다.
@@ -130,18 +130,19 @@ chord "arts" be macro sign .
 `mouse move 12 0` · `macro 이름` · `cancel`.
 
 숫자에 **붙은** 빼기표는 음수다(`pointer (move -12 0)`). 떨어져 있으면 이 언어에 없는 기호다.
-낱말 안에도 올 수 없어, 1~3판의 `pointer drag-toggle(left)` 은 여기서 `pointer (dragtoggle left)` 로 적는다.
+낱말 안에도 올 수 없어, v1~v3 의 `pointer drag-toggle(left)` 은 여기서 `pointer (dragtoggle left)` 로 적는다.
 
 ### 아직 옛 문법으로 적는 것
 
-**순차 입력 자판(`Type = input`, 사전·시퀀스 엔진)은 아래의 1~3판 문법으로 적는다.**
+**순차 입력 자판(`Type = input`, 사전·시퀀스 엔진)은 아래의 v1~v3 문법으로 적는다.**
 자모통은 두 문법을 모두 읽는다 — 파일에 `layout` 폼이 있으면 v4 로, 없으면 옛 문법으로 읽는다.
 `jamotong --export` 는 한글·정적 자판을 v4 로 적어 준다(조합 자판은 아직 옛 꼴로 내보낸다).
 
 ---
 
-## 옛 자판 원본 (1~3판)
+## 옛 자판 원본 (v1~v3)
 
+v4 이전에 적은 자판들과, 순차 입력 자판의 문법이다. 새로 적는 한글·정적·조합 자판은 위의 v4 로 적는다.
 
 
 ```ini
@@ -149,14 +150,14 @@ chord "arts" be macro sign .
 FormatVersion    = 3          # 1·2·3 (없으면 1)
 Type             = input      # static | hangul | chord | input   (없으면 hangul)
 Engine           = sequence   # Type = input 에서만
-RequiresJamotong = 0.40.0     # 3판에서는 필수
+RequiresJamotong = 0.40.0     # v3 에서는 필수
 Name             = 내 자판    # 자판 목록에 보이는 이름
 Abbrev           = MINE       # 트레이 아이콘에 그릴 1~4글자
 ```
 
 머리부 키: `FormatVersion`·`Type`·`Engine`·`Id`·`Name`·`Abbrev`·`Version`·`Author`·`License`·
 `Homepage`·`Description`·`Locale`·`RequiresJamotong`. 모르는 머리부 키는 경고, 모르는 **지시문**은
-2판부터 오류다.
+v2 부터 오류다.
 
 `Extends = 다른.jmt` 는 같은 종류의 자판을 기반으로 삼고(한 줄, 최대 4단계, 순환 금지),
 `Include = 조각.jmt` 는 조각을 그 자리에 편다. 나중 줄이 이긴다. `@ko_3bul`·`@en_dvorak`·
@@ -198,8 +199,8 @@ Combine C 1 2 = 3        # 두 자모가 하나로 (종류별)
 
 ```ini
 Key jkl; = 0             # 조합 글쇠 선언: j=비트 0, k=1, …
-ComboTermMs = 50         # 3판: 더 큰 조합을 기다리는 시간 (1~1000)
-HoldTermMs  = 200        # 3판: 탭/홀드 판정 (1~5000)
+ComboTermMs = 50         # v3: 더 큰 조합을 기다리는 시간 (1~1000)
+HoldTermMs  = 200        # v3: 탭/홀드 판정 (1~5000)
 HoldPolicy  = interrupt  # interrupt(다른 키가 홀드를 확정) 또는 timeout
 Layer num                # 이 줄 뒤의 조합은 num 레이어
 Chord jk = text "the"    # 조합 (글쇠를 모두 뗄 때)
@@ -229,7 +230,7 @@ Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으�
 보류를 버리며, 사이띄개·엔터·탭·화살표는 응용의 것이다(보류는 먼저 확정한다). 앞단 조합이 있으면
 조합이 먼저 결정하므로 한 글쇠를 둘이 겹쳐 먹지 않고, `symbol` 은 조합 인식기로 되돌아가지 않는다.
 
-### 동작 (3판)
+### 동작 (v3)
 
 | 동작 | 뜻 |
 |---|---|
@@ -275,7 +276,7 @@ kya	きゃ
 | `.jmt` 줄 수 (Extends·Include 편 뒤) | 2만 줄, 파일 12개까지 |
 | `Extends` 깊이 | 4 |
 | 자판당 조합 / 레이어 / 매크로 / 매크로 단계 | 2048 / 16 / 8 / 128 |
-| 조합 문자열 (2판) | 23자 |
+| 조합 문자열 (v2) | 23자 |
 | 사전: 친 쪽 / 낼 글자 / 항목 | 32자 / 64자 / 50만 |
 | 목록의 자판 | 8개 |
 
@@ -315,7 +316,7 @@ kya	きゃ
 | `E-JMT-DICT-KIND` | 순차 사전이 아니다 | build it with 'Type = sequence' |
 | `E-JMT-DICT-MISSING` | 적어 둔 사전을 찾지 못했다 | put it beside the layout or in the dictionary folder |
 | `E-JMT-DUBEOL` | 두벌식에서는 쓸 수 없는 선언 | use C keys - dubeol turns them into finals from context |
-| `E-JMT-DUP-CHORD` | 한 파일 안에 같은 조합이 두 번 (3판) | remove one of the two lines (in format version 3 this is an error) |
+| `E-JMT-DUP-CHORD` | 한 파일 안에 같은 조합이 두 번 (v3) | remove one of the two lines (in format version 3 this is an error) |
 | `E-JMT-ENCODING` | UTF-8 이 아니다 | save the file as UTF-8 |
 | `E-JMT-ENGINE` | Engine 이 없거나 모르는 엔진 | add 'Engine = sequence' |
 | `E-JMT-EXTENDS-INCLUDE` | 조각 파일은 Extends 를 쓸 수 없다 | put Extends in the main layout file |
@@ -336,11 +337,11 @@ kya	きゃ
 | `E-JMT-RANGE` | 값이 범위를 벗어난다 | bits 0..31; a key list takes consecutive bits from the start bit |
 | `E-JMT-READ` | 파일을 읽다 실패했다 | save the file as UTF-8; the lines after this point were not read |
 | `E-JMT-REQUIRES` | 이 자판은 더 새 자모통을 요구한다 | update Jamotong |
-| `E-JMT-REQUIRES-MISSING` | 3판 파일인데 RequiresJamotong 이 없다 | add 'RequiresJamotong = 0.33.0' |
+| `E-JMT-REQUIRES-MISSING` | v3 파일인데 RequiresJamotong 이 없다 | add 'RequiresJamotong = 0.33.0' |
 | `E-JMT-SEQ-INLINE` | 변환표는 자판 파일 안에 둘 수 없다 | put the entries in a dictionary source (.jdt), build it with 'jamotong --build-dict' and write 'Dictionary = name.jdb' |
 | `E-JMT-STRING` | 문자열 문법이 잘못됐다 | write text "..." with escapes \\" \\\\ \\n \\t \\u{hex} |
 | `E-JMT-SYMBOL` | symbol 은 엔진이 있는 자판에서만 | use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
-| `E-JMT-TEXT-LONG` | 조합 문자열이 23자를 넘는다 (2판) | shorten the text (at most 23 characters after \\n, \\t and \\s) |
+| `E-JMT-TEXT-LONG` | 조합 문자열이 23자를 넘는다 (v2) | shorten the text (at most 23 characters after \\n, \\t and \\s) |
 | `E-JMT-TOO-LONG` | 파일이 2만 줄을 넘는다 | - |
 | `E-JMT-CHORD-KEY` | v4 조합 자판에서 선언하지 않은 글쇠를 조합에 썼다 | declare them first: keys "arts" "eyio" . |
 | `E-JMT-KIND` | v4 값의 갈래가 잘못됐다 (holdpolicy 등) | holdpolicy is interrupt or timeout |
@@ -351,9 +352,9 @@ kya	きゃ
 | `E-JMT-UNKNOWN-DIRECTIVE` | 이 자판 종류가 모르는 지시문 | check the spelling against the directive list |
 | `E-JMT-VALUE` | 값이 잘못됐다 | passthrough = keys go through unchanged (like the built-in QWERTY) |
 | `W-JMT-ABBREV-LONG` | Abbrev 가 4자보다 길다 | use 1 to 4 characters |
-| `W-JMT-DUP-CHORD` | 같은 조합이 두 번 — 첫 줄이 쓰인다 (1·2판) | remove one of the two lines |
+| `W-JMT-DUP-CHORD` | 같은 조합이 두 번 — 첫 줄이 쓰인다 (v1·v2) | remove one of the two lines |
 | `W-JMT-EMPTY-LAYER` | 레이어에 조합이 없다 | remove it or give it chords |
-| `W-JMT-IGNORED-LINE` | 모르는 줄을 무시했다 (1판에서만) | in format 2 and later this is an error |
+| `W-JMT-IGNORED-LINE` | 모르는 줄을 무시했다 (v1 에서만) | in format 2 and later this is an error |
 | `W-JMT-UNKNOWN-KEY` | 모르는 머리부 키 — 무시했다 | check the spelling; the message suggests the closest key |
 
 ## 함께 보기

@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.58.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.2/jamotong-0.58.2.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.59.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.59.0/jamotong-0.59.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -78,7 +78,7 @@ folder that every app, including Store (UWP) apps, can read. Your settings stay 
   name — hunum/reading for hanja, otherwise the Unicode block) → Enter.
 - **Configurable shortcuts**: every trigger (layout switch, Hanja, Unicode input,
   settings, pass-through mode) accepts **multiple bindings** (up to 8 per function).
-- **Pass-through (direct input) mode**: a toggle (tray icon right-click menu) that makes
+- **Pass-through (direct input) mode**: a toggle (`Ctrl+Alt+P`, or the tray icon's right-click menu) that makes
   Jamotong stop intercepting keys entirely — for remote-desktop clients and similar.
   While on, the tray icon shows `--` and even the layout-switch key passes through, so
   you type Korean with the remote machine's IME.
@@ -120,7 +120,7 @@ Default keys — every function is configurable and accepts multiple bindings
 | Hanja / special characters | Hanja key |
 | Unicode codepoint input | Ctrl+Alt+U |
 | Open settings window | Ctrl+Alt+K |
-| Pass-through (direct input) mode toggle | (none by default — toggle via the tray icon's right-click menu, or assign one) |
+| Pass-through (direct input) mode toggle | Ctrl+Alt+P (the tray icon's right-click menu toggles it too) |
 
 ## Everyday use
 
@@ -250,7 +250,7 @@ Name   = my_layout     # shown in the layout list / language bar (up to 63 chars
 Abbrev = 마            # 1–4 characters drawn in the 2x2 tray icon (optional)
 ```
 
-Optional metadata (format version 2; every key is optional and a v1 file without them loads
+Optional metadata (v2; every key is optional and a v1 file without them loads
 exactly as before):
 
 ```ini
@@ -301,7 +301,7 @@ one; the same chord written twice in *one* file keeps the first and warns `W-JMT
 Dubeolsik (`@ko_2bul`) can be a base too: `Extends = @ko_2bul` keeps its 2-set behaviour
 (`Composition = dubeol`, below) and you change only the keys you list.
 
-### Shift level, physical keys and blocks (format version 2)
+### Shift level, physical keys and blocks (v2)
 
 ```ini
 Key q shift = C1         # the Shift face of q (= 'Key Q'); symbols too: 'Key 1 shift' is '!'
@@ -345,30 +345,49 @@ jamotong.exe --expand my.jmt -o flat.jmt       # resolve Extends/Include into on
 `--expand` writes a canonical file (comments and line order are not kept; expanding it again
 gives the same file). `--json` prints machine-readable diagnostics for editors.
 
-### Type = static (1:1 remap)
+### Static layouts (the v4 grammar)
 
-One directive, in single and **array** form:
+One key gives one character and no automaton runs. The whole layout is a `map char` block: the left
+string is what the key gives on a US keyboard, the right string is what this layout gives instead.
+Keys you do not name keep their own character, so **QWERTY is a layout with no mappings at all**:
 
-```ini
-Map <key> = <output>      # that key now produces <output>
-Map <keys...> = <outputs...>  # array: same length both sides, paired by position
+```lowlayout
+layout name "qwerty" .
+layout format 4 .
+engine none .                  rem no automaton - one key, one character
+
+rem no `map char` block: every key passes through untouched.
+rem This is exactly what `jamotong --export @en_qwerty` writes.
 ```
 
-Unmapped keys keep their original character. `Identity = passthrough` (with no `Map` lines)
-makes a layout that lets every key through untouched, exactly like the built-in QWERTY — that is
-what `--export @en_qwerty` writes. A file that `Extends = @en_qwerty` and adds `Map` lines becomes an
-ordinary remap. Uppercase/symbol variants are separate
-mappings. Key strings cannot contain a space — map the space key with the single form.
-Example (Dvorak top row in one line):
+Writing a key to itself is allowed but pointless, so a real static layout only lists what it
+changes. Here is a **complete** one - Dvorak, every key including the shifted face
+(`jamotong --export @en_dvorak` writes this file):
 
-```ini
-Type = static
-Name = my_dvorak
-Abbrev = Dv
+```lowlayout
+layout name "dvorak" .
+layout format 4 .
+engine none .
 
-Map qwertyuiop = ',.pyfgcrl   # array form: q→' w→, e→. ...
-Map [ = /                     # single form still works
+map char do
+  "-" "[" .  "=" "]" .  "_" "{" .  "+" "}" .
+  "q" "'" .  "w" "," .  "e" "." .  "r" "p" .  "t" "y" .  "y" "f" .
+  "u" "g" .  "i" "c" .  "o" "r" .  "p" "l" .  "[" "/" .  "]" "=" .
+  "a" "a" .  "s" "o" .  "d" "e" .  "f" "u" .  "g" "i" .  "h" "d" .
+  "j" "h" .  "k" "t" .  "l" "n" .  ";" "s" .  "'" "-" .
+  "z" ";" .  "x" "q" .  "c" "j" .  "v" "k" .  "b" "x" .  "n" "b" .
+  "m" "m" .  "," "w" .  "." "v" .  "/" "z" .
+  "Q" "\"" .  "W" "<" .  "E" ">" .  "R" "P" .  "T" "Y" .  "Y" "F" .
+  "U" "G" .  "I" "C" .  "O" "R" .  "P" "L" .  "{" "?" .  "}" "+" .
+  "S" "O" .  "D" "E" .  "F" "U" .  "G" "I" .  "H" "D" .  "J" "H" .
+  "K" "T" .  "L" "N" .  ":" "S" .  "\"" "_" .
+  "Z" ":" .  "X" "Q" .  "C" "J" .  "V" "K" .  "B" "X" .  "N" "B" .
+  "<" "W" .  ">" "V" .  "?" "Z" .
+end
 ```
+
+A key string is one key, written as text, so punctuation keys need no escaping beyond `\"` and
+`\\`. The space key is written `" "`.
 
 ### Hangul layouts (the v4 grammar)
 
@@ -416,6 +435,51 @@ accepted too - choseong 0ㄱ..18ㅎ, jungseong 0ㅏ..20ㅣ, jongseong 1ㄱ..27�
 
 `jamotong --export @ko_2bul -o mine.jmt` writes a built-in layout out as a v4 file to start from, and
 six layouts (`layout-*.jmt`) are already in the install folder.
+
+**A complete layout.** Here is the standard two-set (두벌식) keyboard in full - every key and every
+combining rule. This is the file `jamotong --export @ko_2bul` writes, and `layout-ko-2bul.jmt` in the
+install folder:
+
+```lowlayout
+layout name "ko_2bul" .
+layout format 4 .
+engine hangul .
+
+rem two-set: the key says the jamo, the automaton picks the slot
+map jamo do
+  "A" "ㅁ" .  "B" "ㅠ" .  "C" "ㅊ" .  "D" "ㅇ" .  "E" "ㄸ" .  "F" "ㄹ" .
+  "G" "ㅎ" .  "H" "ㅗ" .  "I" "ㅑ" .  "J" "ㅓ" .  "K" "ㅏ" .  "L" "ㅣ" .
+  "M" "ㅡ" .  "N" "ㅜ" .  "O" "ㅒ" .  "P" "ㅖ" .  "Q" "ㅃ" .  "R" "ㄲ" .
+  "S" "ㄴ" .  "T" "ㅆ" .  "U" "ㅕ" .  "V" "ㅍ" .  "W" "ㅉ" .  "X" "ㅌ" .
+  "Y" "ㅛ" .  "Z" "ㅋ" .  "a" "ㅁ" .  "b" "ㅠ" .  "c" "ㅊ" .  "d" "ㅇ" .
+  "e" "ㄷ" .  "f" "ㄹ" .  "g" "ㅎ" .  "h" "ㅗ" .  "i" "ㅑ" .  "j" "ㅓ" .
+  "k" "ㅏ" .  "l" "ㅣ" .  "m" "ㅡ" .  "n" "ㅜ" .  "o" "ㅐ" .  "p" "ㅔ" .
+  "q" "ㅂ" .  "r" "ㄱ" .  "s" "ㄴ" .  "t" "ㅅ" .  "u" "ㅕ" .  "v" "ㅍ" .
+  "w" "ㅈ" .  "x" "ㅌ" .  "y" "ㅛ" .  "z" "ㅋ" .
+end
+
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+```
+
+Jamo are written as the jamo letters themselves. The shift faces are ordinary keys here - `"Q"` is
+the key that gives `Q` on a US keyboard - so nothing has to say "shift".
 
 - **Without `moachigi`** (the default, sequential): jamo are entered one keystroke at a time in
   order — the usual typing style.
@@ -555,7 +619,7 @@ toggled mouse layer (pointer movement, clicks, wheel), tap/hold pairs and media 
 keep the `keys` declaration, and fill in your own chord table (e.g. the published ARTSEY map).
 Its `note DOC … DOC` header summarises the grammar in the file itself.
 
-#### Sequence input (format version 3)
+#### Sequence input (v3)
 
 A **sequence layout** turns a *run* of Latin keys into other letters — romaji to kana, for
 example. The table is not written in the layout file: it lives in a **dictionary** that you
@@ -737,7 +801,7 @@ support.
 - Limits: the typed side of a sequence dictionary is printable ASCII up to 32 characters, a
   candidate reading is up to 96 bytes of UTF-8, one entry emits up to 64 characters, and a
   dictionary holds up to 500,000 entries. A dictionary that uses a reading longer than 32 bytes is
-  written as format version 2, which Jamotong 0.44 and older refuse to load rather than misread.
+  written as v2, which Jamotong 0.44 and older refuse to load rather than misread.
 - **Loading a layout checks its dictionary in full** — the checksum, the key order and the key
   characters — so a damaged dictionary means the layout is not offered at all, wherever it came
   from. The check reads the whole file once per load (about 7 ms for 100,000 entries).

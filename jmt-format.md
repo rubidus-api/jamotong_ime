@@ -36,8 +36,8 @@ named by a plain file name ending in `.jdb` — no folders in the name.
 
 ## Layout source (`.jmt`) - **the v4 grammar**
 
-Hangul layouts and static layouts are written in this grammar. Its surface comes from lowent, the
-systems language written alongside this project.
+Hangul layouts, static layouts and chord layouts are written in this grammar. Its surface comes from
+lowent, the systems language written alongside this project.
 
 ```lowlayout
 rem a comment runs to the end of the line. There is no symbol comment marker.
@@ -145,15 +145,18 @@ it is a symbol this language does not have. A word cannot hold one either, so th
 
 ### What still uses the older grammar
 
-**Sequential input layouts (`Type = input`, the dictionary and sequence engines) are written in the
-1-3 grammar below.** Jamotong reads both: a file with a `layout` form is read as v4, otherwise as the
-older grammar. `jamotong --export` writes hangul and static layouts in v4 (chord layouts still export
-in the older grammar).
+**Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
+still written in the 1-3 grammar below.** Everything else in that section is kept for files that were
+already written; Jamotong reads both, and a file with a `layout` form is read as v4. `jamotong
+--export` writes a built-in layout in v4. `jamotong --expand` resolves `Extends`/`Include`, which
+only the older grammar has - a v4 file is already flat, so it is written back unchanged.
 
 ---
 
-## Layout source, versions 1-3
+## Layout source, v1-v3
 
+Kept for layouts that were written before v4, and the grammar of sequential input layouts. New
+hangul, static and chord layouts are written in v4 above.
 
 
 ```ini
@@ -161,14 +164,14 @@ in the older grammar).
 FormatVersion    = 3          # 1, 2 or 3 (omitted = 1)
 Type             = input      # static | hangul | chord | input   (omitted = hangul)
 Engine           = sequence   # Type = input only
-RequiresJamotong = 0.40.0     # required in format 3
+RequiresJamotong = 0.40.0     # required in v3
 Name             = my layout  # shown in the layout list
 Abbrev           = MINE       # 1-4 characters for the tray icon
 ```
 
 Header keys: `FormatVersion`, `Type`, `Engine`, `Id`, `Name`, `Abbrev`, `Version`, `Author`,
 `License`, `Homepage`, `Description`, `Locale`, `RequiresJamotong`. Unknown header keys are a
-warning; an unknown *directive* is an error in format 2 and later.
+warning; an unknown *directive* is an error in v2 and later.
 
 `Extends = other.jmt` takes another layout of the same kind as the base (one line, at most four
 levels deep, no loops) and `Include = part.jmt` pastes a fragment. Lines that come later win.
@@ -211,8 +214,8 @@ no direct final keys and no Moachigi.
 
 ```ini
 Key jkl; = 0             # declare the chord keys: j gets bit 0, k bit 1, ...
-ComboTermMs = 50         # format 3: how long to wait for a bigger chord (1-1000)
-HoldTermMs  = 200        # format 3: tap/hold threshold (1-5000)
+ComboTermMs = 50         # v3: how long to wait for a bigger chord (1-1000)
+HoldTermMs  = 200        # v3: tap/hold threshold (1-5000)
 HoldPolicy  = interrupt  # interrupt (another key confirms a hold) or timeout
 Layer num                # chords after this line belong to layer "num"
 Chord jk = text "the"    # a chord (all keys released)
@@ -244,7 +247,7 @@ letter, Esc drops them, and Space/Enter/Tab/arrows belong to the application (th
 are typed first). A chord front end decides before the engine does, so one key is never consumed
 twice, and a `symbol` never goes back into the chord recognizer.
 
-### Actions (format 3)
+### Actions (v3)
 
 | Action | Meaning |
 |---|---|
@@ -292,7 +295,7 @@ the whole file (checksum, order, key characters) before the layout can be used.
 | lines in a `.jmt` (after Extends/Include) | 20,000, at most 12 files |
 | `Extends` depth | 4 |
 | chords per layout / layers / macros / macro steps | 2048 / 16 / 8 / 128 |
-| chord text (format 2) | 23 characters |
+| chord text (v2) | 23 characters |
 | dictionary: typed side / output / entries | 32 / 64 characters, 500,000 entries |
 | layouts in the list | 8 |
 

@@ -1,6 +1,7 @@
 // klay_cli.c — .jmt 저작 도구 명령 (RFC-0011 P3). WinAPI 무의존: 리눅스 네이티브로도 빌드된다.
 #include "klay_cli.h"
 #include "klay.h"
+#include "lowlay_build.h"
 #include "hangul_layout.h"
 #include "chord_layout.h"
 #include "seq_layout.h"
@@ -378,13 +379,22 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
             if (!b.buf) rc = 1;
             else {
                 b.buf[0] = L'\0';
-                // 한글·정적 자판은 v4 문법으로 적는다 (RFC-0018 P4). 조합·순차 자판은 아직 옛 꼴이다.
+                // 한글·정적 자판은 v4 문법으로 다시 적는다 (RFC-0018 P4).
                 bool wroteV4 = false;
                 {
                     wchar_t *v4 = (wchar_t*)malloc(16384 * sizeof(wchar_t));
                     if (v4) {
                         if (Klay_WriteV4(&lc, v4, 16384)) wroteV4 = WriteFileText(outPath, v4);
                         free(v4);
+                    }
+                }
+                // 그 밖의 v4 파일(조합 자판)은 원문이 곧 펼친 꼴이다 — v4 에는 Extends·Include 가 없다.
+                // 옛 꼴 머리를 붙여 다시 적으면 읽히지 않는 파일이 된다.
+                if (!wroteV4) {
+                    wchar_t *v4src = LowBuild_ReadIfV4(arg);
+                    if (v4src) {
+                        wroteV4 = WriteFileText(outPath, v4src);
+                        free(v4src);
                     }
                 }
                 if (wroteV4) { /* 적었다 */ } else

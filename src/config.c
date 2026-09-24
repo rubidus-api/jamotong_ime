@@ -74,8 +74,9 @@ void Config_LoadDefault(JamotongConfig *config) {
     ShortcutList *st = &config->shortcuts[SC_FN_SETTINGS];  // 설정 창 열기: Ctrl+Alt+K
     st->count = 1;
     st->keys[0].vKey = 'K'; st->keys[0].mods = SMOD_CTRL | SMOD_ALT;
-    // 무간섭(직접 입력) 모드: 기본 단축키 없음 — 우클릭 메뉴로만 토글, 원하면 설정에서 지정.
-    config->shortcuts[SC_FN_PASSTHROUGH].count = 0;
+    ShortcutList *pt = &config->shortcuts[SC_FN_PASSTHROUGH];  // 무간섭(직접 입력) 모드: Ctrl+Alt+P
+    pt->count = 1;                                             // 잘 안 쓰이는 자리 — 설정·Code 와 같은 가족
+    pt->keys[0].vKey = 'P'; pt->keys[0].mods = SMOD_CTRL | SMOD_ALT;
 
     // IME 옵션 기본값
     config->options.fullWidth = false;

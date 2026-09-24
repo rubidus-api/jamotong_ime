@@ -287,6 +287,13 @@ static bool BuildStatic(const LowTree *t, const LowCheckResult *c, LayoutConfig 
     return ok && out->name != NULL;
 }
 
+wchar_t *LowBuild_ReadIfV4(const wchar_t *path) {
+    wchar_t *src = ReadAllWide(path);
+    if (!src) return NULL;
+    if (!LowBuild_IsV4(src)) { free(src); return NULL; }
+    return src;
+}
+
 bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, bool *isV4) {
     if (isV4) *isV4 = false;
     wchar_t *src = ReadAllWide(path);

@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.58.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.2/jamotong-0.58.2.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.59.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.59.0/jamotong-0.59.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -65,7 +65,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 - **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기·무간섭 모드)에
   **복수 단축키**(기능당 최대 8개) 지정 가능.
 - **무간섭(직접 입력) 모드**: 원격 데스크톱 등에서 자모통이 키를 일절 가로채지 않게 하는
-  토글(트레이 아이콘 우클릭 메뉴). 켜져 있는 동안 아이콘이 `--`로 바뀌고, 자판 전환키까지
+  토글(`Ctrl+Alt+P`, 또는 트레이 아이콘 우클릭 메뉴). 켜져 있는 동안 아이콘이 `--`로 바뀌고, 자판 전환키까지
   원격으로 그대로 전달되어 원격 PC의 IME로 한글을 입력할 수 있다.
 - **관리 앱**(`jamotong.exe`): 트레이 상주가 아니라 작업 표시줄·작업 관리자에 나오는 일반 앱.
   `.jmt` 자판 파일 열기/편집/검증, TSF 없이 입력 테스트, 설정 창 열기를 한곳에서.
@@ -100,7 +100,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 | 한자/특수문자 변환 | 한자 키 |
 | 유니코드 코드 입력 | Ctrl+Alt+U |
 | 설정 창 열기 | Ctrl+Alt+K |
-| 무간섭(직접 입력) 모드 토글 | (기본 없음 — 트레이 아이콘 우클릭 메뉴로 토글, 원하면 지정) |
+| 무간섭(직접 입력) 모드 토글 | Ctrl+Alt+P (트레이 아이콘 우클릭 메뉴로도 토글) |
 
 ## 기본 사용법
 
@@ -177,7 +177,7 @@ Import가 다른 PC에서 자판을 복원한다. 파일을 지우면 공장 기
 | `static` | 1:1 문자 리맵 (드보락, 콜맥 등) |
 | `hangul` | 한글 조합 자판 (세벌식 계열, 결합 규칙 자유) |
 | `chord`  | 코드(조합) 자판 (ARTSEY류): 글쇠 조합 → 텍스트/특수키/마우스, 레이어·탭-홀드 |
-| `input`  | 3판 공통 표면. `Engine = sequence` 면 친 글자열을 다른 글자로 바꾼다 |
+| `input`  | v3 공통 표면. `Engine = sequence` 면 친 글자열을 다른 글자로 바꾼다 |
 
 **자판은 쓰기 전에 컴파일한다.** 입력기는 구운 자판(`.jmb`)만 읽고, `.jmt` 는 사람이 고치는
 원본이다. 굽는 동안 파일 전체를 검사하고, 순차 자판이면 사전까지 본다 — 그래서 목록에 뜨는
@@ -220,7 +220,7 @@ Name   = my_layout     # 자판 목록/언어바에 표시되는 이름 (최대 
 Abbrev = 마            # 트레이 2x2 아이콘에 그릴 1~4글자 (선택)
 ```
 
-선택 메타데이터(형식 2판 — 전부 선택이고, 이것들이 없는 1판 파일은 예전 그대로 로드된다):
+선택 메타데이터(v2 — 전부 선택이고, 이것들이 없는 v1 파일은 예전 그대로 로드된다):
 
 ```ini
 FormatVersion    = 2                 # 생략 = 1
@@ -239,7 +239,7 @@ RequiresJamotong = 0.24.0            # 이보다 낮은 자모통에서는 알�
 `my.jmt:2:9: error: Key: jamo index out of range (C 0..18 / M 0..20 / T 1..27) [E-JMT-RANGE]`.
 경고는 로드를 막지 않는다: 모르는 머리부 키(`Athor = …` → *did you mean 'Author'?*), 4글자를 넘는
 `Abbrev`. 이 자모통이 읽는 것보다 **더 새로운 `FormatVersion`** 은 오류다(`E-JMT-FORMAT-NEWER`) — 옛 판이 아는
-부분만 읽으면 조용히 다른 자판이 되기 때문이다. 알아보지 못한 줄은 1판 파일에서는 경고, **`FormatVersion = 2`
+부분만 읽으면 조용히 다른 자판이 되기 때문이다. 알아보지 못한 줄은 v1 파일에서는 경고, **`FormatVersion = 2`
 부터는 오류**다 — 새 파일에서 오타로 글쇠가 조용히 빠지는 일이 없게.
 
 키는 항상 **US QWERTY 기준으로 그 물리 키가 내는 문자**로 지정한다. Shift 포함:
@@ -267,7 +267,7 @@ Include = common-rules.jmt  # 다른 파일의 줄을 이 자리에 붙인다 (�
 두벌식(`@ko_2bul`)도 기반이 된다: `Extends = @ko_2bul` 은 두벌식 동작(아래 `Composition = dubeol`)을
 그대로 두고 적은 키만 바꾼다.
 
-### Shift 면·물리 글쇠·블록 (형식 2판)
+### Shift 면·물리 글쇠·블록 (v2)
 
 ```ini
 Key q shift = C1         # q 의 Shift 면(= 'Key Q'). 기호도: 'Key 1 shift' 는 '!'
@@ -308,29 +308,46 @@ jamotong.exe --expand my.jmt -o flat.jmt       # Extends/Include 를 풀어 파�
 `--expand` 는 정규형으로 쓴다(주석·줄 순서는 남지 않고, 다시 펼쳐도 같은 파일). `--json` 은 편집기가
 읽을 수 있는 진단을 낸다.
 
-### Type = static (1:1 리맵)
+### 정적 자판 (v4 문법)
 
-지시문 하나 — 단건과 **배열** 두 형태:
+글쇠 하나가 글자 하나를 낸다. 오토마타는 돌지 않는다. 자판 전체가 `map char` 블록 하나다 — 왼쪽은
+그 글쇠가 US 자판에서 내는 글자, 오른쪽은 이 자판이 대신 낼 글자다. 적지 않은 글쇠는 제 글자를
+그대로 내므로, **QWERTY 는 배정이 하나도 없는 자판**이다:
 
-```ini
-Map <키> = <출력>          # 그 키가 <출력> 문자를 내게 된다
-Map <키…> = <출력…>        # 배열 지정: 좌우 같은 길이, 위치 대응
+```lowlayout
+layout name "qwerty" .
+layout format 4 .
+engine none .                  rem 오토마타 없음 — 글쇠 하나에 글자 하나
+
+rem `map char` 블록이 없다: 모든 글쇠가 그대로 지나간다.
+rem `jamotong --export @en_qwerty` 가 쓰는 것이 정확히 이것이다.
 ```
 
-지정하지 않은 키는 원래 문자를 유지한다. `Identity = passthrough`(`Map` 줄 없이)는 모든 키를 손대지 않고 그대로
-통과시키는 자판이다 — 내장 QWERTY 와 똑같고, `--export @en_qwerty` 가 이렇게 쓴다. `Extends = @en_qwerty` 에 `Map` 줄을
-더하면 보통의 리맵 자판이 된다. 대문자/기호 자리는 각각 따로 지정한다.
-키 나열엔 공백을 쓸 수 없으므로 스페이스 키는 단건으로 지정한다.
-예 (드보락 윗줄을 한 줄로):
+글쇠를 제 글자에 배정해도 되지만 뜻이 없으므로, 실제 자판은 **바꾸는 것만** 적는다. 아래는 드보락
+**전체**다 — 윗글쇠 자리까지 포함한다(`jamotong --export @en_dvorak` 이 쓰는 파일):
 
-```ini
-Type = static
-Name = my_dvorak
-Abbrev = Dv
+```lowlayout
+layout name "dvorak" .
+layout format 4 .
+engine none .
 
-Map qwertyuiop = ',.pyfgcrl   # 배열 지정: q→' w→, e→. ...
-Map [ = /                     # 단건 지정도 그대로 가능
+map char do
+  "\"" "_" .  "'" "-" .  "+" "}" .  "," "w" .  "-" "[" .  "." "v" .
+  "/" "z" .  ":" "S" .  ";" "s" .  "<" "W" .  "=" "]" .  ">" "V" .
+  "?" "Z" .  "B" "X" .  "C" "J" .  "D" "E" .  "E" ">" .  "F" "U" .
+  "G" "I" .  "H" "D" .  "I" "C" .  "J" "H" .  "K" "T" .  "L" "N" .
+  "N" "B" .  "O" "R" .  "P" "L" .  "Q" "\"" .  "R" "P" .  "S" "O" .
+  "T" "Y" .  "U" "G" .  "V" "K" .  "W" "<" .  "X" "Q" .  "Y" "F" .
+  "Z" ":" .  "[" "/" .  "]" "=" .  "_" "{" .  "b" "x" .  "c" "j" .
+  "d" "e" .  "e" "." .  "f" "u" .  "g" "i" .  "h" "d" .  "i" "c" .
+  "j" "h" .  "k" "t" .  "l" "n" .  "n" "b" .  "o" "r" .  "p" "l" .
+  "q" "'" .  "r" "p" .  "s" "o" .  "t" "y" .  "u" "g" .  "v" "k" .
+  "w" "," .  "x" "q" .  "y" "f" .  "z" ";" .  "{" "?" .  "}" "+" .
+end
 ```
+
+글쇠 문자열은 글쇠 하나를 글로 적은 것이라, 구두점 글쇠도 `\"` 와 `\\` 말고는 이스케이프가 필요 없다.
+스페이스 글쇠는 `" "` 로 적는다.
 
 ### 한글 자판 (v4 문법)
 
@@ -376,6 +393,50 @@ map mid do                 "f" "ㅏ" .  end      rem 아니면 모음
 
 `jamotong --export @ko_2bul -o 내두벌식.jmt` 로 내장 자판을 v4 파일로 내보내 고쳐 쓰면 쉽다.
 설치 폴더에는 이미 자판 여섯 벌(`layout-*.jmt`)이 들어 있다.
+
+**자판 하나를 통째로.** 아래는 두벌식 표준 **전체**다 — 글쇠와 결합 규칙을 남김없이 적었다.
+`jamotong --export @ko_2bul` 이 쓰는 파일이자 설치 폴더의 `layout-ko-2bul.jmt` 다:
+
+```lowlayout
+layout name "ko_2bul" .
+layout format 4 .
+engine hangul .
+
+rem two-set: the key says the jamo, the automaton picks the slot
+map jamo do
+  "A" "ㅁ" .  "B" "ㅠ" .  "C" "ㅊ" .  "D" "ㅇ" .  "E" "ㄸ" .  "F" "ㄹ" .
+  "G" "ㅎ" .  "H" "ㅗ" .  "I" "ㅑ" .  "J" "ㅓ" .  "K" "ㅏ" .  "L" "ㅣ" .
+  "M" "ㅡ" .  "N" "ㅜ" .  "O" "ㅒ" .  "P" "ㅖ" .  "Q" "ㅃ" .  "R" "ㄲ" .
+  "S" "ㄴ" .  "T" "ㅆ" .  "U" "ㅕ" .  "V" "ㅍ" .  "W" "ㅉ" .  "X" "ㅌ" .
+  "Y" "ㅛ" .  "Z" "ㅋ" .  "a" "ㅁ" .  "b" "ㅠ" .  "c" "ㅊ" .  "d" "ㅇ" .
+  "e" "ㄷ" .  "f" "ㄹ" .  "g" "ㅎ" .  "h" "ㅗ" .  "i" "ㅑ" .  "j" "ㅓ" .
+  "k" "ㅏ" .  "l" "ㅣ" .  "m" "ㅡ" .  "n" "ㅜ" .  "o" "ㅐ" .  "p" "ㅔ" .
+  "q" "ㅂ" .  "r" "ㄱ" .  "s" "ㄴ" .  "t" "ㅅ" .  "u" "ㅕ" .  "v" "ㅍ" .
+  "w" "ㅈ" .  "x" "ㅌ" .  "y" "ㅛ" .  "z" "ㅋ" .
+end
+
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+```
+
+낱자는 자모 글자 그대로 적는다. 윗글쇠 자리도 그냥 글쇠다 — `"Q"` 는 US 자판에서 `Q` 를 내는
+글쇠라는 뜻이므로, "shift" 라고 따로 말할 것이 없다.
 
 - **`moachigi` 없이**(기본, 이어치기): 자모를 한 타씩 순서대로 입력하는 일반 방식.
 - **`moachigi .` 를 적으면**(모아치기/동시치기): 여러 글쇠를 함께 눌러 한 음절을 만들고,
@@ -429,7 +490,7 @@ chord "art" be text "the" .         rem 세 글쇠 = 단어 통째로
 | `cancel` | 이동을 멈추고, 잡고 있던 드래그를 놓고, 돌던 매크로를 멈춘다. |
 
 숫자에 붙은 빼기표는 값의 일부다(`move -12 0`). `pointer move` 는 -10000…10000. 이 언어에는
-낱말 안에 빼기표가 올 수 없어 3판의 `drag-toggle` 은 `dragtoggle` 로 적는다. `key` 가 받는 이름:
+낱말 안에 빼기표가 올 수 없어 v3 의 `drag-toggle` 은 `dragtoggle` 로 적는다. `key` 가 받는 이름:
 
 ```
 이동   : left right up down home end pgup pgdn ins del
@@ -506,7 +567,7 @@ Enter, 원샷 Shift, 원샷과 모멘터리 숫자 레이어, 토글 마우스 �
 미디어 키. 복사해서 `keys` 선언은 그대로 두고 자기 조합표(예: 공개된 ARTSEY 표)를 채우면 된다.
 파일 머리의 `note DOC … DOC` 가 문법을 그 자리에서 요약한다.
 
-#### 순차 입력 (형식 3판)
+#### 순차 입력 (v3)
 
 **순차 변환 자판**은 친 글쇠의 *열*을 다른 글자로 바꾼다 — 로마자를 가나로 바꾸는 식이다. 표는
 자판 파일에 적지 않는다. 한 번 **컴파일해 둔 사전**에 있고, 자모통은 컴파일된 파일만 읽는다.
@@ -668,7 +729,7 @@ jieba 의 낱말 빈도에서 왔고 셋 다 MIT 다. 설치는 일본어 팩과
 
 - 한도: 순차 사전의 친 쪽은 볼 수 있는 ASCII 32자까지, 후보 사전의 읽기는 UTF-8 96바이트까지,
   한 항목이 내는 글자는 64자까지, 사전 하나에 50만 항목까지. 32바이트를 넘는 읽기를 쓰는 사전은
-  형식 판 2 로 구워지고, 0.44 이하 자모통은 그 사전을 **잘못 읽는 대신 거절**한다.
+  v2 로 구워지고, 0.44 이하 자모통은 그 사전을 **잘못 읽는 대신 거절**한다.
 - **자판을 읽을 때 사전을 전수로 본다** — 검사합·키 차례·키 글자. 그래서 사전이 깨졌으면 그 자판은
   어느 길로 들어오든 목록에 뜨지 않는다. 읽을 때마다 파일을 한 번 훑는다(10만 항목에 약 7ms).
   `jamotong --check 자판.jmt` 가 똑같은 검사를 하고 쓴 사전 이름을 알려 준다.
