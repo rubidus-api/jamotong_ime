@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.58.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.1/jamotong-0.58.1.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.58.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.2/jamotong-0.58.2.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -456,7 +456,7 @@ twice in one file is an error.
 
 | Form | Meaning |
 |---|---|
-| `text "the"` | Types the text (**at most 23 characters**). Escapes are the v4 set: `\n` `\t` `\\` `\"` `\u{1F600}` … |
+| `text "the"` | Types the text (**at most 23 characters**). Escapes are the closed v4 set: `\n` `\t` `\\` `\"` `\xNN` `\uXXXX` `\UXXXXXXXX` … |
 | `key enter` | One special key. Names below. |
 | `key f4 (mods ctrl alt)` | The key with modifiers: `shift ctrl alt gui` and the `r…` right-hand names. |
 | `mod shift` / `layer num` | The short form: on a `chord` it is one-shot, on a `hold` it lasts while held. |

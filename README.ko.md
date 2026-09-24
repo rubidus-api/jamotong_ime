@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.58.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.1/jamotong-0.58.1.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.58.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.2/jamotong-0.58.2.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -413,7 +413,7 @@ chord "art" be text "the" .         rem 세 글쇠 = 단어 통째로
 
 | 꼴 | 뜻 |
 |---|---|
-| `text "the"` | 글월 입력 (**23자까지**). 이스케이프는 v4 것: `\n` `\t` `\\` `\"` `\u{1F600}` … |
+| `text "the"` | 글월 입력 (**23자까지**). 이스케이프는 닫힌 v4 집합: `\n` `\t` `\\` `\"` `\xNN` `\uXXXX` `\UXXXXXXXX` … |
 | `key enter` | 특수키 하나. 이름은 아래 목록. |
 | `key f4 (mods ctrl alt)` | 수정키를 얹어서: `shift ctrl alt gui` 와 오른쪽 `r…` 이름. |
 | `mod shift` · `layer num` | 짧은 꼴 — `chord` 자리면 원샷, `hold` 자리면 누르고 있는 동안. |

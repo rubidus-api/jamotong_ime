@@ -39,6 +39,20 @@ static bool Append(wchar_t *buf, size_t cap, const wchar_t *s) {
 static bool AppendQuoted(wchar_t *buf, size_t cap, const wchar_t *s) {
     if (!Append(buf, cap, L"\"")) return false;
     for (; *s; s++) {
+        // 3판 동작 문자열은 한 줄이다 — 어휘기가 이미 푼 제어문자를 다시 이스케이프로 되돌린다.
+        const wchar_t *esc = NULL;
+        switch (*s) {
+            case L'\n': esc = L"\\n"; break;
+            case L'\t': esc = L"\\t"; break;
+            default: break;
+        }
+        if (esc) { if (!Append(buf, cap, esc)) return false; continue; }
+        if (*s < 0x20) {                       // 3판이 아는 이스케이프는 \n \t 뿐이라 나머지는 번호로
+            wchar_t hex[12];
+            swprintf(hex, 12, L"\\u{%x}", (unsigned)*s);
+            if (!Append(buf, cap, hex)) return false;
+            continue;
+        }
         wchar_t one[3];
         int k = 0;
         if (*s == L'"' || *s == L'\\') one[k++] = L'\\';
