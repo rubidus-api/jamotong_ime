@@ -304,13 +304,10 @@ static bool CheckForm(const LowForm *f, LowCheckResult *r, KlayDiag *diag, bool 
         if (!f->block) { CHK_ERR(f, L"E-LOW-SHAPE", L"map opens a block with 'do'", NULL); return false; }
         if (!kind || !InList(kKinds, kind)) { CHK_ERR(f, L"E-LOW-KIND", L"map is jamo, cho, mid, jong or char", NULL); return false; }
         if (whenAt >= 0 && !CheckGuard(f, whenAt + 1, n, &r->syms, diag)) ok = false;
-        for (int i = 2; i < n; i++) {   // shift 같은 낱말만 올 수 있다
-            if (i == whenAt) break;
-            const wchar_t *w = ItemName(&f->items[i]);
-            if (!w || (wcscmp(w, L"shift") && wcscmp(w, L"base"))) {
-                CHK_ERR(f, L"E-LOW-SHAPE", L"after the kind only 'shift'/'base' and 'when <guard>' may come", NULL);
-                break;
-            }
+        // 갈래 뒤에는 `when <가드>` 말고 올 것이 없다 — 윗글쇠는 글쇠 문자열이 이미 말한다("Q" = Shift+q)
+        if (n > 2 && whenAt != 2) {
+            CHK_ERR(f, L"E-LOW-SHAPE", L"after the kind only 'when <guard>' may come",
+                    L"the shift face is written in the key string itself: \"Q\" is shift+q");
         }
         r->maps++;
         return CheckBlockKids(f, r, diag, second, L"map") && ok;

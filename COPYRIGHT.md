@@ -87,6 +87,27 @@ it. The `.jmt` example files are original templates and carry no third-party dat
 
 ---
 
-## 4. Jamotong's own code
+## 4. Keyboard layouts (`docs/layouts/`)
+
+A keyboard arrangement - which key carries which jamo - is a fact and a method, not an expression,
+so it is not the subject of copyright. What could be is someone else's layout *file*, drawing or
+prose. Jamotong therefore writes every layout it ships **from the published arrangement**, in its
+own file format, and never converts another input method's configuration file into a shipped layout.
+
+- **Dubeolsik standard** - the national standard arrangement (KS X 5002).
+- **Sebeolsik Final (3-91)** - the arrangement Gong Byung-woo and the Hangul Culture Institute
+  published for free use. The shipped file is checked against Jamotong's own built-in table on all
+  58 keys.
+- **Sebeolsik Final, shift-free (sunarae)** - derived by Jamotong from Sebeolsik Final with one
+  stated rule: each shifted final consonant moves to the final-consonant slot of the same unshifted
+  key.
+
+Layouts designed by others whose authors have stated that they claim no rights (for example
+Sebeolsik 3-2011 and 3-2012) may be added later, but only written afresh from their published
+arrangement tables.
+
+---
+
+## 5. Jamotong's own code
 
 Everything not listed above is Jamotong's own work under the MIT License (see `LICENSE`).

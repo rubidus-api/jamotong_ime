@@ -1,0 +1,52 @@
+rem 두벌식 표준 (KS X 5002) — 자모통 정본, 손으로 적은 v4 자판.
+rem   근거: 표준 배열과 자모통 내장 표(src/layout.c).
+rem   두 벌이므로 **자리를 적지 않는다** — 자음이 초성인지 종성인지 겹받침인지는
+rem   오토마타가 정한다(RFC-0018 §4.1 의 아홉 자리).
+
+layout name "두벌식 표준" .
+layout format 4 .
+layout license "공개 표준 배열(KS X 5002). 이 파일의 표기는 자모통의 것이다." .
+engine hangul .
+
+rem 자음 — 왼손
+map jamo do
+  "a" "ㅁ" .  "c" "ㅊ" .  "d" "ㅇ" .  "e" "ㄷ" .  "f" "ㄹ" .  "g" "ㅎ" .
+  "q" "ㅂ" .  "r" "ㄱ" .  "s" "ㄴ" .  "t" "ㅅ" .  "v" "ㅍ" .  "w" "ㅈ" .
+  "x" "ㅌ" .  "z" "ㅋ" .
+end
+
+rem 모음 — 오른손
+map jamo do
+  "b" "ㅠ" .  "h" "ㅗ" .  "i" "ㅑ" .  "j" "ㅓ" .  "k" "ㅏ" .  "l" "ㅣ" .
+  "m" "ㅡ" .  "n" "ㅜ" .  "o" "ㅐ" .  "p" "ㅔ" .  "u" "ㅕ" .  "y" "ㅛ" .
+end
+
+rem 윗글쇠 — 글쇠 문자열이 그대로 면을 말한다 ("Q" 는 Shift+q).
+rem   숨은 기본값을 두지 않는다 — 민글쇠와 같은 자리도 그대로 적는다.
+map jamo do
+  "A" "ㅁ" .  "B" "ㅠ" .  "C" "ㅊ" .  "D" "ㅇ" .  "E" "ㄸ" .  "F" "ㄹ" .
+  "G" "ㅎ" .  "H" "ㅗ" .  "I" "ㅑ" .  "J" "ㅓ" .  "K" "ㅏ" .  "L" "ㅣ" .
+  "M" "ㅡ" .  "N" "ㅜ" .  "O" "ㅒ" .  "P" "ㅖ" .  "Q" "ㅃ" .  "R" "ㄲ" .
+  "S" "ㄴ" .  "T" "ㅆ" .  "U" "ㅕ" .  "V" "ㅍ" .  "W" "ㅉ" .  "X" "ㅌ" .
+  "Y" "ㅛ" .  "Z" "ㅋ" .
+end
+
+rem 겹받침·겹모음 — 이어 친 두 낱자가 하나로
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .

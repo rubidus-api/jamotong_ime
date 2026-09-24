@@ -1,0 +1,58 @@
+rem 세벌식 최종 (3-91) — 자모통 정본, 손으로 적은 v4 자판.
+rem   근거: 공병우·한글문화원이 자유 이용을 위해 공개한 배열과 자모통 내장 표.
+rem   세 벌이므로 자리를 못 박는다 — 초성·중성·종성 글쇠가 따로 있다.
+
+layout name "세벌식 최종" .
+layout format 4 .
+layout license "공개 배열(공병우 세벌식 최종). 이 파일의 표기는 자모통의 것이다." .
+engine hangul .
+
+rem 초성 — 오른손
+map cho do
+  "'" "ㅌ" .  "0" "ㅋ" .  ";" "ㅂ" .  "h" "ㄴ" .  "i" "ㅁ" .  "j" "ㅇ" .
+  "k" "ㄱ" .  "l" "ㅈ" .  "m" "ㅎ" .  "n" "ㅅ" .  "o" "ㅊ" .  "p" "ㅍ" .
+  "u" "ㄷ" .  "y" "ㄹ" .
+end
+
+rem 중성 — 가운데
+map mid do
+  "/" "ㅗ" .  "4" "ㅛ" .  "5" "ㅠ" .  "6" "ㅑ" .  "7" "ㅖ" .  "8" "ㅢ" .
+  "9" "ㅜ" .  "G" "ㅒ" .  "b" "ㅜ" .  "c" "ㅔ" .  "d" "ㅣ" .  "e" "ㅕ" .
+  "f" "ㅏ" .  "g" "ㅡ" .  "r" "ㅐ" .  "t" "ㅓ" .  "v" "ㅗ" .
+end
+
+rem 종성 — 왼손과 숫자열
+map jong do
+  "!" "ㄲ" .  "#" "ㅈ" .  "$" "ㄿ" .  "%" "ㄾ" .  "1" "ㅎ" .  "2" "ㅆ" .
+  "3" "ㅂ" .  "@" "ㄺ" .  "A" "ㄷ" .  "C" "ㅋ" .  "D" "ㄼ" .  "E" "ㄵ" .
+  "F" "ㄻ" .  "Q" "ㅍ" .  "R" "ㅀ" .  "S" "ㄶ" .  "T" "ㄽ" .  "V" "ㄳ" .
+  "W" "ㅌ" .  "X" "ㅄ" .  "Z" "ㅊ" .  "a" "ㅇ" .  "q" "ㅅ" .  "s" "ㄴ" .
+  "w" "ㄹ" .  "x" "ㄱ" .  "z" "ㅁ" .
+end
+
+rem 겹받침·겹모음 — 이어 친 두 낱자가 하나로
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .
+
+rem 같은 초성을 거듭 치면 된소리
+combine cho "ㄱ" "ㄱ" be "ㄲ" .
+combine cho "ㄷ" "ㄷ" be "ㄸ" .
+combine cho "ㅂ" "ㅂ" be "ㅃ" .
+combine cho "ㅅ" "ㅅ" be "ㅆ" .
+combine cho "ㅈ" "ㅈ" be "ㅉ" .
