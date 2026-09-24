@@ -33,3 +33,9 @@ void EditCtl_CollapseSelectionToEnd(HWND h);
 bool EditCtl_ReadSelection(HWND h, wchar_t *outBuf, int maxLen);
 
 void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아니면 no-op
+
+// UI 창을 소유 스레드가 아닌 곳에서 만졌다 — **배포판에서도** 센다 (RFC-0008 W0-03 S2, B5).
+//   JamoDiag 는 진단 빌드에서만 살아 있고 진단 빌드는 배포하지 않는다. 그래서 "로그에 찍히면
+//   그때 차단으로 올린다"는 계획은 영원히 결론에 못 이른다. 친 글자는 절대 남기지 않고, 횟수만
+//   HKCU\Software\Jamotong 의 `UiCrossThread` 에 적는다(1·2·4·8… 번째에만 써서 레지스트리를 덜 건드린다).
+void UiGuard_CrossThread(const char *what, unsigned long owner, unsigned long me);

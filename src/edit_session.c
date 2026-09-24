@@ -545,3 +545,18 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
     if (outBuf[0] == L'\0') ReadSelectionFromFocusCtl(outBuf, maxLen);
     return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }
+
+// ── UI 창 소유 스레드 가드의 계수기 (B5) ──────────────────────────────────────────
+// 진단 빌드가 아니어도 센다. 값은 **횟수 하나뿐** — 무엇을 쳤는지는 어디에도 남기지 않는다.
+void UiGuard_CrossThread(const char *what, unsigned long owner, unsigned long me) {
+    JamoDiag("UI cross-thread %s owner=%lu me=%lu", what, owner, me);
+    static long s_hits = 0;
+    long n = ++s_hits;
+    if ((n & (n - 1)) != 0) return;        // 1·2·4·8… 번째만 기록한다
+    HKEY k;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Jamotong", 0, NULL, 0,
+                        KEY_SET_VALUE, NULL, &k, NULL) != ERROR_SUCCESS) return;
+    DWORD v = (DWORD)n;
+    RegSetValueExW(k, L"UiCrossThread", 0, REG_DWORD, (const BYTE *)&v, sizeof v);
+    RegCloseKey(k);
+}
