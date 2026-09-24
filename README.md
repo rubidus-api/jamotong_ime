@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.56.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.56.0/jamotong-0.56.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.57.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.57.0/jamotong-0.57.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -719,11 +719,15 @@ jamotong --import-ngs "sebeol 3-2012.key" -o 3-2012.jmt
 jamotong --check 3-2012.jmt
 ```
 
-Jamo keys (choseong, jungseong, jongseong) are carried over, and a layout with final-consonant keys
-is written as sebeol; a layout with no jamo at all becomes a static layout. What is not carried over
-is counted: Nalgaeset **formula key values** (a key whose value depends on state), character keys in
-a hangul layout, jamo codes we do not know (old Hangul and the like), and every automaton and option.
-A layout whose every key is a formula has nothing to carry over and is refused.
+The result is written in the **v4 grammar**. Jamo keys are carried over, and a key that gives a
+different jamo **depending on the slot** (shift-free and alternating layouts) becomes a `when
+jongslot` guard: a final consonant in the final slot, a vowel in the vowel slot, an initial
+otherwise. Nalgaeset's condition bytes themselves are **not read** - they are its own automaton's
+state numbers - so what is used is only the shape, "which slots can this key fill". Type with an
+imported layout once to confirm it. The cluster and compound-vowel tables are added from the standard
+modern Hangul rules, because the Nalgaeset file does not carry them. What is not carried over is
+counted: formulas with no jamo (symbols and functions), character keys in a hangul layout, jamo codes
+we do not know, and every automaton and option.
 
 **Bringing in dictionary data you already have.** Word lists worth typing with are large, and
 the ones worth using are other people's work. Jamotong ships none of them; it converts what you

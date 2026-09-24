@@ -17,6 +17,7 @@ typedef struct NgsImportResult {
     int formulas;              // 날개셋 수식이라 건너뛴 자리
     int chars;                 // 글자 글쇠 (한글 자판으로 옮길 때는 버린다)
     int unknown;               // 우리가 모르는 낱자 코드
+    int guarded;               // 자리에 따라 갈리는 글쇠로 옮긴 수 (가드)
     bool hangul;               // 한글 자판(Type = hangul)으로 썼는가 — 아니면 정적 자판
     bool sebeol;               // 종성 글쇠가 있어 세벌식으로 적었는가
     wchar_t unknownList[120];  // 모르는 코드 몇 개 (예: "M26 M44 T125")

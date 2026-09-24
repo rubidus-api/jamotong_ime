@@ -275,6 +275,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         }
         Outf(out, ctx, L"wrote %ls - '%ls', %d of %d keys (%ls)\n", outPath, nr.name, nr.mapped, nr.keys,
              nr.hangul ? (nr.sebeol ? L"hangul, sebeol" : L"hangul, dubeol") : L"static layout");
+        if (nr.guarded)
+            Outf(out, ctx, L"   %d key(s) give a different jamo by slot - written as 'when' guards\n", nr.guarded);
         if (nr.formulas || nr.chars || nr.unknown)
             Outf(out, ctx, L"   not carried over: %d formula key(s), %d character key(s), %d unknown jamo\n",
                  nr.formulas, nr.chars, nr.unknown);

@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.56.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.56.0/jamotong-0.56.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.57.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.57.0/jamotong-0.57.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -666,10 +666,13 @@ jamotong --import-ngs "세벌식 3-2012.key" -o 3-2012.jmt
 jamotong --check 3-2012.jmt
 ```
 
-낱자(초성·중성·종성) 글쇠를 옮기고, 종성 글쇠가 있으면 세벌식으로 적는다. 낱자가 하나도 없는
-자판은 정적 자판이 된다. 옮기지 않는 것은 세어서 알려 준다: 날개셋 **수식 글쇠값**(누른 상태나
-앞 글자에 따라 값이 달라지는 자리), 한글 자판에서의 글자 글쇠, 우리가 모르는 낱자 코드(옛한글 등),
-그리고 오토마타·옵션 일체. 모든 글쇠가 수식인 자판(순아래 유형 등)은 옮길 것이 없어 거절한다.
+나온 파일은 **v4 문법**이다. 낱자 글쇠를 옮기고, 한 글쇠가 **자리에 따라 다른 낱자**를 내면
+(순아래·갈마들이) `when jongslot` 같은 가드로 적는다 — 종성 자리면 종성, 중성 자리면 중성,
+아니면 초성. 날개셋 수식의 **조건 자체는 읽지 않는다**(그쪽 오토마타 상태 번호라 뜻을 알 수 없다);
+우리가 쓰는 것은 "이 글쇠가 어느 자리의 낱자를 낼 수 있는가"라는 꼴뿐이므로, 옮긴 자판은 한 번
+쳐 보고 확인하는 것이 좋다. 겹받침·겹모음 표는 표준 현대 한글 규칙으로 얹어 준다(날개셋 파일에는 없다).
+옮기지 않는 것은 세어서 알려 준다: 낱자가 없는 수식(기호·기능), 한글 자판에서의 글자 글쇠,
+우리가 모르는 낱자 코드(옛한글 등), 오토마타·옵션 일체.
 
 **이미 가진 사전 자료 들여오기.** 쓸 만한 낱말 자료는 크고, 대개 남이 만든 것이다. 자모통은
 그런 자료를 동봉하지 않는다 — 고른 것을 바꿔 줄 뿐이다:
