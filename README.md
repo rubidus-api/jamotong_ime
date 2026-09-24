@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.53.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.50.0/jamotong-0.53.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.54.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.54.0/jamotong-0.54.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -705,6 +705,21 @@ jamotong --check dvorak.jmt
 
 Each key's normal and Shift faces are carried over into a static layout. Dead keys, ligatures and
 the AltGr face are not — they are counted and named in the report so you know what to add by hand.
+
+**Bringing in a Nalgaeset layout.** Most Korean three-set (세벌식) layouts are shared as Nalgaeset
+input method files (`.key` for the key table, `.ist` for a whole input scheme). The **key table**
+is carried over into a hangul layout:
+
+```sh
+jamotong --import-ngs "sebeol 3-2012.key" -o 3-2012.jmt
+jamotong --check 3-2012.jmt
+```
+
+Jamo keys (choseong, jungseong, jongseong) are carried over, and a layout with final-consonant keys
+is written as sebeol; a layout with no jamo at all becomes a static layout. What is not carried over
+is counted: Nalgaeset **formula key values** (a key whose value depends on state), character keys in
+a hangul layout, jamo codes we do not know (old Hangul and the like), and every automaton and option.
+A layout whose every key is a formula has nothing to carry over and is refused.
 
 **Bringing in dictionary data you already have.** Word lists worth typing with are large, and
 the ones worth using are other people's work. Jamotong ships none of them; it converts what you

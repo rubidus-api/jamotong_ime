@@ -24,6 +24,7 @@ jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
 jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N] [--name ..] [--license ..]
 jamotong --import-klc us-dvorak.klc -o dvorak.jmt        # 윈도우 자판 원본 → 정적 .jmt
+jamotong --import-ngs 세벌식.key -o 세벌식.jmt              # 날개셋 자판 파일 → .jmt
 jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴서 한 파일로
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```

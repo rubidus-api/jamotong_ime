@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.53.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.50.0/jamotong-0.53.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.54.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.54.0/jamotong-0.54.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -653,6 +653,19 @@ jamotong --check dvorak.jmt
 
 글쇠마다 기본 면과 Shift 면을 정적 자판으로 옮긴다. 데드키·합자·AltGr 면은 옮기지 않는다 —
 몇 개였는지 알려 주므로 손으로 보탤 것을 알 수 있다.
+
+**날개셋 자판 들여오기.** 세벌식 자판들은 대개 날개셋 한글 입력기의 자판 파일(`.key` = 글쇠 배열,
+`.ist` = 입력기 유형)로 돌아다닌다. 그 **글쇠 배열**을 한글 자판으로 옮긴다:
+
+```sh
+jamotong --import-ngs "세벌식 3-2012.key" -o 3-2012.jmt
+jamotong --check 3-2012.jmt
+```
+
+낱자(초성·중성·종성) 글쇠를 옮기고, 종성 글쇠가 있으면 세벌식으로 적는다. 낱자가 하나도 없는
+자판은 정적 자판이 된다. 옮기지 않는 것은 세어서 알려 준다: 날개셋 **수식 글쇠값**(누른 상태나
+앞 글자에 따라 값이 달라지는 자리), 한글 자판에서의 글자 글쇠, 우리가 모르는 낱자 코드(옛한글 등),
+그리고 오토마타·옵션 일체. 모든 글쇠가 수식인 자판(순아래 유형 등)은 옮길 것이 없어 거절한다.
 
 **이미 가진 사전 자료 들여오기.** 쓸 만한 낱말 자료는 크고, 대개 남이 만든 것이다. 자모통은
 그런 자료를 동봉하지 않는다 — 고른 것을 바꿔 줄 뿐이다:

@@ -9,6 +9,7 @@
 #include "jlay_build.h"
 #include "dict_import.h"
 #include "klc_import.h"
+#include "ngs_import.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +28,7 @@ int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict") || !wcscmp(argv[i], L"--import-klc")) return 1;
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict") || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs")) return 1;
     return 0;
 }
 
@@ -163,7 +164,8 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
         L"  jamotong --build-dir <folder>\n"
         L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n"
-        L"  jamotong --import-klc <file.klc> -o <out.jmt>\n", ctx);
+        L"  jamotong --import-klc <file.klc> -o <out.jmt>\n"
+        L"  jamotong --import-ngs <file.key|.ist> -o <out.jmt>\n", ctx);
     return 2;
 }
 
@@ -175,7 +177,7 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
             || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")
-            || !wcscmp(argv[i], L"--import-klc")) {
+            || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--limit") && i + 1 < argc) limit = (int)wcstol(argv[++i], NULL, 10);
@@ -257,6 +259,26 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         if (kr.deadKeys || kr.ligatures || kr.skipped)
             Outf(out, ctx, L"   not carried over: %d dead key(s), %d ligature(s), %d other\n",
                  kr.deadKeys, kr.ligatures, kr.skipped);
+        Outf(out, ctx, L"   next: jamotong --check \"%ls\"\n", outPath);
+        return 0;
+    }
+
+    // --import-ngs: 날개셋 자판 파일(.key/.ist)의 글쇠 배열을 우리 자판으로 (RFC-0011b).
+    if (!wcscmp(cmd, L"--import-ngs")) {
+        if (!outPath) return Usage(out, ctx);
+        NgsImportResult nr;
+        const wchar_t *sbase = arg;
+        for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
+        if (!NgsImport_Run(arg, outPath, &nr)) {
+            Outf(out, ctx, L"%ls: error: %ls\n", sbase, nr.error[0] ? nr.error : L"cannot import");
+            return 1;
+        }
+        Outf(out, ctx, L"wrote %ls - '%ls', %d of %d keys (%ls)\n", outPath, nr.name, nr.mapped, nr.keys,
+             nr.hangul ? (nr.sebeol ? L"hangul, sebeol" : L"hangul, dubeol") : L"static layout");
+        if (nr.formulas || nr.chars || nr.unknown)
+            Outf(out, ctx, L"   not carried over: %d formula key(s), %d character key(s), %d unknown jamo\n",
+                 nr.formulas, nr.chars, nr.unknown);
+        if (nr.unknownList[0]) Outf(out, ctx, L"   unknown codes: %ls\n", nr.unknownList);
         Outf(out, ctx, L"   next: jamotong --check \"%ls\"\n", outPath);
         return 0;
     }
