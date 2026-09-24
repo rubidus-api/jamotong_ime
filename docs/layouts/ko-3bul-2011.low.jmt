@@ -1,0 +1,64 @@
+rem 세벌식 3-2011 — 자모통 정본, 공개된 배열을 보고 새로 적었다.
+rem   설계자가 '이 배열은 저작권을 주장하지 않는다'고 밝힌 자판이다.
+rem   세벌식 최종을 손질해 겹받침과 기호 자리를 옮기고, 숫자를 오른손 윗글쇠에 두었다.
+rem   대조: 공개 배열표를 눈으로 읽고, 널리 쓰이는 설정 파일의 값과 따로 견주어 확인했다.
+
+layout name "세벌식 3-2011" .
+layout format 4 .
+layout license "공개 배열. 이 파일의 표기는 자모통의 것이다." .
+engine hangul .
+
+rem 초성 — 오른손
+map cho do
+  "0" "ㅋ" .  "y" "ㄹ" .  "u" "ㄷ" .  "i" "ㅁ" .  "o" "ㅊ" .  "p" "ㅍ" .
+  "h" "ㄴ" .  "j" "ㅇ" .  "k" "ㄱ" .  "l" "ㅈ" .  ";" "ㅂ" .  "'" "ㅌ" .
+  "n" "ㅅ" .  "m" "ㅎ" .
+end
+
+rem 중성 — 가운데
+map mid do
+  "4" "ㅛ" .  "5" "ㅠ" .  "6" "ㅑ" .  "7" "ㅖ" .  "8" "ㅢ" .  "9" "ㅜ" .
+  "e" "ㅕ" .  "r" "ㅐ" .  "t" "ㅓ" .  "d" "ㅣ" .  "f" "ㅏ" .  "g" "ㅡ" .
+  "c" "ㅔ" .  "v" "ㅗ" .  "b" "ㅜ" .  "/" "ㅗ" .  "T" "ㅒ" .
+end
+
+rem 종성 — 왼손과 숫자열 (윗글쇠는 글쇠 문자열이 그대로 말한다)
+map jong do
+  "1" "ㅎ" .  "2" "ㅆ" .  "3" "ㅂ" .  "q" "ㅅ" .  "w" "ㄹ" .  "a" "ㅇ" .
+  "s" "ㄴ" .  "x" "ㄱ" .  "z" "ㅁ" .  "!" "ㄲ" .  "@" "ㄺ" .  "#" "ㄵ" .
+  "Q" "ㅍ" .  "W" "ㅌ" .  "E" "ㅈ" .  "R" "ㅀ" .  "A" "ㄷ" .  "S" "ㄶ" .
+  "D" "ㄼ" .  "F" "ㄻ" .  "Z" "ㅊ" .  "X" "ㅄ" .  "C" "ㅋ" .  "V" "ㄳ" .
+end
+
+rem 숫자 — 오른손 윗글쇠
+map char do
+  "Y" "5" .  "U" "6" .  "I" "7" .  "O" "8" .  "P" "9" .  "H" "0" .
+  "J" "1" .  "K" "2" .  "L" "3" .  ":" "4" .
+end
+
+rem 겹받침·겹모음 — 이어 친 두 낱자가 하나로
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .
+
+rem 같은 초성을 거듭 치면 된소리
+combine cho "ㄱ" "ㄱ" be "ㄲ" .
+combine cho "ㄷ" "ㄷ" be "ㄸ" .
+combine cho "ㅂ" "ㅂ" be "ㅃ" .
+combine cho "ㅅ" "ㅅ" be "ㅆ" .
+combine cho "ㅈ" "ㅈ" be "ㅉ" .

@@ -101,10 +101,12 @@ own file format, and never converts another input method's configuration file in
 - **Sebeolsik Final, shift-free (sunarae)** - derived by Jamotong from Sebeolsik Final with one
   stated rule: each shifted final consonant moves to the final-consonant slot of the same unshifted
   key.
+- **Sebeolsik 390 (3-90)** - published for free use by the same source as Sebeolsik Final.
+- **Sebeolsik 3-2011, 3-2012** - designed by Pat (pat.im), who states that he claims no rights over
+  the 3-2011 arrangement and that the 3-2012 arrangement may be quoted, adapted and redistributed
+  freely. Jamotong typed both from their published arrangement tables.
 
-Layouts designed by others whose authors have stated that they claim no rights (for example
-Sebeolsik 3-2011 and 3-2012) may be added later, but only written afresh from their published
-arrangement tables.
+Arrangements whose designers have not stated that they are free to use are not shipped.
 
 ---
 

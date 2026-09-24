@@ -1,0 +1,65 @@
+rem 세벌식 390 (3-90) — 자모통 정본, 공개된 배열을 보고 새로 적었다.
+rem   공병우·한글문화원이 자유 이용을 위해 공개한 배열이다.
+rem   세벌식 최종과 다른 점: 겹받침 여섯(ㄳ ㄵ ㄼ ㄽ ㄾ ㄿ)에 글쇠를 주지 않고 **이어쳐서** 만들고,
+rem   기호를 QWERTY 와 되도록 같게 두었으며, 숫자는 오른손 윗글쇠에 있다.
+rem   대조: 공개 배열표를 눈으로 읽고, 널리 쓰이는 설정 파일의 값과 따로 견주어 확인했다.
+
+layout name "세벌식 390" .
+layout format 4 .
+layout license "공개 배열. 이 파일의 표기는 자모통의 것이다." .
+engine hangul .
+
+rem 초성 — 오른손
+map cho do
+  "0" "ㅋ" .  "y" "ㄹ" .  "u" "ㄷ" .  "i" "ㅁ" .  "o" "ㅊ" .  "p" "ㅍ" .
+  "h" "ㄴ" .  "j" "ㅇ" .  "k" "ㄱ" .  "l" "ㅈ" .  ";" "ㅂ" .  "'" "ㅌ" .
+  "n" "ㅅ" .  "m" "ㅎ" .
+end
+
+rem 중성 — 가운데
+map mid do
+  "4" "ㅛ" .  "5" "ㅠ" .  "6" "ㅑ" .  "7" "ㅖ" .  "8" "ㅢ" .  "9" "ㅜ" .
+  "e" "ㅕ" .  "r" "ㅐ" .  "t" "ㅓ" .  "d" "ㅣ" .  "f" "ㅏ" .  "g" "ㅡ" .
+  "c" "ㅔ" .  "v" "ㅗ" .  "b" "ㅜ" .  "/" "ㅗ" .  "R" "ㅒ" .
+end
+
+rem 종성 — 왼손과 숫자열 (윗글쇠는 글쇠 문자열이 그대로 말한다)
+map jong do
+  "1" "ㅎ" .  "2" "ㅆ" .  "3" "ㅂ" .  "q" "ㅅ" .  "w" "ㄹ" .  "a" "ㅇ" .
+  "s" "ㄴ" .  "x" "ㄱ" .  "z" "ㅁ" .  "!" "ㅈ" .  "Q" "ㅍ" .  "W" "ㅌ" .
+  "E" "ㅋ" .  "A" "ㄷ" .  "S" "ㄶ" .  "D" "ㄺ" .  "F" "ㄲ" .  "Z" "ㅊ" .
+  "X" "ㅄ" .  "C" "ㄻ" .  "V" "ㅀ" .
+end
+
+rem 숫자 — 오른손 윗글쇠
+map char do
+  "J" "4" .  "K" "5" .  "L" "6" .  "U" "7" .  "I" "8" .  "O" "9" .
+  "N" "0" .  "M" "1" .  "<" "2" .  ">" "3" .
+end
+
+rem 겹받침·겹모음 — 이어 친 두 낱자가 하나로
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .
+
+rem 같은 초성을 거듭 치면 된소리
+combine cho "ㄱ" "ㄱ" be "ㄲ" .
+combine cho "ㄷ" "ㄷ" be "ㄸ" .
+combine cho "ㅂ" "ㅂ" be "ㅃ" .
+combine cho "ㅅ" "ㅅ" be "ㅆ" .
+combine cho "ㅈ" "ㅈ" be "ㅉ" .
