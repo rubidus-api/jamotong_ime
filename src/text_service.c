@@ -1871,7 +1871,21 @@ static HRESULT STDMETHODCALLTYPE TES_QueryInterface(ITfTextEditSink *pThis, REFI
 static ULONG STDMETHODCALLTYPE TES_AddRef(ITfTextEditSink *pThis)  { JamotongTextService *obj = IMPL_TO_OBJ(TES, pThis); return obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); }
 static ULONG STDMETHODCALLTYPE TES_Release(ITfTextEditSink *pThis) { JamotongTextService *obj = IMPL_TO_OBJ(TES, pThis); return obj->lpVtblTIP->Release((ITfTextInputProcessor*)obj); }
 static HRESULT STDMETHODCALLTYPE TES_OnEndEdit(ITfTextEditSink *pThis, ITfContext *pic, TfEditCookie ec, ITfEditRecord *pRec) {
-    (void)pThis; (void)pic; (void)ec; (void)pRec; return S_OK;   // 관여 표시가 목적; 처리는 없음
+    (void)pThis; (void)pic; (void)ec;
+    // 딴 데를 누르거나 캐럿을 옮기면 후보창을 닫는다 (light dismiss, B10 / RFC-0008 W2-03).
+    //   앱 **안에서** 오는 신호를 쓴다 — 전역 마우스 훅은 모든 앱에 훅을 심는 값이 너무 크고,
+    //   원격 데스크톱에서는 검증도 안 된다(2026-09-24 에 그 길로 만들었다가 되돌렸다).
+    //   우리 편집이 낸 선택 변화는 세지 않는다(확정할 때마다 후보창이 닫히면 안 된다).
+    //   ★실측(2026-09-24, 메모장): 캐럿을 클릭으로 옮겨도 이 싱크가 **아예 오지 않는다**.
+    //   그래서 메모장류에서는 아직 안 닫힌다 — 이 길은 싱크를 주는 호스트에서만 듣는다.
+    //   B10 에 열어 둔다: 다음 후보는 ITfTextLayoutSink::OnLayoutChange 인데, 스크롤에도 오므로
+    //   캐럿 자리를 비교해 진짜 이동일 때만 닫아야 한다.
+    if (pRec && CandidateUI_IsVisible() && !Jamotong_InOurEdit()) {
+        BOOL selChanged = FALSE;
+        if (SUCCEEDED(pRec->lpVtbl->GetSelectionStatus(pRec, &selChanged)) && selChanged)
+            CandidateUI_Cancel();
+    }
+    return S_OK;
 }
 static ITfTextEditSinkVtbl g_TESVtbl = { TES_QueryInterface, TES_AddRef, TES_Release, TES_OnEndEdit };
 

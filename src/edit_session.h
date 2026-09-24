@@ -39,3 +39,8 @@ void JamoDiag(const char *fmt, ...);   // JAMO_DIAG 빌드에서만 기록, 아�
 //   그때 차단으로 올린다"는 계획은 영원히 결론에 못 이른다. 친 글자는 절대 남기지 않고, 횟수만
 //   HKCU\Software\Jamotong 의 `UiCrossThread` 에 적는다(1·2·4·8… 번째에만 써서 레지스트리를 덜 건드린다).
 void UiGuard_CrossThread(const char *what, unsigned long owner, unsigned long me);
+
+// 지금 **우리 편집 세션 안**인가. 문서 편집 싱크(OnEndEdit)가 "이 변화는 우리가 낸 것"을
+// 가려내는 데 쓴다 — 후보창을 우리 확정 때문에 닫으면 안 된다 (light dismiss, B10).
+bool Jamotong_InOurEdit(void);
+extern long g_ourEditDepth;   // 우리 편집 세션 깊이 (edit_session.c 소유, 인라인 조합도 올린다)

@@ -99,7 +99,10 @@ static void CaptureCaretRect(JamotongTextService *svc, ITfContext *ctx, TfEditCo
 //   플로팅 오버레이(RFC-0002)가 캐럿 위치에 표시한다(캡처한 캐럿 rect 사용).
 //   삽입(InsertTextAtSelection)은 네이티브·CUAS 모든 앱에서 동작하고, range 편집(제자리 교체)은
 //   CUAS EDIT 컨트롤에서 안 되므로(누적 버그) 문서 인라인 미리보기는 하지 않는다.
-static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+// 우리 편집 세션 깊이 (동기 세션이므로 스택 깊이로 충분하다)
+long g_ourEditDepth = 0;
+bool Jamotong_InOurEdit(void) { return g_ourEditDepth > 0; }
+static HRESULT ES_DoEditSession_Inner(ITfEditSession *pThis, TfEditCookie ec) {
     JamotongEditSession *es = (JamotongEditSession*)pThis;
     ITfContext *ctx = es->pContext;
     int cLen = (int)wcslen(es->data.committed);
@@ -122,6 +125,12 @@ static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditC
     }
     CaptureCaretRect(es->pService, ctx, ec);   // 삽입 '후' 캐럿 = 조합 미리보기가 뜰 자리
     return hrOut;
+}
+static HRESULT STDMETHODCALLTYPE ES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    g_ourEditDepth++;                      // 이 변화는 **우리가** 낸 것이다 (light dismiss 판정용)
+    HRESULT hr = ES_DoEditSession_Inner(pThis, ec);
+    g_ourEditDepth--;
+    return hr;
 }
 
 static ITfEditSessionVtbl EditSessionVtbl = {
@@ -199,7 +208,7 @@ static ULONG STDMETHODCALLTYPE RES_Release(ITfEditSession *pThis) {
     }
     return res;
 }
-static HRESULT STDMETHODCALLTYPE RES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+static HRESULT RES_DoEditSession_Inner(ITfEditSession *pThis, TfEditCookie ec) {
     ReadEditSession *es = (ReadEditSession*)pThis;
     es->outBuf[0] = L'\0';
     
@@ -220,6 +229,12 @@ static HRESULT STDMETHODCALLTYPE RES_DoEditSession(ITfEditSession *pThis, TfEdit
     }
     pInsert->lpVtbl->Release(pInsert);
     return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE RES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    g_ourEditDepth++;                      // 이 변화는 **우리가** 낸 것이다 (light dismiss 판정용)
+    HRESULT hr = RES_DoEditSession_Inner(pThis, ec);
+    g_ourEditDepth--;
+    return hr;
 }
 static ITfEditSessionVtbl ReadSessionVtbl = { RES_QueryInterface, RES_AddRef, RES_Release, RES_DoEditSession };
 
@@ -266,7 +281,7 @@ static ULONG STDMETHODCALLTYPE Rep_Release(ITfEditSession *pThis) {
     }
     return res;
 }
-static HRESULT STDMETHODCALLTYPE Rep_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+static HRESULT Rep_DoEditSession_Inner(ITfEditSession *pThis, TfEditCookie ec) {
     ReplaceEditSession *es = (ReplaceEditSession*)pThis;
 
     // 치환(단어단위 한자) 후 오토마타 초기화 — 안 하면 다음 키가 옛 음절을 이어가 중복/깨짐.
@@ -288,6 +303,12 @@ static HRESULT STDMETHODCALLTYPE Rep_DoEditSession(ITfEditSession *pThis, TfEdit
     }
     pInsert->lpVtbl->Release(pInsert);
     return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE Rep_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    g_ourEditDepth++;                      // 이 변화는 **우리가** 낸 것이다 (light dismiss 판정용)
+    HRESULT hr = Rep_DoEditSession_Inner(pThis, ec);
+    g_ourEditDepth--;
+    return hr;
 }
 static ITfEditSessionVtbl RepSessionVtbl = { Rep_QueryInterface, Rep_AddRef, Rep_Release, Rep_DoEditSession };
 
@@ -337,7 +358,7 @@ static ULONG STDMETHODCALLTYPE RSel_Release(ITfEditSession *pThis) {
     }
     return res;
 }
-static HRESULT STDMETHODCALLTYPE RSel_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+static HRESULT RSel_DoEditSession_Inner(ITfEditSession *pThis, TfEditCookie ec) {
     ReadSelSession *es = (ReadSelSession*)pThis;
     JamotongTextService *svc = es->pService;
     ITfContext *ctx = es->pContext;
@@ -366,6 +387,12 @@ static HRESULT STDMETHODCALLTYPE RSel_DoEditSession(ITfEditSession *pThis, TfEdi
     }
     sel.range->lpVtbl->Release(sel.range);
     return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE RSel_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    g_ourEditDepth++;                      // 이 변화는 **우리가** 낸 것이다 (light dismiss 판정용)
+    HRESULT hr = RSel_DoEditSession_Inner(pThis, ec);
+    g_ourEditDepth--;
+    return hr;
 }
 static ITfEditSessionVtbl ReadSelVtbl = { RSel_QueryInterface, RSel_AddRef, RSel_Release, RSel_DoEditSession };
 

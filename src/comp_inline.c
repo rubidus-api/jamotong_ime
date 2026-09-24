@@ -234,8 +234,14 @@ static ULONG STDMETHODCALLTYPE IES_Release(ITfEditSession *pThis) {
     }
     return res;
 }
-static HRESULT STDMETHODCALLTYPE IES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+static HRESULT IES_DoEditSession_Inner(ITfEditSession *pThis, TfEditCookie ec) {
     return DoInlineWork((InlineEditSession*)pThis, ec);
+}
+static HRESULT STDMETHODCALLTYPE IES_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    g_ourEditDepth++;                      // 우리 인라인 조합 편집 (light dismiss 판정용)
+    HRESULT hr = IES_DoEditSession_Inner(pThis, ec);
+    g_ourEditDepth--;
+    return hr;
 }
 static ITfEditSessionVtbl g_InlineSessionVtbl = {
     IES_QueryInterface, IES_AddRef, IES_Release, IES_DoEditSession
