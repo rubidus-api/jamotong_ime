@@ -1,5 +1,6 @@
 #include "candidate_ui.h"
 #include "popup_style.h"
+#include "cand_uia.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
 #include "hanja_dict.h"   // HunumDict_Find — 후보 옆 훈음(뜻·음) 표시
 #include <stdio.h>
@@ -43,6 +44,7 @@ static int g_replaceLen = 0;
 static int g_page = 0;
 static int g_perPage = 9;
 static int g_sel = 0;        // 페이지 안 선택(하이라이트) 인덱스 (0-based)
+static void UpdateUiaName(void);   // 화면 읽기 도구에 넘길 이름 (B10)
 static int g_winW = 220;     // 페이지 내용에 맞춘 창 너비
 
 static CandidateSelectCallback g_onSelect = NULL;
@@ -263,6 +265,8 @@ static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         case CANDMSG_HOOKKEY:   // 저수준 훅이 차단·전달한 탐색 키 (PuTTY류 키 라우팅 폴백)
             CandidateUI_HandleKey((UINT)wParam);
             return 0;
+        case WM_GETOBJECT:          // 화면 읽기 도구가 이 창을 물을 때 (UIA, B10)
+            return CandUia_OnGetObject(hwnd, wParam, lParam);
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;   // 클릭해도 포커스 탈취 금지 (입력 앱 유지)
     }
@@ -336,15 +340,31 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     JamoDiag("CAND after-place hwnd=%p vis=%d", (void*)g_hwndCandi,
              g_hwndCandi ? (int)IsWindowVisible(g_hwndCandi) : -1);
     UiElem_UpdateCandidate(0x3F);   // 첫 갱신 = 전체 비트 (uiless 문서: 첫 Update 는 all-bits)
-    if (g_hwndCandi) NotifyWinEvent(EVENT_OBJECT_IME_SHOW, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
+    if (g_hwndCandi) {
+        NotifyWinEvent(EVENT_OBJECT_IME_SHOW, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
+        UpdateUiaName();                                                                  // 화면 읽기 도구 (B10)
+    }
     return true;
 }
 
 // 페이지 이동/선택 변경 후 크기·내용 갱신
+// 읽기 도구에 넘길 이름: "후보 2/9: 儺" — 지금 골라진 것과 몇 번째인지 (B10).
+static void UpdateUiaName(void) {
+    if (!g_hwndCandi || !g_candidates || g_count <= 0) return;
+    int idx = g_page * g_perPage + g_sel;
+    if (idx < 0 || idx >= g_count) idx = 0;
+    const wchar_t *cur = g_candidates[idx] ? g_candidates[idx] : L"";
+    wchar_t name[256];
+    _snwprintf(name, 256, L"%d/%d %ls", idx + 1, g_count, cur);
+    name[255] = L'\0';
+    CandUia_SetName(g_hwndCandi, name);
+}
+
 static void RefreshCandWindow(void) {
     UiElem_UpdateCandidate(0x04|0x10|0x20);   // SELECTION|PAGEINDEX|CURRENTPAGE
     if (!g_hwndCandi) return;
     NotifyWinEvent(EVENT_OBJECT_IME_CHANGE, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
+    UpdateUiaName();                                                                    // 화면 읽기 도구 (B10)
     g_winW = MeasurePageWidth();
     PlaceCandWindow();   // 폭 변화·화면 클램프 반영 (앵커 기준 재배치)
     InvalidateRect(g_hwndCandi, NULL, TRUE);
@@ -354,6 +374,7 @@ void CandidateUI_Hide(void) {
     OwnerThreadGuard("Hide");
     UiElem_EndCandidate();   // 게이트 종료 (began 아니면 no-op) — EndUIElement 는 의무
     RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
+    CandUia_Release();   // 화면 읽기 도구용 제공자 (창이 사라진다)
     if (g_hwndCandi) {
         NotifyWinEvent(EVENT_OBJECT_IME_HIDE, g_hwndCandi, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W1-08)
         g_inHide = true;
