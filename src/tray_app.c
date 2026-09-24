@@ -676,7 +676,7 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
     if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand")
-                || wcsstr(cmd, L"--build") || wcsstr(cmd, L"--import-dict"))) {
+                || wcsstr(cmd, L"--build") || wcsstr(cmd, L"--import-dict") || wcsstr(cmd, L"--import-klc"))) {
         int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
         if (rc >= 0) return rc;
     }

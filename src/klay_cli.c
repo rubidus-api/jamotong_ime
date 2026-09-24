@@ -8,6 +8,7 @@
 #include "jlay.h"
 #include "jlay_build.h"
 #include "dict_import.h"
+#include "klc_import.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +27,7 @@ int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")) return 1;
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict") || !wcscmp(argv[i], L"--import-klc")) return 1;
     return 0;
 }
 
@@ -161,7 +162,8 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
         L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
         L"  jamotong --build-dir <folder>\n"
-        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n", ctx);
+        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n"
+        L"  jamotong --import-klc <file.klc> -o <out.jmt>\n", ctx);
     return 2;
 }
 
@@ -172,7 +174,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")) {
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")
+            || !wcscmp(argv[i], L"--import-klc")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--limit") && i + 1 < argc) limit = (int)wcstol(argv[++i], NULL, 10);
@@ -237,6 +240,24 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         Outf(out, ctx, L"wrote %ls - %d of %d rows (%d skipped)\n", outPath, ir.kept, ir.rows, ir.skipped);
         Outf(out, ctx, L"   next: jamotong --build-dict \"%ls\" -o <name>.jdb\n", outPath);
         Outf(out, ctx, L"   note: the entries keep the licence of the file they came from\n");
+        return 0;
+    }
+
+    // --import-klc: MSKLC 자판 원본을 우리 정적 자판으로 (RFC-0011a).
+    if (!wcscmp(cmd, L"--import-klc")) {
+        if (!outPath) return Usage(out, ctx);
+        KlcImportResult kr;
+        const wchar_t *sbase = arg;
+        for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
+        if (!KlcImport_Run(arg, outPath, &kr)) {
+            Outf(out, ctx, L"%ls: error: %ls\n", sbase, kr.error[0] ? kr.error : L"cannot import");
+            return 1;
+        }
+        Outf(out, ctx, L"wrote %ls - '%ls', %d keys from %d rows\n", outPath, kr.name, kr.mapped, kr.rows);
+        if (kr.deadKeys || kr.ligatures || kr.skipped)
+            Outf(out, ctx, L"   not carried over: %d dead key(s), %d ligature(s), %d other\n",
+                 kr.deadKeys, kr.ligatures, kr.skipped);
+        Outf(out, ctx, L"   next: jamotong --check \"%ls\"\n", outPath);
         return 0;
     }
 

@@ -50,6 +50,10 @@ bool Klay_UnknownLine(KlayDiag *d, const wchar_t *line, int lineno, int col, con
 //   `@VK_OEM_1`(가상키 이름). shift 면 각 문자를 US Shift 문자로(`q`→`Q`, `1`→`!`).
 //   allowAltGr=false 면 altgr 는 오류(엔진이 AltGr 면을 읽지 않는다).
 // 성공 시 out 에 문자들, *specPos 에 '=' 다음 위치. 실패 시 진단을 내고 false.
+// US 자판의 표 (도구가 같은 답을 쓰도록 공개한다 — .klc 가져오기가 이걸 쓴다, RFC-0011a).
+wchar_t Klay_UsFromScan(unsigned scanCode);   // set 1 스캔코드 → 기본 면 문자 (모르면 0)
+wchar_t Klay_UsShiftOf(wchar_t base);         // 기본 면 문자 → Shift 면 문자 (모르면 0)
+
 bool Klay_ParseKeyHead(const wchar_t *p, wchar_t *out, size_t cch, const wchar_t **specPos,
                        KlayDiag *d, int lineno, int col0);
 

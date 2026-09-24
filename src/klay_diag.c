@@ -187,6 +187,9 @@ static wchar_t FromVkName(const wchar_t *n) {
     return 0;
 }
 
+wchar_t Klay_UsFromScan(unsigned scanCode) { return FromScan(scanCode); }
+wchar_t Klay_UsShiftOf(wchar_t base)        { return UsShift(base); }
+
 bool Klay_ParseKeyHead(const wchar_t *p, wchar_t *out, size_t cch, const wchar_t **specPos,
                        KlayDiag *d, int lineno, int col0) {
     const wchar_t *q = p;

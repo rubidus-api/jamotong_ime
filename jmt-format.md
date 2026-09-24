@@ -24,6 +24,7 @@ jamotong --build      layout.jmt        # writes layout.jmb beside it
 jamotong --build-dir  <folder>          # builds what is missing or older than its source
 jamotong --build-dict words.jdt -o words.jdb
 jamotong --import-dict other.txt -o words.jdt [--limit N] [--name ..] [--license ..]
+jamotong --import-klc us-dvorak.klc -o dvorak.jmt        # a Windows layout source -> a static .jmt
 jamotong --expand     layout.jmt -o flat.jmt    # resolve Extends/Include into one file
 jamotong --export     @ko_3bul -o ko.jmt        # write a built-in layout as a source file
 ```

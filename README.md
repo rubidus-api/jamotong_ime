@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.52.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.50.0/jamotong-0.52.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.53.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.50.0/jamotong-0.53.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -694,6 +694,17 @@ Hold ;   = oneshot mod(shift)   # hold to arm Shift for the next chord, then let
 A symbol the engine cannot use (no entry starts with it) is typed as it is, so nothing is lost.
 Chord layouts (`Type = chord`) have no engine, so `symbol` there is an error. Everything else in
 a chord layout — layers, tap/hold, pointer actions, macros — works the same in an input layout.
+
+**Bringing in a Windows keyboard layout.** If a layout you want already exists as a Microsoft
+Keyboard Layout Creator source (`.klc`), convert it:
+
+```sh
+jamotong --import-klc us-dvorak.klc -o dvorak.jmt
+jamotong --check dvorak.jmt
+```
+
+Each key's normal and Shift faces are carried over into a static layout. Dead keys, ligatures and
+the AltGr face are not — they are counted and named in the report so you know what to add by hand.
 
 **Bringing in dictionary data you already have.** Word lists worth typing with are large, and
 the ones worth using are other people's work. Jamotong ships none of them; it converts what you
