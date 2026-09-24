@@ -272,8 +272,15 @@ static bool CheckForm(const LowForm *f, LowCheckResult *r, KlayDiag *diag, bool 
 
     // ── 글쇠·조합·홀드 ────────────────────────────────────────────────────────
     if (!wcscmp(head, L"key") || !wcscmp(head, L"chord") || !wcscmp(head, L"hold")) {
-        if (!IsTokKind(a1, LOW_STR) || a1->tok.strLen == 0) {
-            CHK_ERR(f, L"E-LOW-SHAPE", L"the key is a string literal", L"key \"k\" be cho \"ㄱ\" .");
+        // 글쇠 자리: 문자열(그 글자를 내는 글쇠·글쇠열) 또는 물리 글쇠 `(vk 이름)` / `(scan 0x10)`
+        bool keyOk = IsTokKind(a1, LOW_STR) && a1->tok.strLen > 0;
+        if (!keyOk && a1 && a1->kind == LOW_ITEM_FORM) {
+            const wchar_t *h2 = LowForm_Head(a1->form);
+            keyOk = h2 && (!wcscmp(h2, L"vk") || !wcscmp(h2, L"scan")) && a1->form->nItems == 2;
+        }
+        if (!keyOk) {
+            CHK_ERR(f, L"E-LOW-SHAPE", L"the key is a string literal or (vk <name>) / (scan <code>)",
+                    L"key \"k\" be cho \"ㄱ\" .");
             return false;
         }
         if (beAt < 0 || beAt + 1 >= n) {
