@@ -50,6 +50,18 @@ Abbrev           = MINE       # 트레이 아이콘에 그릴 1~4글자
 `Include = 조각.jmt` 는 조각을 그 자리에 편다. 나중 줄이 이긴다. `@ko_3bul`·`@en_dvorak`·
 `@en_qwerty` 는 내장 자판이다.
 
+긴 표는 반복되는 앞머리를 블록으로 덜어낼 수 있다:
+
+```text
+Begin Combine M
+  8 0 = 9
+  13 20 = 14
+End
+```
+
+블록 안의 줄은 `Begin` 뒤의 낱말이 앞에 적힌 것처럼 읽힌다 — 위 블록은 정확히 `Combine M …`
+두 줄이다. 블록은 겹쳐 쓸 수 없고 되풀이·변수도 없다. 한 줄은 여전히 지시문 하나다.
+
 ### `Type = static` — 글쇠 하나에 글자 하나
 
 ```ini
@@ -207,6 +219,7 @@ kya	きゃ
 | `E-JMT-MACRO` | 매크로 이름이나 블록이 잘못됐다 | define it first with 'Macro <name> ... EndMacro' |
 | `E-JMT-MAP-LEN` | Map 의 좌우 길이가 다르다 | write one output character for each key, e.g. 'Map qwe = abc' |
 | `E-JMT-OPEN` | 파일을 열 수 없다 | - |
+| `E-JMT-BLOCK` | Begin/End 블록이 잘못됐다(지시문 없음·안 닫힘·중첩·짝 없는 End) | 한 번에 한 블록, 'End' 로 닫는다 |
 | `E-JMT-PHYSKEY` | 물리 글쇠 이름이 잘못됐다 | use a US position, a scan code or a virtual-key name |
 | `E-JMT-RANGE` | 값이 범위를 벗어난다 | bits 0..31; a key list takes consecutive bits from the start bit |
 | `E-JMT-READ` | 파일을 읽다 실패했다 | save the file as UTF-8; the lines after this point were not read |

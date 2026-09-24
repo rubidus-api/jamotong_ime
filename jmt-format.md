@@ -50,6 +50,19 @@ warning; an unknown *directive* is an error in format 2 and later.
 
 `Extends = other.jmt` takes another layout of the same kind as the base (one line, at most four
 levels deep, no loops) and `Include = part.jmt` pastes a fragment. Lines that come later win.
+
+A long table can drop its repeated prefix with a block:
+
+```text
+Begin Combine M
+  8 0 = 9
+  13 20 = 14
+End
+```
+
+Every line inside is read as if the words after `Begin` were written in front of it, so the block
+above is exactly two `Combine M ...` lines. Blocks do not nest, and there are no loops or
+variables — one line is still one directive.
 `@ko_3bul`, `@en_dvorak` and `@en_qwerty` name built-in layouts.
 
 ### `Type = static` — one character for one key
@@ -213,6 +226,7 @@ there is something to suggest. Warnings do not stop a load; errors do.
 | `E-JMT-MACRO` | no macro with this name | define it first with 'Macro <name> ... EndMacro' |
 | `E-JMT-MAP-LEN` | Map: left and right sides must have the same length | write one output character for each key, e.g. 'Map qwe = abc' |
 | `E-JMT-OPEN` | cannot open file | - |
+| `E-JMT-BLOCK` | a Begin/End block is malformed (no directive, never closed, nested, or End on its own) | one block at a time, closed with 'End' |
 | `E-JMT-PHYSKEY` | a physical key name (@Q, @SC10, @VK_OEM_1) is not valid | use a US position, a scan code or a virtual-key name |
 | `E-JMT-RANGE` | Key: bit out of range (0..31) or non-ASCII key | bits 0..31; a key list takes consecutive bits from the start bit |
 | `E-JMT-READ` | reading stopped here (read error or invalid UTF-8) | save the file as UTF-8; the lines after this point were not read |

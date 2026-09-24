@@ -369,6 +369,70 @@ static bool AddSource(KlayLines *L, const wchar_t *path, const wchar_t *builtin,
     return ok;
 }
 
+
+// ── 블록 설탕 (RFC-0011 P6 §3.5) ──────────────────────────────────────────────────
+//   Begin <지시문> [공통인자]
+//     11 0 = 1
+//   End
+// 안쪽 줄 앞에 "<지시문> [공통인자] " 를 붙여 준다. 파서는 그대로 한 줄 = 한 지시문을 본다.
+//   중첩은 없다. 줄 번호·파일은 원래 자리를 그대로 쓰므로 진단이 옛 자리를 가리킨다.
+//   `for`·변수는 넣지 않는다(그 경계는 RFC-0005 lowmini 의 것이다).
+static bool ExpandBlocks(KlayLines *L, KlayDiag *d) {
+    wchar_t prefix[160] = L"";
+    int openLine = 0, openFile = 0;
+    for (int i = 0; i < L->n; i++) {
+        const wchar_t *t = L->v[i].text;
+        while (*t == L' ' || *t == L'\t') t++;
+        if (!wcsncmp(t, L"Begin", 5) && (t[5] == L' ' || t[5] == L'\t')) {
+            if (prefix[0]) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, L->v[i].line, 1, L"E-JMT-BLOCK",
+                             L"a Begin block cannot contain another Begin", L"close the first block with End");
+                return false;
+            }
+            const wchar_t *a = t + 5;
+            while (*a == L' ' || *a == L'\t') a++;
+            // 꼬리 주석은 떼고, 공통 인자까지를 접두로 삼는다
+            wchar_t head[160]; size_t n = 0;
+            while (*a && *a != L'#' && n + 1 < 160) head[n++] = *a++;
+            while (n > 0 && (head[n-1] == L' ' || head[n-1] == L'\t')) n--;
+            head[n] = L'\0';
+            if (!head[0]) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, L->v[i].line, 1, L"E-JMT-BLOCK",
+                             L"Begin needs a directive", L"e.g. 'Begin Combine C'");
+                return false;
+            }
+            _snwprintf(prefix, 160, L"%ls ", head);
+            openLine = L->v[i].line; openFile = L->v[i].file;
+            L->v[i].text[0] = L'\0';   // 표시자는 빈 줄로 남긴다 (줄 번호를 지키려고 지우지 않는다)
+            continue;
+        }
+        if (!wcsncmp(t, L"End", 3) && (t[3] == L'\0' || t[3] == L' ' || t[3] == L'\t' || t[3] == L'#')) {
+            if (!prefix[0]) {
+                KlayDiag_Add(d, KLAY_SEV_ERROR, L->v[i].line, 1, L"E-JMT-BLOCK",
+                             L"End without Begin", NULL);
+                return false;
+            }
+            prefix[0] = L'\0';
+            L->v[i].text[0] = L'\0';
+            continue;
+        }
+        if (!prefix[0] || !*t || *t == L'#') continue;   // 블록 밖·빈 줄·주석은 그대로
+        size_t need = wcslen(prefix) + wcslen(t) + 1;
+        wchar_t *joined = (wchar_t*)malloc(need * sizeof(wchar_t));
+        if (!joined) return false;
+        _snwprintf(joined, need, L"%ls%ls", prefix, t);
+        free(L->v[i].text);
+        L->v[i].text = joined;
+    }
+    if (prefix[0]) {
+        KlayDiag_Add(d, KLAY_SEV_ERROR, openLine, 1, L"E-JMT-BLOCK", L"Begin block is never closed",
+                     L"add an 'End' line");
+        (void)openFile;
+        return false;
+    }
+    return true;
+}
+
 bool KlayLines_Build(KlayLines *L, const wchar_t *path, KlayDiag *d) {
     memset(L, 0, sizeof(*L));
     Stack *st = (Stack*)calloc(1, sizeof(Stack));
@@ -378,5 +442,6 @@ bool KlayLines_Build(KlayLines *L, const wchar_t *path, KlayDiag *d) {
     wchar_t t[32];
     bool ok = AddSource(L, path, NULL, 0, true, st, d, t);
     free(st);
+    if (ok) ok = ExpandBlocks(L, d);   // RFC-0011 P6: Begin … End 를 한 줄짜리 지시문으로 편다
     return ok;
 }
