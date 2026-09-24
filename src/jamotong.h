@@ -53,6 +53,19 @@ typedef struct {
 typedef struct { GUID guid; int fn; TF_PRESERVEDKEY key; } JamoPreservedEntry;
 
 // Text Service Instance Struct
+
+// 이 툴체인의 msctf.h 에는 ITfTextLayoutSink 가 없다 — COM ABI 그대로 직접 선언한다.
+// (문서 배치 변화 통지: 캐럿·줄 배치가 바뀔 때 온다. light dismiss 에 쓴다 — B10)
+typedef struct ITfTextLayoutSink ITfTextLayoutSink;
+typedef struct ITfTextLayoutSinkVtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(ITfTextLayoutSink *This, REFIID riid, void **ppv);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(ITfTextLayoutSink *This);
+    ULONG   (STDMETHODCALLTYPE *Release)(ITfTextLayoutSink *This);
+    HRESULT (STDMETHODCALLTYPE *OnLayoutChange)(ITfTextLayoutSink *This, ITfContext *pic,
+                                                TsLayoutCode lcode, ITfContextView *pView);
+} ITfTextLayoutSinkVtbl;
+struct ITfTextLayoutSink { ITfTextLayoutSinkVtbl *lpVtbl; };
+
 typedef struct JamotongTextService {
     JamoTIPExVtbl *lpVtblTIP;   // ITfTextInputProcessor(Ex) — 부모 5개가 앞이라 기존 캐스트 그대로 유효
     ITfKeyEventSinkVtbl *lpVtblKES;                     // 키 입력(ITfKeyEventSink)
@@ -61,6 +74,7 @@ typedef struct JamotongTextService {
     const ITfFnConfigureVtbl *lpVtblFnConfig;           // "옵션" 버튼 → 설정창
     ITfThreadMgrEventSinkVtbl *lpVtblTMES;              // 문서 포커스 추적(문서 '관여')
     ITfTextEditSinkVtbl *lpVtblTES;                     // 포커스 문서 텍스트편집 싱크
+    ITfTextLayoutSinkVtbl *lpVtblTLS;                   // 문서 배치(캐럿 자리) 싱크 — light dismiss (B10)
     LONG refCount;
     ITfThreadMgr *threadMgr;
     TfClientId clientId;
@@ -69,11 +83,16 @@ typedef struct JamotongTextService {
     TfGuidAtom daAtom;   // registered atom for GUID_JamotongComposingDA
     DWORD tmesCookie;    // ThreadMgrEventSink advise 쿠키
     DWORD tesCookie;     // TextEditSink advise 쿠키
+    DWORD tlsCookie;     // TextLayoutSink advise 쿠키 (같은 컨텍스트에 함께 붙인다)
     ITfContext *pTESContext;   // TextEditSink이 붙은 현재 컨텍스트
 
     // 조합 미리보기 오버레이(RFC-0002)용: 마지막 편집 세션에서 얻은 캐럿 화면 rect.
     //   편집 세션(동기) 안에서 GetTextExt로 기록 → OutputResult가 세션 반환 직후 읽음(입력 스레드 전용).
     RECT lastCaretRect;
+    // 후보창을 띄울 때의 캐럿 자리. 문서 배치가 바뀌었을 때 "캐럿이 옮겨졌는가"를 이걸로 판정한다
+    // (light dismiss, B10). 후보창이 없으면 뜻이 없다.
+    RECT candAnchorRect;
+    BOOL candAnchorValid;
     BOOL lastCaretValid;
     // CUAS 낡은 좌표 보정용: 직전에 칩을 그린 '원시' rect. CUAS는 비동기 삽입 때문에
     // GetTextExt/캐럿이 한 키 늦게 전진한다 — 커밋이 있었는데 rect가 그대로면 낡은 것.

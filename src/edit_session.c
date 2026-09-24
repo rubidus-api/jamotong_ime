@@ -1,4 +1,5 @@
 #include "edit_session.h"
+#include "candidate_ui.h"
 #include <richedit.h>   // EM_EXGETSEL/EM_GETSELTEXT/CHARRANGE (선택 읽기 RichEdit 폴백)
 #include <string.h>
 #include <wctype.h>     // towlower (포커스 컨트롤 클래스명 판정)
@@ -586,4 +587,76 @@ void UiGuard_CrossThread(const char *what, unsigned long owner, unsigned long me
     DWORD v = (DWORD)n;
     RegSetValueExW(k, L"UiCrossThread", 0, REG_DWORD, (const BYTE *)&v, sizeof v);
     RegCloseKey(k);
+}
+
+// ── 캐럿이 옮겨졌는지만 보는 읽기 세션 (light dismiss, B10) ────────────────────────
+typedef struct {
+    ITfEditSessionVtbl *lpVtbl;
+    LONG refCount;
+    JamotongTextService *pService;
+    ITfContext *pContext;
+} CaretProbeSession;
+
+static HRESULT STDMETHODCALLTYPE CP_QueryInterface(ITfEditSession *pThis, REFIID riid, void **ppv) {
+    if (!ppv) return E_POINTER;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_ITfEditSession)) {
+        *ppv = pThis; pThis->lpVtbl->AddRef(pThis); return S_OK;
+    }
+    *ppv = NULL; return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE CP_AddRef(ITfEditSession *pThis) {
+    CaretProbeSession *es = (CaretProbeSession*)pThis;
+    return (ULONG)InterlockedIncrement(&es->refCount);
+}
+static ULONG STDMETHODCALLTYPE CP_Release(ITfEditSession *pThis) {
+    CaretProbeSession *es = (CaretProbeSession*)pThis;
+    LONG n = InterlockedDecrement(&es->refCount);
+    if (n == 0) {
+        es->pService->lpVtblTIP->Release((ITfTextInputProcessor*)es->pService);
+        es->pContext->lpVtbl->Release(es->pContext);
+        HeapFree(GetProcessHeap(), 0, es);
+    }
+    return (ULONG)n;
+}
+static HRESULT STDMETHODCALLTYPE CP_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    CaretProbeSession *es = (CaretProbeSession*)pThis;
+    JamotongTextService *svc = es->pService;
+    if (!CandidateUI_IsVisible() || !svc->candAnchorValid) return S_OK;
+    TF_SELECTION sel; ULONG fetched = 0;
+    if (FAILED(es->pContext->lpVtbl->GetSelection(es->pContext, ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched)) || fetched == 0)
+        return S_OK;
+    ITfContextView *pView = NULL;
+    RECT rc; BOOL clipped = FALSE;
+    bool moved = false;
+    if (SUCCEEDED(es->pContext->lpVtbl->GetActiveView(es->pContext, &pView)) && pView) {
+        if (SUCCEEDED(pView->lpVtbl->GetTextExt(pView, ec, sel.range, &rc, &clipped))
+            && (rc.bottom - rc.top) > 0) {
+            const LONG slack = 3;   // 글꼴 렌더링 오차만큼은 같은 자리로 본다
+            moved = labs(rc.left - svc->candAnchorRect.left) > slack ||
+                    labs(rc.top  - svc->candAnchorRect.top)  > slack;
+        }
+        pView->lpVtbl->Release(pView);
+    }
+    sel.range->lpVtbl->Release(sel.range);
+    if (moved) CandidateUI_Cancel();   // 캐럿이 옮겨졌다 → 후보창은 남의 자리를 가리킨다
+    return S_OK;
+}
+static ITfEditSessionVtbl CaretProbeVtbl = { CP_QueryInterface, CP_AddRef, CP_Release, CP_DoEditSession };
+
+HRESULT RequestCaretMoveProbe(JamotongTextService *pService, ITfContext *pContext) {
+    if (!pService || !pContext) return E_INVALIDARG;
+    CaretProbeSession *es = (CaretProbeSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof *es);
+    if (!es) return E_OUTOFMEMORY;
+    es->lpVtbl = &CaretProbeVtbl;
+    es->refCount = 1;
+    es->pService = pService;
+    es->pContext = pContext;
+    pService->lpVtblTIP->AddRef((ITfTextInputProcessor*)pService);
+    pContext->lpVtbl->AddRef(pContext);
+    HRESULT hrSession = S_OK;
+    // 싱크 안이라 동기 세션은 거절된다 — 비동기 읽기 전용으로 부탁한다.
+    HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es,
+                                                      TF_ES_ASYNCDONTCARE | TF_ES_READ, &hrSession);
+    es->lpVtbl->Release((ITfEditSession*)es);
+    return hr;
 }

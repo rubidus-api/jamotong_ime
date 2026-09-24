@@ -19,6 +19,10 @@ HRESULT RequestReplaceSessionString(JamotongTextService *pService, ITfContext *p
 //   성공 시 선택 range의 화면 rect를 svc->lastCaretRect에 캡처(후보창 위치용).
 //   ※ outBuf 용량은 최소 maxLen+1 (널 종단 기록).
 HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pContext, wchar_t *outBuf, int maxLen);
+// 캐럿 자리만 다시 재서, 후보창을 띄울 때의 자리와 다르면 후보창을 닫는다 (light dismiss, B10).
+//   메모장 같은 최신 편집기는 고전 캐럿(GetGUIThreadInfo)이 아예 없어 TSF 로만 잴 수 있다.
+//   문서 배치 싱크 안에서 부르므로 **비동기 읽기 전용** 세션이다.
+HRESULT RequestCaretMoveProbe(JamotongTextService *pService, ITfContext *pContext);
 // 포커스가 EDIT 계열이면 그 HWND, 아니면 NULL. 삽입/교체 시점에 한 번 얻어 이후 EM_* 조작에
 // 재사용한다(후보창 콜백 시점엔 포커스가 옮겨가 GetGUIThreadInfo가 딴 창을 주기 때문).
 HWND EditCtl_FocusEditWindow(void);

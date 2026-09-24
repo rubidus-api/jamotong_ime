@@ -44,6 +44,22 @@ static void WritePassthroughReg(BOOL on) {
 //   1) 방금 편집 세션에서 GetTextExt로 캡처한 값(svc->lastCaretRect) — TSF 정석.
 //   2) GetGUIThreadInfo의 시스템 캐럿(rcCaret+hwndCaret) — 옛 EDIT(AkelPad)·PuTTY에서 정확.
 //   둘 다 실패 → FALSE (미리보기 생략).
+// 지금 화면의 캐럿 자리를 **캐시 없이** 읽는다. 캐시(lastCaretRect)는 우리 편집 세션에서 잡은 값이라,
+// 사용자가 캐럿을 옮겨도 그대로다 — "옮겨졌는가"를 묻는 자리에서는 캐시를 보면 안 된다 (B10).
+static BOOL GetLiveCaretScreenRect(RECT *out) {
+    GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
+    if (GetGUIThreadInfo(0, &gti) && gti.hwndCaret &&
+        (gti.rcCaret.bottom - gti.rcCaret.top) > 0) {
+        POINT tl = { gti.rcCaret.left, gti.rcCaret.top };
+        POINT br = { gti.rcCaret.right, gti.rcCaret.bottom };
+        if (ClientToScreen(gti.hwndCaret, &tl) && ClientToScreen(gti.hwndCaret, &br)) {
+            out->left = tl.x; out->top = tl.y; out->right = br.x; out->bottom = br.y;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static BOOL GetCaretScreenRect(JamotongTextService *obj, RECT *out) {
     if (obj->lastCaretValid) { *out = obj->lastCaretRect; return TRUE; }
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
@@ -1390,6 +1406,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     goto kd_done;
                 }
                 CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
+                if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rcSel;
+                obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
                 if (!CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj)) {
                     // 표시 실패(W1-08): 콜백이 안 불리므로 여기서 문맥 참조를 놓는다. 원문 보류(W1-02)면
                     // 조합이 그대로 남아 잃는 것이 없다.
@@ -1508,6 +1526,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
                     if (pic) { pic->lpVtbl->AddRef(pic); obj->candCtx.pic = pic; }
                     CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
+                    if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
+                    obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
                     if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
                                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
                         SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
@@ -1804,6 +1824,7 @@ static ITfKeyEventSinkVtbl KeyEventSinkVtbl = {
 
 static const GUID kIID_ITfThreadMgrEventSink   = { 0xaa80e80e, 0x2021, 0x11d2, { 0x93, 0xe0, 0x00, 0x60, 0xb0, 0x67, 0xb8, 0x6e } };
 static const GUID kIID_ITfTextEditSink         = { 0x8127d409, 0xccd3, 0x4683, { 0x96, 0x7a, 0xb4, 0x3d, 0x5b, 0x48, 0x2b, 0xf7 } };
+static const GUID kIID_ITfTextLayoutSink       = { 0x2af2d06a, 0xdd5b, 0x4927, { 0xa0, 0xb4, 0x54, 0xf1, 0x9c, 0x91, 0xfa, 0xde } };
 
 static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis, REFIID riid, void **ppvObject) {
     JamotongTextService *obj = (JamotongTextService*)pThis;
@@ -1824,6 +1845,8 @@ static HRESULT STDMETHODCALLTYPE TIP_QueryInterface(ITfTextInputProcessor *pThis
         *ppvObject = &obj->lpVtblFnConfig;   // "옵션" → 설정창
     } else if (IsEqualIID(riid, &kIID_ITfTextEditSink)) {
         *ppvObject = &obj->lpVtblTES;        // RFC-0008 W2-04: 한 객체의 모든 인터페이스가 서로 QI 된다
+    } else if (IsEqualIID(riid, &kIID_ITfTextLayoutSink)) {
+        *ppvObject = &obj->lpVtblTLS;        // 문서 배치 싱크 (light dismiss)
     } else if (IsEqualIID(riid, &kIID_ITfThreadMgrEventSink)) {
         *ppvObject = &obj->lpVtblTMES;
     } else if (Compart_QueryInterface(obj, riid, ppvObject)) {
@@ -1889,6 +1912,37 @@ static HRESULT STDMETHODCALLTYPE TES_OnEndEdit(ITfTextEditSink *pThis, ITfContex
 }
 static ITfTextEditSinkVtbl g_TESVtbl = { TES_QueryInterface, TES_AddRef, TES_Release, TES_OnEndEdit };
 
+// ── ITfTextLayoutSink — 문서 배치가 바뀌면 캐럿 자리를 다시 본다 (light dismiss, B10) ──
+// 편집 싱크만으로는 모자랐다: 메모장은 캐럿을 클릭으로 옮겨도 OnEndEdit 을 울리지 않는다
+// (2026-09-24 실측). 배치 싱크는 캐럿·줄 배치가 바뀔 때마다 오므로, 후보창을 띄울 때 적어 둔
+// 캐럿 자리와 지금 자리를 견주어 **정말 옮겨졌을 때만** 닫는다(스크롤·창 이동도 여기로 온다 —
+// 그때도 후보창은 제 자리를 잃으므로 닫는 편이 맞다).
+static HRESULT STDMETHODCALLTYPE TLS_QueryInterface(ITfTextLayoutSink *pThis, REFIID riid, void **ppv) {
+    JamotongTextService *obj = IMPL_TO_OBJ(TLS, pThis);
+    return obj->lpVtblTIP->QueryInterface((ITfTextInputProcessor*)obj, riid, ppv);
+}
+static ULONG STDMETHODCALLTYPE TLS_AddRef(ITfTextLayoutSink *pThis)  { JamotongTextService *obj = IMPL_TO_OBJ(TLS, pThis); return obj->lpVtblTIP->AddRef((ITfTextInputProcessor*)obj); }
+static ULONG STDMETHODCALLTYPE TLS_Release(ITfTextLayoutSink *pThis) { JamotongTextService *obj = IMPL_TO_OBJ(TLS, pThis); return obj->lpVtblTIP->Release((ITfTextInputProcessor*)obj); }
+static HRESULT STDMETHODCALLTYPE TLS_OnLayoutChange(ITfTextLayoutSink *pThis, ITfContext *pic, TsLayoutCode lcode, ITfContextView *pView) {
+    JamotongTextService *obj = IMPL_TO_OBJ(TLS, pThis);
+    (void)pic; (void)pView;
+    if (!CandidateUI_IsVisible() || Jamotong_InOurEdit()) return S_OK;
+    if (lcode == TS_LC_DESTROY) { CandidateUI_Cancel(); return S_OK; }
+    if (!obj->candAnchorValid) return S_OK;
+    RECT now;
+    if (GetLiveCaretScreenRect(&now)) {                       // 고전 캐럿이 있는 앱은 바로 견준다
+        const LONG slack = 3;                                 // 글꼴 렌더링 오차만큼은 같은 자리로
+        if (labs(now.left - obj->candAnchorRect.left) > slack ||
+            labs(now.top  - obj->candAnchorRect.top)  > slack)
+            CandidateUI_Cancel();                             // 캐럿이 옮겨졌다 → 후보창은 남의 자리
+        return S_OK;
+    }
+    // 메모장 같은 최신 편집기는 고전 캐럿이 아예 없다(실측: hwndCaret=0). TSF 로 재 본다.
+    if (pic) RequestCaretMoveProbe(obj, pic);
+    return S_OK;
+}
+static ITfTextLayoutSinkVtbl g_TLSVtbl = { TLS_QueryInterface, TLS_AddRef, TLS_Release, TLS_OnLayoutChange };
+
 // ITfThreadMgrEventSink
 static HRESULT STDMETHODCALLTYPE TMES_QueryInterface(ITfThreadMgrEventSink *pThis, REFIID riid, void **ppv) {
     JamotongTextService *obj = IMPL_TO_OBJ(TMES, pThis);
@@ -1928,6 +1982,8 @@ static void AdviseTextEditSink(JamotongTextService *obj, ITfContext *pContext) {
         ITfSource *pSrc = NULL;
         if (SUCCEEDED(obj->pTESContext->lpVtbl->QueryInterface(obj->pTESContext, &kIID_ITfSource, (void**)&pSrc))) {
             pSrc->lpVtbl->UnadviseSink(pSrc, obj->tesCookie);
+            if (obj->tlsCookie != TF_INVALID_COOKIE) pSrc->lpVtbl->UnadviseSink(pSrc, obj->tlsCookie);
+            obj->tlsCookie = TF_INVALID_COOKIE;
             pSrc->lpVtbl->Release(pSrc);
         }
         obj->pTESContext->lpVtbl->Release(obj->pTESContext);
@@ -1939,6 +1995,9 @@ static void AdviseTextEditSink(JamotongTextService *obj, ITfContext *pContext) {
         if (SUCCEEDED(pSrc->lpVtbl->AdviseSink(pSrc, &kIID_ITfTextEditSink, (IUnknown*)&obj->lpVtblTES, &obj->tesCookie))) {
             obj->pTESContext = pContext; pContext->lpVtbl->AddRef(pContext);
         }
+        // 배치 싱크도 같은 문서에 (실패해도 입력에는 지장이 없다 — light dismiss 만 못 한다)
+        if (FAILED(pSrc->lpVtbl->AdviseSink(pSrc, &kIID_ITfTextLayoutSink, (IUnknown*)&obj->lpVtblTLS, &obj->tlsCookie)))
+            obj->tlsCookie = TF_INVALID_COOKIE;
         pSrc->lpVtbl->Release(pSrc);
     }
 }
@@ -2123,6 +2182,8 @@ HRESULT JamotongTextService_Create(IUnknown *pUnkOuter, REFIID riid, void **ppvO
     obj->lpVtblDAP = &g_JamotongDAPVtbl;
     obj->lpVtblTMES = &g_TMESVtbl;
     obj->lpVtblTES = &g_TESVtbl;
+    obj->lpVtblTLS = &g_TLSVtbl;
+    obj->tlsCookie = TF_INVALID_COOKIE;
     obj->tmesCookie = TF_INVALID_COOKIE;
     obj->tesCookie = TF_INVALID_COOKIE;
     obj->pTESContext = NULL;
