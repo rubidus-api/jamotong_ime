@@ -1,35 +1,31 @@
 # Layout sources
 
-Jamotong's own layout files, written by hand from **published arrangements** - never converted from
-another input method's configuration files.
+The Korean layouts Jamotong ships live in `redist/` and are installed with the program:
 
 | File | Layout | Provenance |
 |---|---|---|
-| `ko-2bul.low.jmt` | Dubeolsik standard | The national standard arrangement (KS X 5002). An arrangement is a fact and a method; the wording of this file is Jamotong's own. |
-| `ko-3bul-final.low.jmt` | Sebeolsik Final (3-91) | The arrangement Gong Byung-woo and the Hangul Culture Institute published for free use. A test checks this file against Jamotong's built-in table on all 58 keys. |
-| `ko-3bul-sunarae.low.jmt` | Sebeolsik Final, shift-free | Derived by Jamotong from Sebeolsik Final with one stated rule: each shifted final consonant moves to the final-consonant slot of the same unshifted key. |
-| `ko-3bul-390.low.jmt` | Sebeolsik 390 (3-90) | Also published for free use by Gong Byung-woo and the Hangul Culture Institute. Unlike Sebeolsik Final it gives no key to six consonant clusters - they are typed as two final consonants in a row, which the `combine jong` table below each layout handles. |
-| `ko-3bul-2011.low.jmt` | Sebeolsik 3-2011 | Designed by Pat (pat.im), who states that he claims no rights over the arrangement. |
-| `ko-3bul-2012.low.jmt` | Sebeolsik 3-2012 | Same designer, who states the arrangement may be quoted, adapted and redistributed freely. |
+| `redist/layout-ko-2bul.jmt` | Dubeolsik standard | The national standard arrangement (KS X 5002). |
+| `redist/layout-ko-3bul-final.jmt` | Sebeolsik Final (3-91) | Published for free use by Gong Byung-woo and the Hangul Culture Institute. A test checks it against Jamotong's built-in table on all 58 keys. |
+| `redist/layout-ko-3bul-390.jmt` | Sebeolsik 390 (3-90) | Same source. Six consonant clusters have no key of their own: they are typed as two final consonants in a row. |
+| `redist/layout-ko-3bul-sunarae.jmt` | Sebeolsik Final, shift-free | Derived by Jamotong: the shift face is not used at all, and clusters are typed one jamo after another. |
+| `redist/layout-ko-3bul-2011.jmt` | Sebeolsik 3-2011 | Designed by Pat (pat.im), who states that he claims no rights over the arrangement. |
+| `redist/layout-ko-3bul-2012.jmt` | Sebeolsik 3-2012 | Same designer, who states the arrangement may be quoted, adapted and redistributed freely. |
 
-## Can I use them today?
+Each arrangement was read from its **published layout table** and typed into this format by hand;
+values were never converted out of another input method's configuration file. Two independent
+readings had to agree before a layout was added, and the method was calibrated on Sebeolsik Final,
+where the reading matched the built-in table on all 58 keys.
 
-- Dubeolsik standard and Sebeolsik Final are **built in** already (`ko_2bul`, `ko_3bul`). To start from
-  one, export it: `jamotong --export @ko_3bul -o my.jmt`.
-- These files are written in the **layout language v4** (a new grammar: `rem` comments, a closing
-  dot, word operators, guards). The release that reads v4 will also ship them in the installable
-  package. Until then they are the reference for the format.
-- The shift-free layout needs v4 by nature: one key gives a final consonant or a vowel depending on
-  what the syllable already holds, which the older format cannot say.
+## The format
 
-## How these were written
+These files are written in the **layout language v4** (RFC-0018): `rem` comments, a closing dot,
+word operators, and guards. Jamotong reads them directly - `jamotong --check <file>` validates one
+and `--build` compiles it, exactly as for the older format.
 
-Each arrangement was read from its **published layout table** and typed into this format by hand.
-Two independent readings had to agree before a layout was added: the published table, and the values
-seen in a widely used configuration for the same layout. The method was calibrated first on
-Sebeolsik Final, where the reading matched Jamotong's built-in table on all 58 keys.
+A layout says what each key carries. Where the key goes - initial, vowel or final - is the
+automaton's job for two-set layouts (`map jamo`), and the file's job for three-set layouts
+(`map cho` / `map mid` / `map jong`).
 
 ## What is not here
 
-Layouts whose designers have not said the arrangement is free to use - several newer three-set and
-sin-sebeolsik variants - are left out until that is clear.
+Arrangements whose designers have not said they are free to use are left out until that is clear.

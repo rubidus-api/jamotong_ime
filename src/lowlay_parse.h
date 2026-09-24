@@ -39,3 +39,5 @@ void LowTree_Free(LowTree *t);
 // 도움 함수 — 검사·구축 단계가 쓴다.
 const wchar_t *LowForm_Head(const LowForm *f);                 // 머리 이름 (없으면 NULL)
 const LowItem *LowForm_Item(const LowForm *f, int i);          // 범위 밖이면 NULL
+// 항목 [from,to) 를 토큰 줄로 되편다 — 식 해석기가 토큰을 먹기 때문이다. 하위 폼은 괄호로 되돌린다.
+bool LowForm_Flatten(const LowForm *f, int from, int to, LowTok *out, int cap, int *n);

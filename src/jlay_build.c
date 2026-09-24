@@ -58,6 +58,16 @@ static void WriteHangul(Buf *b, const HangulLayout *hl) {
         Put16(b, (unsigned)(unsigned short)(short)hl->combines[i].b);
         Put16(b, (unsigned)(unsigned short)(short)hl->combines[i].result);
     }
+    // 가드 붙은 글쇠 (5판, RFC-0018 §3.6) — 조건은 이미 후위 프로그램으로 구워져 있다.
+    Put32(b, (unsigned)hl->guardedCount);
+    for (int i = 0; i < hl->guardedCount; i++) {
+        const HangulGuarded *g = &hl->guarded[i];
+        Put16(b, (unsigned)g->key);
+        Put16(b, (unsigned)g->r.type);
+        Put16(b, (unsigned)(unsigned short)(short)g->r.index);
+        Put16(b, (unsigned)g->len);
+        for (int k = 0; k < HL_GUARD_CODE; k++) Put16(b, (unsigned)(k < g->len ? g->code[k] : 0));
+    }
 }
 static void WriteChord(Buf *b, const ChordLayout *cl) {
     PutStr(b, cl->name);

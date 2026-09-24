@@ -244,3 +244,60 @@ bool LowExpr_CheckNames(const LowExpr *e, bool (*known)(void *ctx, const LowQuer
     if (!LowExpr_CheckNames(e->r, known, ctx, diag)) ok = false;
     return ok;
 }
+
+// ── 후위 프로그램으로 컴파일 ──────────────────────────────────────────────────
+#define HLG_HAS 0x01
+#define HLG_IDX 0x02
+#define HLG_NUM 0x03
+#define HLG_NOT 0x10
+#define HLG_AND 0x11
+#define HLG_OR  0x12
+#define HLG_EQ  0x20
+
+static int Emit(unsigned char *out, int cap, int at, unsigned char a) {
+    if (at < 0 || at >= cap) return -1;
+    out[at] = a;
+    return at + 1;
+}
+static int Comp(const LowExpr *e, const LowCompile *c, unsigned char *out, int cap, int at, int depth, bool wantIdx);
+
+static int CompName(const LowExpr *e, const LowCompile *c, unsigned char *out, int cap, int at, int depth, bool wantIdx) {
+    if (e->arg[0]) return -1;                      // `layer num` 같은 인자 있는 상태는 아직 못 싣는다
+    int id = c && c->state ? c->state(c->ctx, e->name) : -1;
+    if (id >= 0) {
+        at = Emit(out, cap, at, wantIdx ? HLG_IDX : HLG_HAS);
+        return Emit(out, cap, at, (unsigned char)id);
+    }
+    const LowExpr *sub = c && c->guard ? c->guard(c->ctx, e->name) : NULL;
+    if (!sub || depth >= 4) return -1;             // 가드가 가드를 부르는 깊이는 넷까지
+    return Comp(sub, c, out, cap, at, depth + 1, wantIdx);
+}
+
+static int Comp(const LowExpr *e, const LowCompile *c, unsigned char *out, int cap, int at, int depth, bool wantIdx) {
+    if (!e || at < 0) return -1;
+    switch (e->kind) {
+        case LX_NUM: case LX_STR:
+            if (e->num < 0 || e->num > 255) return -1;
+            at = Emit(out, cap, at, HLG_NUM);
+            return Emit(out, cap, at, (unsigned char)e->num);
+        case LX_NAME:
+            return CompName(e, c, out, cap, at, depth, wantIdx);
+        case LX_NOT:
+            at = Comp(e->l, c, out, cap, at, depth, false);
+            return Emit(out, cap, at, HLG_NOT);
+        case LX_AND: case LX_OR:
+            at = Comp(e->l, c, out, cap, at, depth, false);
+            at = Comp(e->r, c, out, cap, at, depth, false);
+            return Emit(out, cap, at, e->kind == LX_AND ? HLG_AND : HLG_OR);
+        case LX_CMP:
+            at = Comp(e->l, c, out, cap, at, depth, true);    // 견줄 때는 번호를 본다
+            at = Comp(e->r, c, out, cap, at, depth, true);
+            return Emit(out, cap, at, (unsigned char)(HLG_EQ + (int)e->cmp));
+    }
+    return -1;
+}
+
+int LowExpr_Compile(const LowExpr *e, const LowCompile *c, unsigned char *out, int cap) {
+    int n = Comp(e, c, out, cap, 0, 0, false);
+    return n;
+}

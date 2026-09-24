@@ -1,4 +1,5 @@
 #include "klay.h"
+#include "lowlay_build.h"
 #include "layout.h"          // KBD_SEBEOL
 #include "hangul_layout.h"
 #include "chord_layout.h"
@@ -174,6 +175,16 @@ bool Klay_LoadEx(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, KlayMet
     KlayDiag local;
     if (!diag) diag = &local;   // 파서는 FormatVersion 문맥이 필요하다 (호출자가 진단을 원치 않아도)
     KlayDiag_Init(diag);
+    // 자판 정의 언어 v4 (RFC-0018): 겉모습이 아예 다르므로 먼저 가려낸다. v4 인데 읽지 못하면
+    // 옛 파서로 되돌아가지 않는다 — 다른 문법으로 읽으면 조용히 다른 자판이 된다.
+    {
+        bool isV4 = false;
+        if (LowBuild_LoadFile(path, out, diag, &isV4)) {
+            if (meta) { memset(meta, 0, sizeof *meta); meta->formatVersion = 4; }
+            return true;
+        }
+        if (isV4) return false;
+    }
     KlayMeta m; memset(&m, 0, sizeof(m)); m.formatVersion = 1;
     HeaderLines hl0 = {0};
     wchar_t type[32] = L"", engine[32] = L"", abbrev[16] = L"";

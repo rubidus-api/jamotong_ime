@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.54.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.54.0/jamotong-0.54.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.55.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.55.0/jamotong-0.55.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -642,6 +642,11 @@ Hold ;   = oneshot mod(shift)   # 길게 눌러 Shift 를 걸어 두고 떼면 �
 엔진이 못 받는 symbol(그 글자로 시작하는 항목이 사전에 없다)은 친 그대로 찍혀 사라지지 않는다.
 조합 자판(`Type = chord`)에는 엔진이 없으므로 거기 쓴 `symbol` 은 오류다. 레이어·탭홀드·포인터·
 매크로 등 조합 자판의 나머지는 입력 자판에서도 똑같이 쓸 수 있다.
+
+**함께 설치되는 한글 자판.** 설치하면 자판 여섯 벌이 같이 깔린다 — 두벌식 표준, 세벌식 최종(3-91),
+세벌식 390, 세벌식 최종 순아래, 세벌식 3-2011, 세벌식 3-2012. 모두 공개된 배열표를 보고 자모통이
+새로 적은 것이다(권리 근거는 `COPYRIGHT.md`). 고쳐 쓰려면 설치 폴더의 `layout-*.jmt` 를 복사해
+`%APPDATA%\Jamotong\layouts` 에 두고 고치면 된다 — 관리자 앱이 다시 구워 준다.
 
 **윈도우 자판 들여오기.** 쓰고 싶은 자판이 이미 Microsoft Keyboard Layout Creator 원본(`.klc`)으로
 있다면 그대로 바꾼다:

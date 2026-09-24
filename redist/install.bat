@@ -17,7 +17,7 @@ set "DEST=%ProgramFiles%\Jamotong"
 set "STAGE=%DEST%\.staging"
 set "CLSIDKEY=HKCR\CLSID\{C471BCF2-343F-4187-A103-24151C3E20B9}\InprocServer32"
 set "BINS=jamotong.dll jamotong32.dll jamotong.exe"
-set "DATA=hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt UNICODE-LICENSE.txt README.md README.ko.md jmt-format.md jmt-format.ko.md LICENSE COPYRIGHT.md uninstall.bat"
+set "DATA=hanja.txt hanja_hunum.txt example.jmt example-artsey.jmt example-dvorak.jmt layout-ko-2bul.jmt layout-ko-3bul-final.jmt layout-ko-3bul-sunarae.jmt layout-ko-3bul-390.jmt layout-ko-3bul-2011.jmt layout-ko-3bul-2012.jmt UNICODE-LICENSE.txt README.md README.ko.md jmt-format.md jmt-format.ko.md LICENSE COPYRIGHT.md uninstall.bat"
 
 echo ================================================================
 echo   Jamotong IME - Install / Upgrade

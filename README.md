@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.54.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.54.0/jamotong-0.54.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.55.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.55.0/jamotong-0.55.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -694,6 +694,12 @@ Hold ;   = oneshot mod(shift)   # hold to arm Shift for the next chord, then let
 A symbol the engine cannot use (no entry starts with it) is typed as it is, so nothing is lost.
 Chord layouts (`Type = chord`) have no engine, so `symbol` there is an error. Everything else in
 a chord layout — layers, tap/hold, pointer actions, macros — works the same in an input layout.
+
+**Korean layouts that come with it.** Six layouts are installed alongside the program: Dubeolsik
+standard, Sebeolsik Final (3-91), Sebeolsik 390, Sebeolsik Final shift-free, Sebeolsik 3-2011 and
+Sebeolsik 3-2012. Each was typed from its published arrangement table by Jamotong (see
+`COPYRIGHT.md`). To adapt one, copy `layout-*.jmt` from the install folder into
+`%APPDATA%\Jamotong\layouts` and edit it there; the manager app rebuilds it.
 
 **Bringing in a Windows keyboard layout.** If a layout you want already exists as a Microsoft
 Keyboard Layout Creator source (`.klc`), convert it:

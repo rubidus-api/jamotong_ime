@@ -51,28 +51,7 @@ static bool HasSym(wchar_t (*tab)[LOW_NAME_MAX], int n, const wchar_t *name) {
     return false;
 }
 
-// 항목들을 토큰 줄로 되편다 — 식 해석기는 토큰을 먹기 때문이다. 폼은 괄호로 되돌린다.
-static bool Flatten(const LowForm *f, int from, int to, LowTok *out, int cap, int *n);
-static bool FlattenForm(const LowForm *sub, LowTok *out, int cap, int *n) {
-    LowTok lp; memset(&lp, 0, sizeof lp); lp.kind = LOW_LP; lp.line = sub->line; lp.col = sub->col;
-    if (*n >= cap) return false;
-    out[(*n)++] = lp;
-    if (!Flatten(sub, 0, sub->nItems, out, cap, n)) return false;
-    LowTok rp; memset(&rp, 0, sizeof rp); rp.kind = LOW_RP; rp.line = sub->line; rp.col = sub->col;
-    if (*n >= cap) return false;
-    out[(*n)++] = rp;
-    return true;
-}
-static bool Flatten(const LowForm *f, int from, int to, LowTok *out, int cap, int *n) {
-    for (int i = from; i < to; i++) {
-        const LowItem *it = &f->items[i];
-        if (it->kind == LOW_ITEM_TOK) {
-            if (*n >= cap) return false;
-            out[(*n)++] = it->tok;
-        } else if (!FlattenForm(it->form, out, cap, n)) return false;
-    }
-    return true;
-}
+#define Flatten(f,a,b,o,c,n) LowForm_Flatten((f),(a),(b),(o),(c),(n))
 
 typedef struct { const LowSyms *syms; } NameCtx;
 static bool KnownName(void *ctx, const LowQuery *q) {

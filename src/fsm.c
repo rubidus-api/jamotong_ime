@@ -2,11 +2,16 @@
 #include "layout.h"
 #include "hangul_layout.h"
 
-// 내장 variant / 사용자 자판(hl) 공통 디스패치
-static LayoutResult fsm_map(wchar_t k, int variant, const HangulLayout *hl) {
+// 내장 variant / 사용자 자판(hl) 공통 디스패치.
+//   ctx 를 함께 받는 까닭: v4 자판은 한 글쇠가 **조합 상태에 따라** 다른 낱자를 낸다(RFC-0018 §3.6).
+//   가드가 없는 자판이면 예전과 똑같이 keymap 한 장만 본다.
+static LayoutResult fsm_map(const FsmContext *ctx, wchar_t k, int variant, const HangulLayout *hl) {
     if (hl) {
-        if ((unsigned)k < 128) return hl->keymap[(int)k];
-        LayoutResult n = {JAMO_NONE, 0}; return n;
+        if ((unsigned)k >= 128) { LayoutResult n = {JAMO_NONE, 0}; return n; }
+        if (hl->guardedCount == 0) return hl->keymap[(int)k];
+        bool empty = ctx->state == STATE_EMPTY;
+        return HangulLayout_Key(hl, k, empty ? -1 : ctx->cho, empty ? -1 : ctx->jung,
+                                empty ? -1 : ctx->jong);
     }
     return Layout_MapKeyToJamo(k, variant);
 }
@@ -42,7 +47,7 @@ FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const Ha
     //   RFC-0016 P2: 파일 자판도 Composition = dubeol 이면 내장 두벌식과 같은 전이를 탄다 (전엔 파일 = 늘 직접 종성).
     bool directJong = hl ? (hl->composition != HL_DUBEOL) : (variant == KBD_SEBEOL);
 
-    LayoutResult layoutRes = fsm_map(keyChar, variant, hl);
+    LayoutResult layoutRes = fsm_map(ctx, keyChar, variant, hl);
 
     if (layoutRes.type == JAMO_NONE) {
         res.commitChar = Fsm_Flush(ctx);   // 조합 중이면 확정(부분 상태 포함), 아니면 0

@@ -23,6 +23,27 @@ typedef struct {
                       //   초성→받침 대응과 받침 분리는 표준 현대 한글 규칙(엔진 계약). 겹받침은 파일의
                       //   'Combine T <받침> <초성을 받침으로 바꾼 번호> = <겹받침>' 표.
 
+// ── 가드 붙은 글쇠 (RFC-0018 §3.6) ─────────────────────────────────────────────
+// 한 글쇠가 조합 상태에 따라 다른 낱자를 낸다(순아래·갈마들이). 조건은 로드할 때 **작은 후위
+// 프로그램**으로 컴파일해 둔다 — 글쇠를 칠 때는 그것을 훑기만 하므로 문자열 해석이 없다.
+//   셈씨: 01 <id> 있나 · 02 <id> 번호 · 03 <n> 상수 · 10 not · 11 and · 12 or · 20~25 eq ne lt le gt ge
+//   id: 0=초성 1=중성 2=종성 3=빈 조합
+#define HL_MAX_GUARDED   128
+#define HL_GUARD_CODE    24
+#define HLG_HAS 0x01
+#define HLG_IDX 0x02
+#define HLG_NUM 0x03
+#define HLG_NOT 0x10
+#define HLG_AND 0x11
+#define HLG_OR  0x12
+#define HLG_EQ  0x20
+typedef struct HangulGuarded {
+    unsigned char key;                  // ASCII 글쇠
+    unsigned char len;                  // 프로그램 길이
+    unsigned char code[HL_GUARD_CODE];
+    LayoutResult  r;                    // 조건이 참일 때 낼 낱자
+} HangulGuarded;
+
 typedef struct HangulLayout {
     wchar_t name[64];
     int moachigi;                    // 1=모아치기(순서무관 결합 선언), 0=이어치기(순차)
@@ -30,12 +51,18 @@ typedef struct HangulLayout {
     LayoutResult keymap[128];        // ASCII 산출문자 → {type, index}
     HangulCombine combines[HL_MAX_COMBINE];
     int combineCount;
+    HangulGuarded guarded[HL_MAX_GUARDED];   // 적은 차례대로 본다 — 처음 맞는 줄이 이긴다
+    int guardedCount;
 } HangulLayout;
 
 // .jmt 파일에서 로드 (heap 할당, 실패 시 NULL). 소유자가 HangulLayout_Free 로 해제.
 HangulLayout *HangulLayout_LoadFromFile(const wchar_t *path, KlayDiag *diag);
 HangulLayout *HangulLayout_LoadFromLines(const KlayLines *L, KlayDiag *diag);   // Extends/Include 푼 줄 (RFC-0011 P4)
 void HangulLayout_Free(HangulLayout *hl);
+
+// 조합 상태를 보고 이 글쇠가 낼 낱자를 고른다. 없으면 {JAMO_NONE,0}.
+//   cho/jung 은 없으면 -1, jong 은 없으면 0 (엔진의 표기 그대로).
+LayoutResult HangulLayout_Key(const HangulLayout *hl, wchar_t key, int cho, int jung, int jong);
 
 // (type, a, b) 결합 조회 — 대응 규칙의 result, 없으면 -1. 모아치기 자판은 순서무관으로 (b,a)도 시도.
 int HangulLayout_Combine(const HangulLayout *hl, JamoType type, int a, int b);

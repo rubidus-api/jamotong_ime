@@ -18,7 +18,7 @@
 // 판 4: 조합 항목에 `holdOneshot` 이 붙었다 (Hold 에 건 원샷 ↔ momentary 구분, RFC-0016 §6.2).
 // 본문이 바뀌면 판을 반드시 올린다 — 안 올리면 옛 구운 자판을 새 코드가 엉뚱하게 읽는다(0.40.0 교훈,
 // 그리고 2026-09-24 실기에서 같은 일이 한 번 더 났다: 새 필드를 굽지 않아 원샷이 momentary 로 돌았다).
-#define JLAY_FORMAT_VERSION 4
+#define JLAY_FORMAT_VERSION 5   // 5판: 가드 붙은 글쇠 (RFC-0018 P3) — 새 항목이 늘면 판을 올린다
 
 typedef enum JLayError {
     JLAY_OK = 0,

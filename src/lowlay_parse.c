@@ -188,3 +188,25 @@ const LowItem *LowForm_Item(const LowForm *f, int i) {
     if (!f || i < 0 || i >= f->nItems) return NULL;
     return &f->items[i];
 }
+
+static bool FlattenForm(const LowForm *sub, LowTok *out, int cap, int *n) {
+    LowTok lp; memset(&lp, 0, sizeof lp); lp.kind = LOW_LP; lp.line = sub->line; lp.col = sub->col;
+    if (*n >= cap) return false;
+    out[(*n)++] = lp;
+    if (!LowForm_Flatten(sub, 0, sub->nItems, out, cap, n)) return false;
+    LowTok rp; memset(&rp, 0, sizeof rp); rp.kind = LOW_RP; rp.line = sub->line; rp.col = sub->col;
+    if (*n >= cap) return false;
+    out[(*n)++] = rp;
+    return true;
+}
+
+bool LowForm_Flatten(const LowForm *f, int from, int to, LowTok *out, int cap, int *n) {
+    for (int i = from; i < to; i++) {
+        const LowItem *it = &f->items[i];
+        if (it->kind == LOW_ITEM_TOK) {
+            if (*n >= cap) return false;
+            out[(*n)++] = it->tok;
+        } else if (!FlattenForm(it->form, out, cap, n)) return false;
+    }
+    return true;
+}

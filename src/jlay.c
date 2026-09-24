@@ -63,6 +63,22 @@ static bool ReadHangul(Rd *r, LayoutConfig *out) {
         hl->combines[i].b = GetI16(r);
         hl->combines[i].result = GetI16(r);
     }
+    int gn = GetI32(r);
+    if (r->bad || gn < 0 || gn > HL_MAX_GUARDED) { HeapFree(GetProcessHeap(), 0, hl); return false; }
+    hl->guardedCount = gn;
+    for (int i = 0; i < gn; i++) {
+        HangulGuarded *g = &hl->guarded[i];
+        g->key = (unsigned char)Get16(r);
+        g->r.type = (JamoType)Get16(r);
+        g->r.index = GetI16(r);
+        unsigned len = Get16(r);
+        g->len = (unsigned char)(len <= HL_GUARD_CODE ? len : 0);
+        for (int k = 0; k < HL_GUARD_CODE; k++) {
+            unsigned v = Get16(r);
+            g->code[k] = (unsigned char)v;
+        }
+        if (len > HL_GUARD_CODE) { HeapFree(GetProcessHeap(), 0, hl); return false; }
+    }
     if (r->bad) { HeapFree(GetProcessHeap(), 0, hl); return false; }
     out->pHangulLayout = hl;
     out->kbdVariant = KBD_SEBEOL;

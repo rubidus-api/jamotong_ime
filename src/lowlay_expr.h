@@ -29,3 +29,14 @@ long long LowExpr_Eval(const LowExpr *e, const LowState *st);
 bool LowExpr_CheckNames(const LowExpr *e, bool (*known)(void *ctx, const LowQuery *q), void *ctx,
                         KlayDiag *diag);
 void LowExpr_Free(LowExpr *e);
+
+// ── 가드 식을 작은 후위 프로그램으로 (RFC-0018 P3) ─────────────────────────────
+// 셈씨는 hangul_layout.h 의 HLG_* 와 같다. 이름은 풀이가 풀어 준다:
+//   state  이름 → 상태 번호(0 초성·1 중성·2 종성·3 빈 조합), 모르면 -1
+//   guard  이름 → 파일에 선언된 다른 가드 식(없으면 NULL) — 그 자리에 펴 넣는다
+typedef struct LowCompile {
+    int (*state)(void *ctx, const wchar_t *name);
+    const LowExpr *(*guard)(void *ctx, const wchar_t *name);
+    void *ctx;
+} LowCompile;
+int LowExpr_Compile(const LowExpr *e, const LowCompile *c, unsigned char *out, int cap);
