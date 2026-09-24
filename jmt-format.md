@@ -140,7 +140,8 @@ spelled `sticky`) · `momentary (layer num)` · `toggle (layer x)` · `switch (l
 `(profile fast)` · `mouse move 12 0` · `macro <name>` · `cancel`.
 
 A minus sign **attached** to digits makes a negative number (`pointer (move -12 0)`); standing alone
-it is a symbol this language does not have.
+it is a symbol this language does not have. A word cannot hold one either, so the 1-3 action
+`pointer drag-toggle(left)` is written `pointer (dragtoggle left)` here.
 
 ### What still uses the older grammar
 

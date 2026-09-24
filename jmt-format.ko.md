@@ -130,6 +130,7 @@ chord "arts" be macro sign .
 `mouse move 12 0` · `macro 이름` · `cancel`.
 
 숫자에 **붙은** 빼기표는 음수다(`pointer (move -12 0)`). 떨어져 있으면 이 언어에 없는 기호다.
+낱말 안에도 올 수 없어, 1~3판의 `pointer drag-toggle(left)` 은 여기서 `pointer (dragtoggle left)` 로 적는다.
 
 ### 아직 옛 문법으로 적는 것
 

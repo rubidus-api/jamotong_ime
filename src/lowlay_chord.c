@@ -12,6 +12,7 @@
 //   toggle (layer mouse)                   toggle layer(mouse)
 //   pointer (move 1 0) (profile fast)      pointer move(1,0) profile(fast)
 //   pointer (click left)                   pointer click(left)
+//   pointer (dragtoggle left)              pointer drag-toggle(left)
 //   mouse move 1 0                         mouse move 1 0
 //   macro sign · cancel                    macro sign · cancel actions
 #include "lowlay_build.h"
@@ -57,6 +58,8 @@ static bool AppendInt(wchar_t *buf, size_t cap, long long v) {
 static bool ParenForm(const LowForm *f, wchar_t *buf, size_t cap) {
     const wchar_t *head = LowForm_Head(f);
     if (!head) return false;
+    // 이 언어에 빼기표는 낱말 안에 못 온다 — 3판의 `drag-toggle` 은 `dragtoggle` 로 적는다.
+    if (!wcscmp(head, L"dragtoggle")) head = L"drag-toggle";
     if (!Append(buf, cap, head) || !Append(buf, cap, L"(")) return false;
     for (int i = 1; i < f->nItems; i++) {
         if (i > 1 && !Append(buf, cap, L",")) return false;

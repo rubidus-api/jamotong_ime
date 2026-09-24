@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.58.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.0/jamotong-0.58.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.58.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.1/jamotong-0.58.1.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -377,177 +377,134 @@ map mid do                 "f" "ㅏ" .  end      rem 아니면 모음
 `jamotong --export @ko_2bul -o 내두벌식.jmt` 로 내장 자판을 v4 파일로 내보내 고쳐 쓰면 쉽다.
 설치 폴더에는 이미 자판 여섯 벌(`layout-*.jmt`)이 들어 있다.
 
-- **`Moachigi = 0`** (이어치기): 자모를 한 타씩 순서대로 입력하는 일반 방식.
-- **`Moachigi = 1`** (모아치기/동시치기): 여러 키를 함께 눌러 한 음절을 만들고,
-  `Combine` 규칙이 **순서와 무관하게** 매칭된다(`a b`가 `b a`에도 적용).
+- **`moachigi` 없이**(기본, 이어치기): 자모를 한 타씩 순서대로 입력하는 일반 방식.
+- **`moachigi .` 를 적으면**(모아치기/동시치기): 여러 글쇠를 함께 눌러 한 음절을 만들고,
+  `combine` 규칙이 **차례와 무관하게** 맞는다(`"ㄱ" "ㅅ"` 이 `"ㅅ" "ㄱ"` 에도).
   동시타건 세벌식 변형에 쓴다.
 
-`Combine` 규칙은 자판당 최대 256개.
+`combine` 규칙은 자판당 최대 256개.
 
-### Type = chord (코드 자판)
+### 조합 자판 (v4 문법)
 
-몇 개의 "코드 글쇠"를 **함께 눌렀다 모두 떼면** 그 조합의 동작이 실행된다 —
-ARTSEY 같은 한 손 자판의 방식. 동작은 실제 키/마우스 이벤트로 전달되므로
-어떤 앱에서든, 한글 모드 밖에서도 동작한다.
+몇 개의 "조합 글쇠"를 **함께 눌렀다 모두 떼면** 그 조합의 동작이 실행된다 — ARTSEY 같은 한 손
+자판의 방식이다. 동작은 실제 키/마우스 이벤트로 나가므로 어떤 앱에서든, 한글 모드 밖에서도
+동작한다. 조합 자판도 한글 자판과 같은 **v4 문법**으로 적는다: `rem` 주석, ` .` 로 닫는 폼,
+`do … end` 블록, 기호 대신 낱말.
 
-```ini
-Type = chord
-Name = ex_chord
-Abbrev = ART
+```lowlayout
+layout name "ex_chord" .
+layout format 4 .
+engine none .
 
-# 1) 코드 글쇠 선언이 먼저: 각 글쇠에 비트 번호 0~31을 배정.
-#    배열 지정은 시작 비트부터 연속 배정:
-Key jkl; = 0    # j=0 k=1 l=2 ;=3
-Key f = 4       # 단건 지정도 그대로 가능
+keys "arts" "eyio" .        rem 이 자판이 쓰는 글쇠와 비트 차례 (0..31)
+chordterm 50 .              rem 더 큰 조합을 기다리는 시간 (ms, 1-1000)
+holdterm 200 .              rem 탭/홀드 판정 (ms, 1-5000)
+holdpolicy interrupt .      rem interrupt: 다른 글쇠가 홀드를 확정 · timeout: holdterm 뒤에만
 
-# 2) 조합: 나열한 글쇠를 함께 눌렀다 떼면 동작 실행.
-Chord j   = a          # 한 글쇠 = 문자 a
-Chord jk  = e          # j+k 동시 = e
-Chord jkl = the        # 세 글쇠 = 단어 "the" 통째로
+chord "a"   be text "a" .           rem 한 글쇠
+chord "ar"  be text "b" .           rem a+r 동시
+chord "art" be text "the" .         rem 세 글쇠 = 단어 통째로
 ```
 
-#### 동작(우변) 종류
+`keys` 는 조합보다 먼저 오고, 적은 차례대로 글쇠마다 비트를 준다. 조합은 그 글쇠들을 이어 적은
+문자열이다. 레이어 16개, 조합 2048개까지. 한 파일에서 같은 조합을 두 번 적으면 오류다.
 
-| 문법 | 의미 |
+#### 동작 (`be` 뒤)
+
+| 꼴 | 뜻 |
 |---|---|
-| *일반 텍스트* | 텍스트 입력 (**최대 23자** — 넘으면 자르지 않고 오류). 이스케이프: `\n`=Enter, `\t`=Tab, `\s`=스페이스, `\\`=역슬래시, `\#`=`#` 글자. 단독 `\b`=백스페이스. 공백 뒤의 `#` 부터는 주석이므로, 공백 뒤에 `#` 글자가 필요하면 `\#` 로 쓴다(`C#` 이나 `#` 로 시작하는 텍스트는 그대로 된다). |
-| `key <이름>` | 특수키 하나 입력. 아래 키 이름 목록 참조. |
-| `mod <이름>` | **원샷 모디파이어**: *다음* 조합/문자에 이 모디파이어가 붙는다. 이름: `shift ctrl alt gui`(왼쪽), `rshift rctrl ralt rgui`. |
-| `layer <이름>` | **원샷 레이어**: 다음 조합 한 번만 그 레이어에서 찾는다. |
-| `tlayer <이름>` | **레이어 토글**: 그 레이어로 전환, 다시 실행하면 `base`로 복귀. |
-| `slayer <이름>` | **레이어 전환**: 그 레이어로 가서 유지. |
-| `mouse move <dx> <dy>` | 포인터를 (dx, dy)픽셀 상대 이동. |
-| `mouse click\|down\|up <left\|right\|middle>` | 마우스 버튼: click=누름+뗌, down/up=드래그용 반쪽. |
-| `mouse wheel <up\|down\|N>` | 휠 스크롤 (N=원시 델타, 음수=아래). |
+| `text "the"` | 글월 입력 (**23자까지**). 이스케이프는 v4 것: `\n` `\t` `\\` `\"` `\u{1F600}` … |
+| `key enter` | 특수키 하나. 이름은 아래 목록. |
+| `key f4 (mods ctrl alt)` | 수정키를 얹어서: `shift ctrl alt gui` 와 오른쪽 `r…` 이름. |
+| `mod shift` · `layer num` | 짧은 꼴 — `chord` 자리면 원샷, `hold` 자리면 누르고 있는 동안. |
+| `oneshot (mod shift)` | **원샷 수정키** — 다음 조합 한 번만 (`sticky` 도 같은 뜻). |
+| `oneshot (layer num)` | **원샷 레이어** — 다음 조합만 그 레이어에서 찾는다. |
+| `momentary (layer num)` | 누르고 있는 **동안만** 그 레이어(또는 `mod`). |
+| `toggle (layer mouse)` | 레이어 켜기; 같은 조합을 다시 누르면 `base` 로. |
+| `switch (layer base)` | 그 레이어로 가서 머문다. |
+| `pointer (move 12 0)` | 포인터를 (dx, dy) 픽셀 이동. `(profile fast)` — `slow` `normal` `fast` `scroll`. |
+| `pointer (click left)` | 마우스 단추: `click` / `down` / `up` / `dragtoggle`, `left` `right` `middle`. |
+| `pointer (wheel 0 -1)` | 스크롤 (`wheel 1 0` 은 오른쪽). |
+| `macro 이름` | `macro 이름 do … end` 로 적은 매크로 실행. |
+| `cancel` | 이동을 멈추고, 잡고 있던 드래그를 놓고, 돌던 매크로를 멈춘다. |
 
-동작에 필요한 낱말 뒤에는 `# 주석`만 올 수 있다 — `key a junk`, `mouse move 5 5x`, `key f1junk` 는 오류다(예전엔
-나머지를 무시하고 받아들였다). `mouse move` 는 -10000…10000.
-
-`key <이름>`이 받는 키 이름:
+숫자에 붙은 빼기표는 값의 일부다(`move -12 0`). `pointer move` 는 -10000…10000. 이 언어에는
+낱말 안에 빼기표가 올 수 없어 3판의 `drag-toggle` 은 `dragtoggle` 로 적는다. `key` 가 받는 이름:
 
 ```
-이동    : left right up down home end pgup pgdn ins del
-편집    : back enter tab space esc
-키패드  : kp0~kp9 kpadd kpsub kpmul kpdiv kpdot kpenter
-모디파이어(일반 키로): lshift rshift lctrl rctrl lalt ralt lwin rwin
-락/기타 : caps numlock scroll pause apps prtsc sleep
-미디어  : volup voldown mute mplay mnext mprev mstop
+이동   : left right up down home end pgup pgdn ins del
+편집   : back enter tab space esc
+숫자판 : kp0-kp9 kpadd kpsub kpmul kpdiv kpdot kpenter
+수정키 : lshift rshift lctrl rctrl lalt ralt lwin rwin   (그냥 키로)
+잠금등 : caps numlock scroll pause apps prtsc sleep
+미디어 : volup voldown mute mplay mnext mprev mstop
 브라우저: browserback browserfwd browserrefresh browserhome mail calc mediasel
-기능키  : f1 … f24 (보이지 않는 f13~f24 포함)
-단일 문자: 아무 글자/숫자, 예  key x
+기능키 : f1 … f24  (보이지 않는 f13-f24 포함)
+한 글자: 아무 글자/숫자, 예)  key x
 ```
 
-#### 레이어
+#### 레이어와 매크로
 
-```ini
-Layer base       # 암묵 기본 레이어; 'Layer' 뒤의 Chord들은 그 레이어 소속
-Chord a = layer num      # 원샷: 다음 조합 한 번만 num 레이어
-Chord fa = tlayer mouse  # 마우스 레이어 켜기/끄기
+```lowlayout
+chord "ay" be oneshot (layer num) .   rem 다음 조합 한 번만
+chord "as" be toggle (layer mouse) .  rem 켜기/끄기
 
-Layer num
-Chord j = 1
-Chord k = 2
+layer num do
+  chord "a" be text "1" .
+  chord "r" be text "2" .
+end
 
-Layer mouse
-Chord j  = mouse move -20 0
-Chord jk = mouse click left
-Chord fa = tlayer mouse   # 다시 누르면 base로
+layer mouse do
+  chord "a"  be pointer (move -20 0) .
+  chord "ar" be pointer (click left) .
+  chord "as" be toggle (layer mouse) .   rem 다시 누르면 base 로
+end
+
+macro label do                 rem 유한하고 멈출 수 있는 동작열 (128단계, 3초)
+  text "item: " .
+  key left .
+  wait 40 .                    rem ms (1-2000); 기다리는 동안 입력기는 멈추지 않는다
+  with (mods ctrl shift) .
+  key right .
+  endwith .
+end
+chord "ao" be macro label .
 ```
 
-레이어 최대 16개, 조합 최대 2048개. `Chord` 줄은 가장 최근 `Layer` 지시문(없으면
-`base`) 소속이다. 아직 정의되지 않은 레이어를 미리 참조해도 된다(전방 참조 허용).
+`layer … do … end` 안의 `chord` 는 그 레이어 소속이고, 블록 밖은 `base` 다. 레이어는 정의보다
+먼저 써도 된다. 매크로는 그것을 가리키는 조합보다 먼저 적는다. 매크로는 한 번에 하나만 돌고,
+다른 글쇠·`cancel`·초점 바뀜·자판 바뀜이 멈추며 눌러 둔 수정키를 놓는다. 되풀이도 조건도 없고,
+클립보드나 파일을 읽는 것도 없다.
 
-#### 탭 vs 홀드 (딜레이드 입력)
+#### 탭과 홀드
 
-같은 조합에 두 동작을 줄 수 있다 — 짧게 누르는 **탭**(`Chord`)과 길게 누르는
-**홀드**(`Hold`):
+같은 조합이 두 가지 일을 한다 — 짧게 치는 **탭**(`chord`)과 **홀드**(`hold`):
 
-```ini
-Chord jkl = the        # 탭  (짧게 눌렀다 뗌)
-Hold  jkl = key enter  # 홀드 (0.2초 이상 누르고 있다가 뗌) → Enter
+```lowlayout
+chord "e" be text " " .
+hold  "e" be momentary (layer num) .   rem 누르고 있는 동안: 숫자 레이어
+chord "y" be key back .
+hold  "y" be mod lctrl .               rem 누른 채 친 글쇠는 Ctrl+<키> 로
 ```
 
-`Hold`는 동작 종류에 따라 두 방식으로 동작한다:
-
-- **지속형 홀드** — 동작이 `layer <이름>` 또는 `mod <이름>`일 때:
-  *방해(interrupt) 기반*으로 발동한다. 홀드 조합을 누른 채 다른 키를 누르면
-  그 순간 발동하고, **누르고 있는 동안** 임시 레이어/모디파이어가 유지되다가
-  떼면 원래대로 돌아온다. 모멘터리 레이어/홀드 모디파이어 관용구:
-
-  ```ini
-  Hold jk = layer num    # j+k를 누른 채 다른 키 → num 레이어에서 입력
-  Hold kl = mod lctrl    # k+l을 누른 채 다른 키 → Ctrl+<키>로 전달
-  ```
-
-- **단발형(딜레이드) 홀드** — 그 외 동작(`텍스트`/`key`/`mouse`)일 때:
-  조합을 누르고 다른 키 없이 **0.2초 이상** 유지한 뒤 떼면 탭(`Chord`) 대신
-  `Hold` 동작이 실행된다.
-
-조합에 `Hold`만 있고 탭이 없으면 시간과 무관하게 뗄 때 홀드 동작이 실행된다.
+- 동작이 `mod`/`layer` 인 `hold` 는 **지속형**이다. 누른 채 다른 글쇠를 치면 켜지고 떼면 돌아온다.
+  아무것도 안 치고 계속 누르고 있어도 `holdterm` 뒤에 켜진다.
+- 그 밖의 홀드 동작(`text`·`key`·`pointer`)은 `holdterm` 을 넘겨 누르고 있다가 뗄 때 탭 대신
+  일어난다. 조합에 `hold` 만 있으면 시간과 상관없이 뗄 때 일어난다.
+- **큰 조합이 이긴다**: `hold "ar"` 와 `chord "art"` 가 있을 때 a r t 를 `chordterm` 안에 누르면
+  세 글쇠 동작이 나간다. `ar` 홀드는 더 큰 조합이 될 수 없을 때 비로소 시작한다.
+- **굴리기**: 처음 떼는 순간 조합이 닫힌다. 나머지를 떼기 전에 새 글쇠를 누르면 닫힌 조합이 먼저
+  나가고 새 글쇠가 다음 조합을 연다.
+- **포인터**: `hold` 의 `pointer (move …)`·`(wheel …)` 는 누르고 있는 동안 이어지며 프로파일 한계까지
+  빨라지고, 반대 방향은 상쇄되고, 대각선은 정규화된다. `chord` 자리면 한 번만 일어난다.
+  `dragtoggle` 로 시작한 드래그는 같은 조합이나 `cancel`, 또는 초점·자판이 바뀔 때 풀린다.
 
 #### 전체 예제
 
-배포판의 `example-artsey.jmt` 한 파일에 위 내용이 모두 동작하는 형태로 들어 있다:
-문자·단어 조합, 백스페이스/스페이스/엔터, 원샷 Shift, 원샷·모멘터리 숫자 레이어,
-토글 마우스 레이어(이동·클릭·휠), 탭/홀드 쌍, 미디어 키. 이 파일을 복사해 `Key`
-비트 선언은 두고 조합표만 원하는 자판(예: 공개된 ARTSEY 표)으로 채우면 된다.
-
-#### 형식 3판 (조합 자판)
-
-`FormatVersion = 3` 은 조합 자판에 헷갈리지 않는 동작 문법을 주고, 겹치는 탭/홀드 조합을 늘 같은 규칙으로 판정한다.
-1·2판 파일은 예전과 똑같이 동작한다. 3판 파일은 필요한 자모통 판을 적어야 하고(`RequiresJamotong = 0.33.0`), 옛 판은 이
-파일을 거부한다.
-
-```ini
-FormatVersion    = 3
-Type             = chord
-RequiresJamotong = 0.33.0
-Key jkl; = 0
-ComboTermMs = 50            # 첫 키 뒤 이 시간(ms) 안이면 더 큰 조합을 기다린다 (1-1000)
-HoldTermMs  = 200           # 탭/홀드 판정 시간 (1-5000)
-HoldPolicy  = interrupt     # interrupt: 다른 키가 홀드를 확정 / timeout: HoldTermMs 가 지나야
-
-Chord jkl = text "the"            # 정확한 문자열: "..." 안에서 \" \\ \n \t \u{1F600}; 따옴표 안의 '#' 은 글자
-Chord l   = key B mods(ctrl,shift) # 수정키를 곁들인 키
-Chord ;   = oneshot mod(shift)    # 다음 키에만 (이어지는 text 에는 씌우지 않는다)
-Chord jl  = oneshot layer(num)
-Hold  jk  = momentary layer(num)  # 누르고 있는 동안 (Hold 전용)
-Hold  kl  = momentary mod(lctrl)
-Chord kl  = toggle layer(num)
-Chord j;  = switch layer(base)
-
-Hold  k   = pointer move(0,1) profile(normal)   # 누르고 있는 동안 아래로 이동 (slow|normal|fast)
-Chord jk  = pointer click(left)                 # click / down / up / drag-toggle
-Chord k;  = pointer drag-toggle(left)           # 지금 누르고, 다음에 같은 조합으로 놓는다
-Hold  jkl = pointer wheel(0,-1) profile(scroll) # 누르고 있는 동안 아래로 스크롤 (wheel(1,0) = 오른쪽)
-Chord kl; = cancel actions                      # 이동 멈춤·드래그 놓기·매크로 취소
-
-Macro label                       # 유한하고 취소할 수 있는 동작열
-  text "item: "
-  key LEFT
-  wait 40                         # ms (1-2000) — 기다리는 동안 입력기가 멈추지 않는다
-  with mods(ctrl,shift)
-    key RIGHT
-  endwith
-EndMacro
-Chord jl; = macro label
-Layer num                         # num 층의 조합
-Chord j   = text "1"
-```
-
-- **더 큰 조합이 이긴다**: `Hold jk` 와 `Chord jkl` 이 함께 있을 때 j k l 을 `ComboTermMs` 안에 누르면 `the` 가 입력된다.
-  `jk` 홀드는 더 큰 조합이 더는 만들어질 수 없을 때에야 시작한다.
-- **매크로**: `Macro <이름> … EndMacro` 에 최대 128단계(`text`, `key`, `pointer`, `wait`, `with mods(...)`/`endwith`)를
-  적고, 한 번 실행은 최대 3초다. 한 번에 하나만 돌고, 다른 키를 누르거나 `cancel actions`·포커스 변경·자판 전환이 있으면
-  취소하며 자기가 누른 수정키를 놓는다. 반복·조건·클립보드나 파일 읽기는 없다.
-- **포인터**: `Hold` 에 건 `pointer move`/`wheel` 은 누르고 있는 동안 움직인다 — 프로필 상한까지 빨라지고, 반대 방향은
-  상쇄되며, 대각선은 정규화한다. `Chord` 에 걸면 한 번만 움직인다(`pointer move(10,0)` = 오른쪽 10픽셀). `drag-toggle`(예제의 `k;`)로
-  잡은 드래그는 같은 조합으로 놓거나 `cancel actions` 로 놓으며, 포커스나 자판이 바뀌면 자동으로 놓는다.
-- **가만히 있어도 켜진다**: `Hold` 조합의 키를 누른 채 두면 다른 키를 누르지 않아도 `HoldTermMs` 뒤에 레이어/수정키가 켜진다.
-- **굴려 치기(rolling)**: 첫 키를 떼면 조합이 닫힌다. 나머지 키를 떼기 전에 새 키를 누르면 닫힌 조합이 먼저 나가고, 새
-  키는 다음 조합을 시작한다.
-- 3판에서는 따옴표 없는 문자열, 동작 뒤의 여분 낱말, 한 파일 안의 같은 조합 두 번이 오류다. 마우스 동작은 2판과 같은
-  낱말을 쓴다.
+배포판의 `example-artsey.jmt` 가 위의 것을 한 파일에 담고 있다: 글자, 단어 조합, Backspace/Space/
+Enter, 원샷 Shift, 원샷과 모멘터리 숫자 레이어, 토글 마우스 레이어(이동·클릭·휠), 탭/홀드 짝,
+미디어 키. 복사해서 `keys` 선언은 그대로 두고 자기 조합표(예: 공개된 ARTSEY 표)를 채우면 된다.
+파일 머리의 `note DOC … DOC` 가 문법을 그 자리에서 요약한다.
 
 #### 순차 입력 (형식 3판)
 

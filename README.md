@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.58.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.0/jamotong-0.58.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.58.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.58.1/jamotong-0.58.1.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -417,182 +417,143 @@ accepted too - choseong 0ㄱ..18ㅎ, jungseong 0ㅏ..20ㅣ, jongseong 1ㄱ..27�
 `jamotong --export @ko_2bul -o mine.jmt` writes a built-in layout out as a v4 file to start from, and
 six layouts (`layout-*.jmt`) are already in the install folder.
 
-- **`Moachigi = 0`** (sequential): jamo are entered one keystroke at a time in order —
-  the usual typing style.
-- **`Moachigi = 1`** (simultaneous / "moa-chigi"): several keys pressed together form
-  one syllable, and `Combine` rules match **regardless of order** (`a b` also matches
-  `b a`). Use this for simultaneous-stroke Sebeolsik variants.
+- **Without `moachigi`** (the default, sequential): jamo are entered one keystroke at a time in
+  order — the usual typing style.
+- **With `moachigi .`** (simultaneous / "moa-chigi"): several keys pressed together form one
+  syllable, and `combine` rules match **regardless of order** (`"ㄱ" "ㅅ"` also matches
+  `"ㅅ" "ㄱ"`). Use this for simultaneous-stroke Sebeolsik variants.
 
-Up to 256 `Combine` rules per layout.
+Up to 256 `combine` rules per layout.
 
-### Type = chord (chorded keyboard)
+### Chord layouts (the v4 grammar)
 
 A small set of "chord keys" is pressed **together and released** to perform an action —
 the model used by one-hand keyboards such as ARTSEY. Actions are delivered as real
-key/mouse events, so they work in any app and even outside Hangul mode.
+key/mouse events, so they work in any app and even outside Hangul mode. Chord layouts are
+written in the same **v4 grammar** as hangul layouts: `rem` comments, forms closed by ` .`,
+`do … end` blocks, and words instead of symbols.
 
-```ini
-Type = chord
-Name = ex_chord
-Abbrev = ART
+```lowlayout
+layout name "ex_chord" .
+layout format 4 .
+engine none .
 
-# 1) Declare the chord keys first: each gets a bit number 0–31.
-#    Array form assigns consecutive bits from the given start:
-Key jkl; = 0    # j=0 k=1 l=2 ;=3
-Key f = 4       # single form still works
+keys "arts" "eyio" .        rem the keys this layout uses, in bit order (0..31)
+chordterm 50 .              rem how long to wait for a bigger chord (ms, 1-1000)
+holdterm 200 .              rem tap/hold threshold (ms, 1-5000)
+holdpolicy interrupt .      rem interrupt: another key confirms the hold; timeout: only after holdterm
 
-# 2) Chords: press the listed keys together, release, action fires.
-Chord j   = a          # single key = the letter a
-Chord jk  = e          # j+k together = e
-Chord jkl = the        # three keys = the whole word "the"
+chord "a"   be text "a" .           rem one key
+chord "ar"  be text "b" .           rem a+r together
+chord "art" be text "the" .         rem three keys = a whole word
 ```
 
-#### Actions (right-hand side)
+`keys` comes before the chords and gives every key its bit, in the order written. A chord is
+simply the string of the keys it uses. Up to 16 layers and 2048 chords; the same chord written
+twice in one file is an error.
 
-| Syntax | Meaning |
+#### Actions (after `be`)
+
+| Form | Meaning |
 |---|---|
-| *plain text* | Types the text (**at most 23 characters**; longer is an error, not cut). Escapes: `\n` Enter, `\t` Tab, `\s` space, `\\` backslash, `\#` a literal `#`. A lone `\b` is Backspace. A `#` after a space starts a comment, so write `\#` for a `#` after a space (`C#` and a text that *starts* with `#` are fine as they are). |
-| `key <name>` | Presses one special key. See the key-name list below. |
-| `mod <name>` | **One-shot modifier**: the *next* chord/character gets this modifier. Names: `shift ctrl alt gui` (left side) and `rshift rctrl ralt rgui`. |
-| `layer <name>` | **One-shot layer**: only the next chord is looked up in that layer. |
-| `tlayer <name>` | **Layer toggle**: switch to the layer; the same chord (or any `tlayer` of it) switches back to `base`. |
-| `slayer <name>` | **Layer switch**: go to the layer and stay. |
-| `mouse move <dx> <dy>` | Move the pointer by (dx, dy) pixels. |
-| `mouse click\|down\|up <left\|right\|middle>` | Mouse button: click = press+release, down/up = halves for dragging. |
-| `mouse wheel <up\|down\|N>` | Scroll (N = raw wheel delta, negative = down). |
+| `text "the"` | Types the text (**at most 23 characters**). Escapes are the v4 set: `\n` `\t` `\\` `\"` `\u{1F600}` … |
+| `key enter` | One special key. Names below. |
+| `key f4 (mods ctrl alt)` | The key with modifiers: `shift ctrl alt gui` and the `r…` right-hand names. |
+| `mod shift` / `layer num` | The short form: on a `chord` it is one-shot, on a `hold` it lasts while held. |
+| `oneshot (mod shift)` | **One-shot modifier** — the next chord only (`sticky` means the same). |
+| `oneshot (layer num)` | **One-shot layer** — the next chord is looked up there. |
+| `momentary (layer num)` | The layer (or `mod`) applies **while the chord is held**. |
+| `toggle (layer mouse)` | Switch the layer on; the same chord switches it back to `base`. |
+| `switch (layer base)` | Go to the layer and stay. |
+| `pointer (move 12 0)` | Move the pointer by (dx, dy) pixels; add `(profile fast)` — `slow` `normal` `fast` `scroll`. |
+| `pointer (click left)` | Mouse button: `click` / `down` / `up` / `dragtoggle`, with `left` `right` `middle`. |
+| `pointer (wheel 0 -1)` | Scroll (`wheel 1 0` scrolls right). |
+| `macro label` | Run a macro defined by `macro label do … end`. |
+| `cancel` | Stop moving, drop a held drag, cancel a running macro. |
 
-After the words an action needs, only a `# comment` may follow — `key a junk`, `mouse move 5 5x` or
-`key f1junk` are errors (they used to be accepted by ignoring the rest). `mouse move` takes -10000…10000.
-
-Key names accepted by `key <name>`:
+A minus sign attached to digits is part of the number (`move -12 0`); `pointer move` takes
+-10000…10000. A word cannot hold a minus sign in this language, so the third-generation
+`drag-toggle` is written `dragtoggle`. Key names accepted by `key`:
 
 ```
 Navigation : left right up down home end pgup pgdn ins del
 Editing    : back enter tab space esc
-Numpad     : kp0–kp9 kpadd kpsub kpmul kpdiv kpdot kpenter
+Numpad     : kp0-kp9 kpadd kpsub kpmul kpdiv kpdot kpenter
 Modifiers  : lshift rshift lctrl rctrl lalt ralt lwin rwin   (as plain keys)
 Locks/misc : caps numlock scroll pause apps prtsc sleep
 Media      : volup voldown mute mplay mnext mprev mstop
 Browser    : browserback browserfwd browserrefresh browserhome mail calc mediasel
-Function   : f1 … f24  (including the invisible f13–f24)
+Function   : f1 … f24  (including the invisible f13-f24)
 Single char: any letter/digit, e.g.  key x
 ```
 
-#### Layers
+#### Layers and macros
 
-```ini
-Layer base       # implicit default layer; 'Layer' changes where following chords go
-Chord a = layer num      # one-shot: only the NEXT chord uses the num layer
-Chord fa = tlayer mouse  # toggle the mouse layer on/off
+```lowlayout
+chord "ay" be oneshot (layer num) .   rem the next chord only
+chord "as" be toggle (layer mouse) .  rem on/off
 
-Layer num
-Chord j = 1
-Chord k = 2
+layer num do
+  chord "a" be text "1" .
+  chord "r" be text "2" .
+end
 
-Layer mouse
-Chord j  = mouse move -20 0
-Chord jk = mouse click left
-Chord fa = tlayer mouse   # press again to return to base
+layer mouse do
+  chord "a"  be pointer (move -20 0) .
+  chord "ar" be pointer (click left) .
+  chord "as" be toggle (layer mouse) .   rem press again to return to base
+end
+
+macro label do                 rem a finite, cancelable sequence (up to 128 steps, 3 s)
+  text "item: " .
+  key left .
+  wait 40 .                    rem ms (1-2000); the IME never blocks while waiting
+  with (mods ctrl shift) .
+  key right .
+  endwith .
+end
+chord "ao" be macro label .
 ```
 
-Up to 16 layers, 2048 chords. A `Chord` line belongs to the most recent `Layer`
-directive (or `base`). Layers may be referenced before they are defined.
+A `chord` inside `layer … do … end` belongs to that layer; outside any block it belongs to
+`base`. Layers may be used before they are defined. A macro is defined before the chord that
+points at it. One macro runs at a time; any other key, `cancel`, a focus change or a layout
+switch stops it and releases the modifiers it pressed. There is no repetition, no condition, and
+nothing that reads the clipboard or files.
 
-#### Tap vs. Hold (delayed input)
+#### Tap vs. hold
 
-The same chord can do two things — a quick **tap** (`Chord`) and a **hold** (`Hold`):
+The same chord can do two things — a quick **tap** (`chord`) and a **hold** (`hold`):
 
-```ini
-Chord jkl = the        # tap  (press and release quickly)
-Hold  jkl = key enter  # hold (keep pressed ≥ 0.2 s, then release) → Enter
+```lowlayout
+chord "e" be text " " .
+hold  "e" be momentary (layer num) .   rem while held: the num layer
+chord "y" be key back .
+hold  "y" be mod lctrl .               rem while held: other keys arrive as Ctrl+<key>
 ```
 
-`Hold` behaves in one of two ways depending on its action:
-
-- **Sustained hold** — action is `layer <name>` or `mod <name>`:
-  triggered *by interruption*: while you keep the hold chord pressed and press another
-  key, the layer/modifier applies **for as long as you keep holding**, then reverts on
-  release. This is the momentary-layer / hold-modifier idiom:
-
-  ```ini
-  Hold jk = layer num    # hold j+k, tap other keys → they type from the num layer
-  Hold kl = mod lctrl    # hold k+l, tap other keys → they arrive as Ctrl+<key>
-  ```
-
-- **Discrete (delayed) hold** — any other action (`text`, `key`, `mouse`):
-  press the chord, keep it pressed at least **0.2 seconds** without pressing anything
-  else, then release — the `Hold` action fires instead of the `Chord` (tap) action.
-
-If a chord has only a `Hold` entry (no tap), the hold action fires on release
-regardless of timing.
+- A `hold` whose action is `mod`/`layer` is **sustained**: it turns on when another key is
+  pressed while you keep holding, and reverts on release. Keeping the keys pressed without
+  touching anything else also turns it on after `holdterm`.
+- Any other hold action (`text`, `key`, `pointer`) fires **after `holdterm`**, instead of the
+  tap action, when you release. If a chord has only a `hold` entry, it fires on release
+  regardless of timing.
+- **Bigger chords win**: with `hold "ar"` and `chord "art"`, pressing a r t within `chordterm`
+  types the three-key action; the `ar` hold only starts when no bigger chord can still form.
+- **Rolling**: the first release closes a chord. A new key pressed before the rest are released
+  fires the closed chord first and starts the next one.
+- **Pointer**: `pointer (move …)` / `(wheel …)` on a `hold` runs while you hold — it accelerates
+  to the profile's limit, opposite directions cancel and diagonals are normalized. On a `chord`
+  it happens once. A drag started with `dragtoggle` is released by the same chord, by `cancel`,
+  or when focus or layout changes.
 
 #### Complete example
 
-`example-artsey.jmt` in the distribution shows all of the above in one working file:
-letters, word chords, Backspace/Space/Enter, one-shot Shift, one-shot and momentary
-number layer, a toggled mouse layer (pointer movement, clicks, wheel), tap/hold pairs
-and media keys. Copy it, keep the `Key` bit declarations, and fill in your own chord
-table (e.g. the published ARTSEY map).
-
-#### Format version 3 (chord layouts)
-
-`FormatVersion = 3` gives chord layouts an unambiguous action syntax and decides overlapping
-tap/hold chords deterministically. Version 1/2 files keep working exactly as before. A version 3
-file must say which Jamotong it needs (`RequiresJamotong = 0.33.0`); older versions refuse it.
-
-```ini
-FormatVersion    = 3
-Type             = chord
-RequiresJamotong = 0.33.0
-Key jkl; = 0
-ComboTermMs = 50            # wait this long (ms) after the first key for a bigger chord (1-1000)
-HoldTermMs  = 200           # tap/hold threshold (1-5000)
-HoldPolicy  = interrupt     # interrupt: another key confirms the hold; timeout: only after HoldTermMs
-
-Chord jkl = text "the"            # exact text: "..." with \" \\ \n \t \u{1F600}; '#' inside quotes is text
-Chord l   = key B mods(ctrl,shift) # a key with modifiers
-Chord ;   = oneshot mod(shift)    # next key only (a following text is NOT shifted)
-Chord jl  = oneshot layer(num)
-Hold  jk  = momentary layer(num)  # while held (Hold only)
-Hold  kl  = momentary mod(lctrl)
-Chord kl  = toggle layer(num)
-Chord j;  = switch layer(base)
-
-Hold  k   = pointer move(0,1) profile(normal)   # while held: move down (slow|normal|fast)
-Chord jk  = pointer click(left)                 # click / down / up / drag-toggle
-Chord k;  = pointer drag-toggle(left)           # press now, release on the next chord
-Hold  jkl = pointer wheel(0,-1) profile(scroll) # while held: scroll down (wheel(1,0) = right)
-Chord kl; = cancel actions                      # stop moving, drop a held drag, cancel a macro
-
-Macro label                       # a finite, cancelable sequence
-  text "item: "
-  key LEFT
-  wait 40                         # ms (1-2000); the IME never blocks while waiting
-  with mods(ctrl,shift)
-    key RIGHT
-  endwith
-EndMacro
-Chord jl; = macro label
-Layer num                         # chords of the num layer
-Chord j   = text "1"
-```
-
-- **Bigger chords win**: with `Hold jk` and `Chord jkl`, pressing j k l within `ComboTermMs`
-  types `the`; the `jk` hold only starts when no bigger chord can still be formed.
-- **Macros**: `Macro <name> … EndMacro` holds up to 128 steps (`text`, `key`, `pointer`, `wait`,
-  `with mods(...)` / `endwith`) and runs at most 3 seconds. One runs at a time; pressing any other
-  key, `cancel actions`, a focus change or a layout switch cancels it and releases the modifiers it
-  pressed. There is no repetition, no condition and nothing that reads the clipboard or files.
-- **Pointer**: a `pointer move`/`wheel` on `Hold` runs while you hold the keys — it speeds up to
-  the profile's limit, opposite directions cancel, diagonals are normalized. On `Chord` the same
-  action happens once (`pointer move(10,0)` = 10 px right). A drag started with `drag-toggle` (here `k;`) is
-  released by the same chord, by `cancel actions`, or automatically when focus or layout changes.
-- **Holding still counts**: keep the keys of a `Hold` chord pressed and the layer/modifier turns
-  on after `HoldTermMs` even if you press nothing else.
-- **Rolling**: the first release closes a chord. If a new key goes down before the rest are
-  released, the closed chord fires first and the new key starts the next chord.
-- In version 3 an unquoted text, a word after an action, or the same chord twice in one file
-  is an error. Mouse actions use the same words as version 2.
+`example-artsey.jmt` in the distribution shows all of the above in one working file: letters,
+word chords, Backspace/Space/Enter, one-shot Shift, one-shot and momentary number layers, a
+toggled mouse layer (pointer movement, clicks, wheel), tap/hold pairs and media keys. Copy it,
+keep the `keys` declaration, and fill in your own chord table (e.g. the published ARTSEY map).
+Its `note DOC … DOC` header summarises the grammar in the file itself.
 
 #### Sequence input (format version 3)
 
