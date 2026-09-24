@@ -79,6 +79,11 @@ void KlayLines_Free(KlayLines *L);
 
 // 내장 자판을 완전한 .jmt 텍스트로 (ko_3bul·en_dvorak·en_qwerty). 옮길 수 없으면 false + why.
 //   두벌식(ko_2bul)은 자음이 다음 음절로 넘어가는 규칙이 오토마타 안에 있어 hangul .jmt 로 못 옮긴다.
+// 자판 하나를 **v4 문법**(RFC-0018)으로 적는다. 한글·정적 자판만 — 조합/순차 자판은 아직 옛 꼴이다.
+//   내보내기(--export)가 쓴다. 적은 것을 다시 읽으면 같은 표가 나와야 한다(시험이 잰다).
+bool Klay_WriteV4(const LayoutConfig *lc, wchar_t *out, size_t cch);
+// 내장 자판 하나를 v4 문법으로 (ko_3bul·ko_2bul·en_dvorak·en_qwerty).
+bool Klay_BuiltinTextV4(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *why, size_t whyCch);
 bool Klay_BuiltinText(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *why, size_t whyCch);
 
 // 통합 자판 설정파일(.jmt) 로더. 파일 첫머리의 `Type =` 값으로 종류를 정한다:

@@ -1,5 +1,6 @@
 // klay_src.c — .jmt 줄 원천: Extends/Include 풀기와 내장 자판 텍스트 (RFC-0011 P4). WinAPI 무의존.
 #include "klay.h"
+#include "hangul_layout.h"
 #include "layout.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -444,4 +445,139 @@ bool KlayLines_Build(KlayLines *L, const wchar_t *path, KlayDiag *d) {
     free(st);
     if (ok) ok = ExpandBlocks(L, d);   // RFC-0011 P6: Begin … End 를 한 줄짜리 지시문으로 편다
     return ok;
+}
+
+// ── v4 문법으로 적기 (RFC-0018 P4) ────────────────────────────────────────────
+static const wchar_t *const kV4Cho  = L"ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+static const wchar_t *const kV4Jung = L"ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+static const wchar_t *const kV4Jong = L" ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
+
+static size_t V4Esc(wchar_t c, wchar_t *buf) {   // 글쇠 한 글자를 문자열 리터럴 속으로
+    size_t n = 0;
+    if (c == L'"' || c == L'\\') buf[n++] = L'\\';
+    buf[n++] = c;
+    buf[n] = L'\0';
+    return n;
+}
+
+static size_t V4Map(wchar_t *out, size_t cch, size_t o, const wchar_t *kind,
+                    const HangulLayout *hl, JamoType want, bool jamoKind) {
+    bool any = false;
+    for (int c = 33; c < 127; c++) if (hl->keymap[c].type != JAMO_NONE && (jamoKind || hl->keymap[c].type == want)) { any = true; break; }
+    if (!any) return o;
+    o = Appendf(out, cch, o, L"map %ls do\n", kind);
+    int inRow = 0;
+    for (int c = 33; c < 127; c++) {
+        LayoutResult r = hl->keymap[c];
+        if (r.type == JAMO_NONE) continue;
+        if (!jamoKind && r.type != want) continue;
+        const wchar_t *tab = r.type == JAMO_CHO ? kV4Cho : r.type == JAMO_JUNG ? kV4Jung : kV4Jong;
+        wchar_t k[4];
+        V4Esc((wchar_t)c, k);
+        o = Appendf(out, cch, o, inRow == 0 ? L"  \"%ls\" \"%lc\" ." : L"  \"%ls\" \"%lc\" .", k, tab[r.index]);
+        if (++inRow == 6) { o = Appendf(out, cch, o, L"\n"); inRow = 0; }
+    }
+    if (inRow) o = Appendf(out, cch, o, L"\n");
+    return Appendf(out, cch, o, L"end\n\n");
+}
+
+bool Klay_WriteV4(const LayoutConfig *lc, wchar_t *out, size_t cch) {
+    if (!lc || !out || cch < 256) return false;
+    out[0] = L'\0';
+    size_t o = 0;
+    o = Appendf(out, cch, o, L"rem written by jamotong --export (v4 grammar; comments and order are not kept)\n\n");
+    o = Appendf(out, cch, o, L"layout name \"%ls\" .\nlayout format 4 .\n", lc->name ? lc->name : L"layout");
+
+    if (lc->type == LAYOUT_TYPE_HANGUL_CUSTOM && lc->pHangulLayout) {
+        const HangulLayout *hl = (const HangulLayout*)lc->pHangulLayout;
+        o = Appendf(out, cch, o, L"engine hangul .\n\n");
+        if (hl->moachigi) o = Appendf(out, cch, o, L"moachigi .\n\n");
+        if (hl->composition == HL_DUBEOL) {
+            o = Appendf(out, cch, o, L"rem two-set: the key says the jamo, the automaton picks the slot\n");
+            o = V4Map(out, cch, o, L"jamo", hl, JAMO_NONE, true);
+        } else {
+            o = V4Map(out, cch, o, L"cho",  hl, JAMO_CHO,  false);
+            o = V4Map(out, cch, o, L"mid",  hl, JAMO_JUNG, false);
+            o = V4Map(out, cch, o, L"jong", hl, JAMO_JONG, false);
+        }
+        for (int i = 0; i < hl->combineCount; i++) {
+            const HangulCombine *k = &hl->combines[i];
+            const wchar_t *tab = k->type == JAMO_CHO ? kV4Cho : k->type == JAMO_JUNG ? kV4Jung : kV4Jong;
+            const wchar_t *kind = k->type == JAMO_CHO ? L"cho" : k->type == JAMO_JUNG ? L"mid" : L"jong";
+            o = Appendf(out, cch, o, L"combine %ls \"%lc\" \"%lc\" be \"%lc\" .\n", kind, tab[k->a], tab[k->b], tab[k->result]);
+        }
+        // 가드 붙은 글쇠는 아직 글로 되돌리지 않는다 — 조건이 프로그램으로 구워져 있기 때문이다.
+        if (hl->guardedCount > 0)
+            o = Appendf(out, cch, o, L"\nrem note: %d guarded key(s) are not written back yet\n", hl->guardedCount);
+        return o + 1 < cch;
+    }
+    if (lc->type == LAYOUT_TYPE_STATIC_MAP || lc->type == LAYOUT_TYPE_PASSTHROUGH) {
+        o = Appendf(out, cch, o, L"engine none .\n\n");
+        bool any = false;
+        for (int c = 33; c < 256; c++) if (lc->charMap[c] && lc->charMap[c] != (wchar_t)c) { any = true; break; }
+        if (any) {
+            o = Appendf(out, cch, o, L"map char do\n");
+            int inRow = 0;
+            for (int c = 33; c < 256; c++) {
+                wchar_t v = lc->charMap[c];
+                if (!v || v == (wchar_t)c || v <= L' ') continue;
+                wchar_t k[4], w[4];
+                V4Esc((wchar_t)c, k);
+                V4Esc(v, w);
+                o = Appendf(out, cch, o, L"  \"%ls\" \"%ls\" .", k, w);
+                if (++inRow == 6) { o = Appendf(out, cch, o, L"\n"); inRow = 0; }
+            }
+            if (inRow) o = Appendf(out, cch, o, L"\n");
+            o = Appendf(out, cch, o, L"end\n");
+        }
+        return o + 1 < cch;
+    }
+    return false;   // 조합·순차 자판은 아직 v4 로 적지 않는다
+}
+
+bool Klay_BuiltinTextV4(const wchar_t *name, wchar_t *out, size_t cch, wchar_t *why, size_t whyCch) {
+    if (why && whyCch) why[0] = L'\0';
+    if (!out || cch < 256) return false;
+    LayoutConfig lc;
+    memset(&lc, 0, sizeof lc);
+    HangulLayout hl;
+    memset(&hl, 0, sizeof hl);
+
+    if (!wcscmp(name, L"ko_3bul") || !wcscmp(name, L"ko_2bul")) {
+        int variant = !wcscmp(name, L"ko_3bul") ? KBD_SEBEOL : KBD_DUBEOL;
+        lstrcpynW(hl.name, name, 64);
+        hl.composition = variant == KBD_SEBEOL ? HL_SEBEOL : HL_DUBEOL;
+        for (int c = 33; c < 127; c++) hl.keymap[c] = Layout_MapKeyToJamo((wchar_t)c, variant);
+        for (int a = 0; a <= 18 && hl.combineCount < HL_MAX_COMBINE; a++)
+            for (int b = 0; b <= 18 && hl.combineCount < HL_MAX_COMBINE; b++) {
+                int r = Layout_CombineCho(a, b);
+                if (r >= 0 && variant == KBD_SEBEOL) {
+                    HangulCombine *k = &hl.combines[hl.combineCount++];
+                    k->type = JAMO_CHO; k->a = a; k->b = b; k->result = r;
+                }
+            }
+        for (int a = 0; a <= 20 && hl.combineCount < HL_MAX_COMBINE; a++)
+            for (int b = 0; b <= 20 && hl.combineCount < HL_MAX_COMBINE; b++) {
+                int r = Layout_CombineJung(a, b);
+                if (r >= 0) { HangulCombine *k = &hl.combines[hl.combineCount++]; k->type = JAMO_JUNG; k->a = a; k->b = b; k->result = r; }
+            }
+        for (int a = 1; a <= 27 && hl.combineCount < HL_MAX_COMBINE; a++)
+            for (int b = 1; b <= 27 && hl.combineCount < HL_MAX_COMBINE; b++) {
+                int r = Layout_CombineJongPair(a, b);
+                if (r >= 0) { HangulCombine *k = &hl.combines[hl.combineCount++]; k->type = JAMO_JONG; k->a = a; k->b = b; k->result = r; }
+            }
+        lc.type = LAYOUT_TYPE_HANGUL_CUSTOM;
+        lc.pHangulLayout = &hl;
+        lc.name = name;
+        return Klay_WriteV4(&lc, out, cch);
+    }
+    if (!wcscmp(name, L"en_dvorak") || !wcscmp(name, L"en_qwerty")) {
+        for (int i = 0; i < 256; i++) lc.charMap[i] = (wchar_t)i;
+        if (!wcscmp(name, L"en_dvorak")) Layout_FillDvorak(lc.charMap);
+        lc.type = !wcscmp(name, L"en_dvorak") ? LAYOUT_TYPE_STATIC_MAP : LAYOUT_TYPE_PASSTHROUGH;
+        lc.name = name;
+        return Klay_WriteV4(&lc, out, cch);
+    }
+    if (why && whyCch) lstrcpynW(why, L"unknown built-in layout", (int)whyCch);
+    return false;
 }

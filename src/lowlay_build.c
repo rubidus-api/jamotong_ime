@@ -249,6 +249,43 @@ static wchar_t *ReadAllWide(const wchar_t *path) {
     return buf;
 }
 
+// 정적 자판(engine none): `map char` 한 장이 곧 자판이다.
+static bool BuildStatic(const LowTree *t, const LowCheckResult *c, LayoutConfig *out, KlayDiag *diag) {
+    memset(out, 0, sizeof *out);
+    for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
+    bool ok = true, any = false;
+    for (int i = 0; i < t->n; i++) {
+        const LowForm *f = t->forms[i];
+        const wchar_t *head = LowForm_Head(f);
+        if (!head || wcscmp(head, L"map")) continue;
+        const wchar_t *kind = Arg1Name(f);
+        if (!kind || wcscmp(kind, L"char")) continue;
+        if (HasWord(f, L"when")) {
+            Err(diag, f, L"E-JMT-V4-GUARD", L"a static layout takes no guards", NULL);
+            ok = false;
+            continue;
+        }
+        for (int e = 0; e < f->nKids; e++) {
+            const LowForm *kid = f->kids[e];
+            if (kid->nItems != 2) continue;
+            const LowTok *key = &kid->items[0].tok, *val = &kid->items[1].tok;
+            if (key->kind != LOW_STR || key->strLen != 1 || val->kind != LOW_STR || val->strLen != 1) {
+                Err(diag, kid, L"E-JMT-V4-KEY", L"a static entry maps one character to one character", NULL);
+                ok = false;
+                continue;
+            }
+            int k = (int)key->str[0];
+            if (k < 0 || k > 255) { Err(diag, kid, L"E-JMT-LATIN1", L"key must be a Latin-1 character", NULL); ok = false; continue; }
+            out->charMap[k] = val->str[0];
+            any = true;
+        }
+    }
+    out->type = any ? LAYOUT_TYPE_STATIC_MAP : LAYOUT_TYPE_PASSTHROUGH;
+    out->name = _wcsdup(c->name[0] ? c->name : L"layout");
+    lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+    return ok && out->name != NULL;
+}
+
 bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, bool *isV4) {
     if (isV4) *isV4 = false;
     wchar_t *src = ReadAllWide(path);
@@ -260,6 +297,12 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
     bool ok = LowParse_Run(src, &tree, diag);
     LowCheckResult res;
     if (ok) ok = LowCheck_Run(&tree, &res, diag);
+    if (ok && (!wcscmp(res.engine, L"none") || !wcscmp(res.engine, L"static"))) {
+        ok = BuildStatic(&tree, &res, out, diag);
+        LowTree_Free(&tree);
+        free(src);
+        return ok;
+    }
     if (ok) {
         HangulLayout *hl = (HangulLayout*)calloc(1, sizeof *hl);
         if (!hl) ok = false;

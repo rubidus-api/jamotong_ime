@@ -219,7 +219,7 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         if (!outPath) return Usage(out, ctx);
         wchar_t *text = (wchar_t*)malloc(16384 * sizeof(wchar_t)), why[200];
         if (!text) return 1;
-        bool ok = Klay_BuiltinText(arg + 1, text, 16384, why, 200);
+        bool ok = Klay_BuiltinTextV4(arg + 1, text, 16384, why, 200);   // 내보내기는 v4 문법 (RFC-0018 P4)
         if (!ok) { Outf(out, ctx, L"error: cannot export '%ls': %ls\n", arg, why); free(text); return 1; }
         ok = WriteFileText(outPath, text);
         free(text);
@@ -376,6 +376,16 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
             if (!b.buf) rc = 1;
             else {
                 b.buf[0] = L'\0';
+                // 한글·정적 자판은 v4 문법으로 적는다 (RFC-0018 P4). 조합·순차 자판은 아직 옛 꼴이다.
+                bool wroteV4 = false;
+                {
+                    wchar_t *v4 = (wchar_t*)malloc(16384 * sizeof(wchar_t));
+                    if (v4) {
+                        if (Klay_WriteV4(&lc, v4, 16384)) wroteV4 = WriteFileText(outPath, v4);
+                        free(v4);
+                    }
+                }
+                if (wroteV4) { /* 적었다 */ } else
                 if (!WriteCanonical(arg, &lc, &m, &b) || !WriteFileText(outPath, b.buf)) {
                     Outf(out, ctx, L"error: cannot write '%ls'\n", outPath); rc = 1;
                 } else Outf(out, ctx, L"wrote %ls\n", outPath);

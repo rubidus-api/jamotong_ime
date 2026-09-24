@@ -9,7 +9,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치판** | **[jamotong-0.55.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.55.0/jamotong-0.55.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치판** | **[jamotong-0.56.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.56.0/jamotong-0.56.0.zip)** — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -332,51 +332,50 @@ Map qwertyuiop = ',.pyfgcrl   # 배열 지정: q→' w→, e→. ...
 Map [ = /                     # 단건 지정도 그대로 가능
 ```
 
-### Type = hangul (조합 자판)
+### 한글 자판 (v4 문법)
 
-키에 자모를 배정하고 결합 규칙을 선언하면 나머지(조합 미리보기·확정·자소 단위
-백스페이스·한자 변환)는 IME 오토마타가 처리한다.
+글쇠에 낱자를 배정하고 결합 규칙을 적으면 나머지(조합 미리보기·확정·자소 단위 백스페이스·한자 변환)는
+오토마타가 한다. 자판 파일은 **v4 문법**으로 적는다 — 주석은 `rem`, 폼은 ` .` 로 닫고, 기호 대신 낱말을 쓴다.
 
-```ini
-Key <키> = <C|M|T><인덱스>          # 키 하나에 자모 하나: C=초성 M=중성 T=종성
-Key <키…> = <스펙> <스펙> …         # 배열 지정: 키 수만큼 스펙 나열, 위치 대응
-Combine <C|M|T> <a> <b> = <결과>    # 자모 a 다음 b가 오면 <결과>로 결합
-Moachigi = 0|1                      # 1 = 모아치기(순서 무관 결합), 아래 설명
-Composition = sebeol|dubeol         # 받침을 치는 방식 (생략 = sebeol), 아래 설명
+**두 벌이냐 세 벌이냐에 따라 적는 것이 다르다.**
+
+```lowlayout
+rem 두 벌 — 글쇠는 낱자만 말하고, 자리(초성·종성·겹받침)는 오토마타가 정한다
+layout name "내 두벌식" .
+layout format 4 .
+engine hangul .
+
+map jamo do
+  "r" "ㄱ" .  "s" "ㄴ" .  "e" "ㄷ" .  "k" "ㅏ" .  "j" "ㅓ" .
+end
+map jamo do  "R" "ㄲ" .  "E" "ㄸ" .  end        rem 윗글쇠는 글쇠 문자열이 그대로 말한다
+
+combine jong "ㄱ" "ㅅ" be "ㄳ" .                 rem 겹받침
+combine mid  "ㅗ" "ㅏ" be "ㅘ" .                 rem 겹모음
 ```
 
-**`Composition`** — `sebeol`(기본값): 받침(종성) 키가 따로 있다(`T` 스펙). `dubeol`: 내장 두벌식처럼 자음 키(`C`)가
-받침이 될 수 있으면 받침이 되고, 뒤에 모음이 오면 다음 음절로 넘어간다(`r k s k` → 가나). 두벌식 파일에는 `T` 키가
-없고, 겹받침은 `Combine T <받침> <자음을 받침으로 바꾼 번호> = <결과>` 로 적는다(`Combine T 1 19 = 3`: ㄱ 다음 ㅅ → ㄳ).
-어느 자음이 어느 받침이 되는지와 겹받침이 어떻게 나뉘는지는 표준 현대 한글 규칙을 따른다. `dubeol` 은
-`Moachigi = 1` 과 함께 쓸 수 없다. `jamotong --export @ko_2bul` 은 내장 두벌식 전체를 파일로 쓴다.
-
-인덱스 표 (C/M/T 뒤의 숫자):
-
-```
-초성 C: 0ㄱ 1ㄲ 2ㄴ 3ㄷ 4ㄸ 5ㄹ 6ㅁ 7ㅂ 8ㅃ 9ㅅ 10ㅆ 11ㅇ 12ㅈ 13ㅉ 14ㅊ 15ㅋ 16ㅌ 17ㅍ 18ㅎ
-중성 M: 0ㅏ 1ㅐ 2ㅑ 3ㅒ 4ㅓ 5ㅔ 6ㅕ 7ㅖ 8ㅗ 9ㅘ 10ㅙ 11ㅚ 12ㅛ 13ㅜ 14ㅝ 15ㅞ 16ㅟ 17ㅠ 18ㅡ 19ㅢ 20ㅣ
-종성 T: 1ㄱ 2ㄲ 3ㄳ 4ㄴ 5ㄵ 6ㄶ 7ㄷ 8ㄹ 9ㄺ 10ㄻ 11ㄼ 12ㄽ 13ㄾ 14ㄿ 15ㅀ 16ㅁ 17ㅂ 18ㅄ 19ㅅ 20ㅆ 21ㅇ 22ㅈ 23ㅊ 24ㅋ 25ㅌ 26ㅍ 27ㅎ
+```lowlayout
+rem 세 벌 — 자리를 못 박는다
+map cho  do  "k" "ㄱ" .  "h" "ㄴ" .  "j" "ㅇ" .  end
+map mid  do  "f" "ㅏ" .  "d" "ㅣ" .  end
+map jong do  "s" "ㄴ" .  "x" "ㄱ" .  end
+moachigi .                                      rem 모아치기(순서 무관)를 켠다
 ```
 
-예 (발췌 — 초/중/종성이 서로 다른 키에 놓이는 세벌식형):
+**조건부 글쇠** — 한 글쇠가 조합 상태에 따라 다른 낱자를 낼 수 있다. 먼저 적은 줄이 이긴다.
 
-```ini
-Type = hangul
-Name = ex_hangul
-Abbrev = 예벌
-Moachigi = 1
-
-Key khj = C0 C2 C11   # 배열 지정: k=ㄱ h=ㄴ j=ㅇ (초성)
-Key fd = M0 M20       # f=ㅏ d=ㅣ
-Key s = T4            # ㄴ 종성 (단건 지정)
-Key x = T1            # ㄱ 종성
-
-Combine C 11 0 = 1     # 초성 ㅇ+ㄱ → ㄲ (된소리)
-Combine C 18 12 = 14   # 초성 ㅎ+ㅈ → ㅊ (거센소리)
-Combine M 8 0 = 9      # ㅗ+ㅏ → ㅘ
-Combine T 1 19 = 3     # 종성 ㄱ+ㅅ → ㄳ
+```lowlayout
+guard jongslot be cho and jung and not jong .
+map jong when jongslot do  "f" "ㄻ" .  end      rem 종성 자리면 받침
+map mid do                 "f" "ㅏ" .  end      rem 아니면 모음
 ```
+
+물을 수 있는 것은 `cho` `jung` `jong` `empty` 와 번호 비교(`jong eq 8`)이고, 연산자는 낱말이다
+(`not and or eq ne lt le gt ge`). 낱자는 자모 글자로 적지만 번호(`cho 0`)도 받는다 —
+초성 0ㄱ…18ㅎ, 중성 0ㅏ…20ㅣ, 종성 1ㄱ…27ㅎ.
+
+`jamotong --export @ko_2bul -o 내두벌식.jmt` 로 내장 자판을 v4 파일로 내보내 고쳐 쓰면 쉽다.
+설치 폴더에는 이미 자판 여섯 벌(`layout-*.jmt`)이 들어 있다.
 
 - **`Moachigi = 0`** (이어치기): 자모를 한 타씩 순서대로 입력하는 일반 방식.
 - **`Moachigi = 1`** (모아치기/동시치기): 여러 키를 함께 눌러 한 음절을 만들고,

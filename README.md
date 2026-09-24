@@ -9,7 +9,7 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer** | **[jamotong-0.55.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.55.0/jamotong-0.55.0.zip)** — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer** | **[jamotong-0.56.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.56.0/jamotong-0.56.0.zip)** — extract anywhere, run `install.bat` as administrator |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -370,54 +370,52 @@ Map qwertyuiop = ',.pyfgcrl   # array form: q→' w→, e→. ...
 Map [ = /                     # single form still works
 ```
 
-### Type = hangul (automata layout)
+### Hangul layouts (the v4 grammar)
 
-Assign jamo to keys and declare combination rules; the IME's automata does the rest
-(composition preview, commit, backspace-by-jamo, Hanja conversion all work).
+Assign a jamo to each key and state the combining rules; the automaton does the rest (inline
+preview, commit, jamo-wise backspace, hanja conversion). Layout files are written in the **v4
+grammar**: `rem` comments, forms closed by ` .`, and words instead of symbols.
 
-```ini
-Key <key> = <C|M|T><index>          # one jamo per key: C=choseong M=jungseong T=jongseong
-Key <keys...> = <spec> <spec> ...   # array: one spec per key, paired by position
-Combine <C|M|T> <a> <b> = <result>  # jamo <a> then <b> combine into <result>
-Moachigi = 0|1                      # 1 = simultaneous (order-free) combination, see below
-Composition = sebeol|dubeol         # how finals are typed (omitted = sebeol), see below
+**What you write depends on whether the layout is two-set or three-set.**
+
+```lowlayout
+rem Two-set: the key names the jamo; the automaton decides the slot
+layout name "my dubeolsik" .
+layout format 4 .
+engine hangul .
+
+map jamo do
+  "r" "ㄱ" .  "s" "ㄴ" .  "e" "ㄷ" .  "k" "ㅏ" .  "j" "ㅓ" .
+end
+map jamo do  "R" "ㄲ" .  "E" "ㄸ" .  end        rem the shift face is the key string itself
+
+combine jong "ㄱ" "ㅅ" be "ㄳ" .                 rem a consonant cluster
+combine mid  "ㅗ" "ㅏ" be "ㅘ" .                 rem a compound vowel
 ```
 
-**`Composition`** — `sebeol` (default): final consonants have their own keys (`T` specs).
-`dubeol`: like the built-in 2-set, a consonant key (`C`) becomes the final of the syllable
-when it can, and moves to the next syllable when a vowel follows (`r k s k` → 가나). A dubeol
-file has no `T` keys; compound finals come from `Combine T <final> <consonant as final> = <result>`
-(`Combine T 1 19 = 3`: ㄱ then ㅅ → ㄳ). Which consonant becomes which final, and how a
-compound final splits, follow standard modern Hangul. `dubeol` cannot be combined with
-`Moachigi = 1`. `jamotong --export @ko_2bul` writes the full built-in 2-set as a file.
-
-Index tables (the number after C/M/T):
-
-```
-C (choseong):  0ㄱ 1ㄲ 2ㄴ 3ㄷ 4ㄸ 5ㄹ 6ㅁ 7ㅂ 8ㅃ 9ㅅ 10ㅆ 11ㅇ 12ㅈ 13ㅉ 14ㅊ 15ㅋ 16ㅌ 17ㅍ 18ㅎ
-M (jungseong): 0ㅏ 1ㅐ 2ㅑ 3ㅒ 4ㅓ 5ㅔ 6ㅕ 7ㅖ 8ㅗ 9ㅘ 10ㅙ 11ㅚ 12ㅛ 13ㅜ 14ㅝ 15ㅞ 16ㅟ 17ㅠ 18ㅡ 19ㅢ 20ㅣ
-T (jongseong): 1ㄱ 2ㄲ 3ㄳ 4ㄴ 5ㄵ 6ㄶ 7ㄷ 8ㄹ 9ㄺ 10ㄻ 11ㄼ 12ㄽ 13ㄾ 14ㄿ 15ㅀ 16ㅁ 17ㅂ 18ㅄ 19ㅅ 20ㅆ 21ㅇ 22ㅈ 23ㅊ 24ㅋ 25ㅌ 26ㅍ 27ㅎ
+```lowlayout
+rem Three-set: the file fixes the slot
+map cho  do  "k" "ㄱ" .  "h" "ㄴ" .  "j" "ㅇ" .  end
+map mid  do  "f" "ㅏ" .  "d" "ㅣ" .  end
+map jong do  "s" "ㄴ" .  "x" "ㄱ" .  end
+moachigi .                                      rem turn on order-free simultaneous input
 ```
 
-Example (excerpt — a Sebeolsik-style layout where choseong/jungseong/jongseong live on
-different keys):
+**Conditional keys** - one key can give a different jamo depending on what the syllable holds. The
+first line that matches wins.
 
-```ini
-Type = hangul
-Name = ex_hangul
-Abbrev = 예벌
-Moachigi = 1
-
-Key khj = C0 C2 C11   # array: k=ㄱ h=ㄴ j=ㅇ (choseong)
-Key fd = M0 M20       # f=ㅏ d=ㅣ
-Key s = T4            # ㄴ as jongseong (single form)
-Key x = T1            # ㄱ as jongseong
-
-Combine C 11 0 = 1     # choseong ㅇ+ㄱ → ㄲ (doubled consonant)
-Combine C 18 12 = 14   # choseong ㅎ+ㅈ → ㅊ (aspirated)
-Combine M 8 0 = 9      # ㅗ+ㅏ → ㅘ
-Combine T 1 19 = 3     # jongseong ㄱ+ㅅ → ㄳ
+```lowlayout
+guard jongslot be cho and jung and not jong .
+map jong when jongslot do  "f" "ㄻ" .  end      rem in the final slot it is a cluster
+map mid do                 "f" "ㅏ" .  end      rem otherwise a vowel
 ```
+
+A guard can ask about `cho`, `jung`, `jong`, `empty` and compare numbers (`jong eq 8`); the operators
+are words (`not and or eq ne lt le gt ge`). Jamo are written as jamo letters, and numbers are
+accepted too - choseong 0ㄱ..18ㅎ, jungseong 0ㅏ..20ㅣ, jongseong 1ㄱ..27ㅎ.
+
+`jamotong --export @ko_2bul -o mine.jmt` writes a built-in layout out as a v4 file to start from, and
+six layouts (`layout-*.jmt`) are already in the install folder.
 
 - **`Moachigi = 0`** (sequential): jamo are entered one keystroke at a time in order —
   the usual typing style.

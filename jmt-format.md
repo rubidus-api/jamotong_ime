@@ -34,7 +34,90 @@ Where files are looked up, in order: beside the layout file, `%APPDATA%\Jamotong
 (dictionaries: `...\dicts`), `%PROGRAMDATA%\Jamotong\...`, then the install folder. A dictionary is
 named by a plain file name ending in `.jdb` — no folders in the name.
 
-## Layout source (`.jmt`)
+## Layout source (`.jmt`) - **the v4 grammar**
+
+Hangul layouts and static layouts are written in this grammar. Its surface comes from lowent, the
+systems language written alongside this project.
+
+```lowlayout
+rem a comment runs to the end of the line. There is no symbol comment marker.
+note DOC
+  A block comment. It ends on a line that holds its tag alone.
+DOC
+
+layout name "Sebeolsik Final" .
+layout format 4 .
+engine hangul .                        rem hangul | none
+
+map cho do  "k" "\u3131" .  "h" "\u3134" .  end
+map mid do  "f" "\u314F" .  "r" "\u3150" .  end
+map jong do "x" "\u3131" .  "s" "\u3134" .  end
+
+combine jong "\u3139" "\u3131" be "\u313A" .   rem two jamo typed in a row become one
+combine cho  "\u3131" "\u3131" be "\u3132" .   rem the same initial twice is a tense consonant
+```
+
+### Lexical rules
+
+- **Comments**: `rem` to the end of the line, `note <tag> ... <tag>` for several lines. There is no
+  `#` or `//`.
+- **Closers**: a form closes with ` .`. **A newline does not close anything**, so a long table may be
+  broken across lines freely. The `do` that opens a block also closes its head form, and a block ends
+  with `end` (no dot after it).
+- **The only punctuation is the dot and parentheses.** Symbols like `=` or `&&` are not in this grammar.
+- **Literals**: `42` `1_000` `0x2A` `0b1010` (a leading zero is not octal) · `'a'` (a code value) ·
+  `"text"` `u"..."` `U"..."`. The escape set is the closed fourteen (`\n` `\t` `\xNN` `\uXXXX`
+  `\UXXXXXXXX`, ...).
+- **Names** are ASCII letters, digits and underscore. **An unknown directive is an error** - a typo
+  never quietly changes a layout.
+
+### Writing keys and jamo
+
+- **A key is a string**: `"k"` is that key, `"Q"` is shift+q (the shift face is the key string
+  itself), `"!"` is shift+1. A physical key is `(vk enter)` or `(scan 0x10)`. **There are no hidden
+  defaults** - a shift face has to be written even when it carries the same jamo.
+- **A jamo is written as the jamo letter**: `cho "\u3131"`, `mid "\u314F"`, `jong "\u3133"`. A number
+  (`cho 0`) is accepted too.
+
+| Written as | Meaning |
+|---|---|
+| `map jamo do "r" "\u3131" . end` | **Two-set** - this key carries the jamo. Whether it lands in the initial, final or cluster slot is **the automaton's decision** |
+| `map cho` · `map mid` · `map jong` | **Three-set** - the file fixes the slot |
+| `map char do "q" "a" . end` | A character rather than a jamo (static layout) |
+| `combine jong "\u3134" "\u3148" be "\u3135" .` | Two jamo become one (clusters, compound vowels, tense consonants) |
+
+### Conditional key values - `when`
+
+A key may give a different jamo depending on what the syllable already holds. A guard attaches to
+`key` and `map`, and **the first line that matches wins** (write the narrow one first). A line
+without a guard is the default.
+
+```lowlayout
+guard jongslot be cho and jung and not jong .
+
+map jong when jongslot do  "f" "\u313B" .  end    rem in the final slot it is a cluster
+map mid do                 "f" "\u314F" .  end    rem otherwise it is a vowel
+```
+
+What can be asked: `cho` `jung` `jong` `empty`, and comparisons by number (`jong eq 8`).
+The operators are words - `not` `and` `or` `eq` `ne` `lt` `le` `gt` `ge` - with parentheses for
+grouping; `and` binds tighter than `or`. A guard is **compiled into a small program when the file is
+read** and travels into the built layout (`.jmb`), so nothing extra happens while typing.
+
+Limits: an expression holds at most 64 tokens and 8 levels of parentheses; a layout holds at most 128
+guarded keys.
+
+### What still uses the older grammar
+
+**Chord layouts (`Type = chord`) and sequential input layouts (`Type = input`) are written in the
+1-3 grammar below.** Jamotong reads both: a file with a `layout` form is read as v4, otherwise as the
+older grammar. `jamotong --export` writes hangul and static layouts in v4.
+
+---
+
+## Layout source, versions 1-3
+
+
 
 ```ini
 # a comment; blank lines are ignored
