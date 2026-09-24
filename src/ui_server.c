@@ -5,6 +5,7 @@
 // **표시 전용**이다: 키도 마우스도 받지 않고, 돌려보내는 것도 없다. 받은 문자열은 그리기
 // 외의 어떤 의미로도 해석하지 않는다.
 #include "ui_server.h"
+#include "popup_style.h"
 #include "ui_ipc.h"
 #include <sddl.h>    // ConvertStringSecurityDescriptorToSecurityDescriptorW
 #include <stdio.h>
@@ -101,8 +102,19 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             RECT rc; GetClientRect(hwnd, &rc);
-            FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
-            FrameRect(hdc, &rc, (HBRUSH)GetStockObject(GRAY_BRUSH));
+            // 고대비 테마에서는 시스템 색으로 — 배경을 흰색으로 박아 두면 검정 테마에서 글자가
+            // 배경과 같은 색이 되어 **안 보인다**. 입력기 안의 후보창과 같은 공용 선택기를 쓴다
+            // (RFC-0008 W2-03 / B10). 평소 색은 지금 모양 그대로.
+            const PopupColors normal = { GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOWTEXT),
+                                         GetSysColor(COLOR_GRAYTEXT), GetSysColor(COLOR_WINDOWTEXT),
+                                         GetSysColor(COLOR_HIGHLIGHT), GetSysColor(COLOR_HIGHLIGHTTEXT) };
+            PopupColors col; Popup_PickColors(Popup_HighContrast(), &normal, &col);
+            HBRUSH bgb = CreateSolidBrush(col.bg);
+            FillRect(hdc, &rc, bgb);
+            DeleteObject(bgb);
+            HBRUSH frb = CreateSolidBrush(col.dim);
+            FrameRect(hdc, &rc, frb);
+            DeleteObject(frb);
             if (g_font && g_count > 0) {
                 HFONT of = (HFONT)SelectObject(hdc, g_font);
                 SetBkMode(hdc, TRANSPARENT);
@@ -112,10 +124,12 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 for (int i = start; i < g_count && i < start + g_perPage; i++, y += rowH) {
                     if (i == g_sel) {
                         RECT hr = { 2, y - 2, rc.right - 2, y + rowH - 2 };
-                        FillRect(hdc, &hr, (HBRUSH)(COLOR_HIGHLIGHT + 1));
-                        SetTextColor(hdc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                        HBRUSH sel = CreateSolidBrush(col.selBg);
+                        FillRect(hdc, &hr, sel);
+                        DeleteObject(sel);
+                        SetTextColor(hdc, col.selText);
                     } else {
-                        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+                        SetTextColor(hdc, col.text);
                     }
                     TextOutW(hdc, PAD_X, y, g_lines[i], (int)wcslen(g_lines[i]));
                 }
@@ -123,7 +137,7 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     wchar_t foot[32];
                     _snwprintf(foot, 32, L"[%d/%d]", PageStart() / g_perPage + 1,
                                (g_count + g_perPage - 1) / g_perPage);
-                    SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
+                    SetTextColor(hdc, col.dim);
                     TextOutW(hdc, PAD_X, y, foot, (int)wcslen(foot));
                 }
                 SelectObject(hdc, of);
@@ -131,6 +145,9 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             EndPaint(hwnd, &ps);
             return 0;
         }
+        // 테마가 바뀌면 다시 그린다 — 고대비를 켠 채 떠 있던 창이 옛 색으로 남지 않게.
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED: InvalidateRect(hwnd, NULL, TRUE); return 0;
         case WM_UISRV_SHOW:   PlaceWindow(); return 0;
         case WM_UISRV_UPDATE: PlaceWindow(); return 0;
         case WM_UISRV_HIDE:   ShowWindow(hwnd, SW_HIDE); return 0;
