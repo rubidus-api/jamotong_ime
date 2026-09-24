@@ -5,6 +5,7 @@
 // **표시 전용**이다: 키도 마우스도 받지 않고, 돌려보내는 것도 없다. 받은 문자열은 그리기
 // 외의 어떤 의미로도 해석하지 않는다.
 #include "ui_server.h"
+#include <windowsx.h>   // GET_Y_LPARAM
 #include "popup_style.h"
 #include "ui_ipc.h"
 #include <sddl.h>    // ConvertStringSecurityDescriptorToSecurityDescriptorW
@@ -148,6 +149,27 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // 테마가 바뀌면 다시 그린다 — 고대비를 켠 채 떠 있던 창이 옛 색으로 남지 않게.
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED: InvalidateRect(hwnd, NULL, TRUE); return 0;
+        // ── 마우스로 후보 고르기 (오너 결정 b: 좁은 역방향 통로) ─────────────────────────
+        // 헬퍼는 **그 줄의 숫자 글쇠를 눌러 줄 뿐**이다. 새 통로를 뚫지 않으므로 헬퍼가 가진 힘은
+        // 정확히 "사용자가 누를 수 있는 숫자 하나"이고, 고르는 판단·검증은 전부 입력기 몫이다
+        // (지금 떠 있는 후보 묶음의 범위 안일 때만 받는다 — 이미 있는 길).
+        case WM_MOUSEACTIVATE: return MA_NOACTIVATE;   // 눌러도 포커스는 앱이 쥔다
+        case WM_LBUTTONDOWN: {
+            int rowH = (g_fontH + 6 > ROW_H_MIN) ? g_fontH + 6 : ROW_H_MIN;
+            int y = GET_Y_LPARAM(lp) - PAD_TOP;
+            if (y < 0 || rowH <= 0) return 0;
+            int row = y / rowH;
+            int rows = g_count - PageStart();
+            if (rows > g_perPage) rows = g_perPage;
+            if (row < 0 || row >= rows || row > 8) return 0;   // 페이지 표시줄·9번째 너머는 무시
+            INPUT in[2]; memset(in, 0, sizeof in);
+            in[0].type = in[1].type = INPUT_KEYBOARD;
+            in[0].ki.wVk = in[1].ki.wVk = (WORD)('1' + row);
+            in[0].ki.wScan = in[1].ki.wScan = (WORD)MapVirtualKeyW((UINT)('1' + row), MAPVK_VK_TO_VSC);
+            in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, in, sizeof(INPUT));
+            return 0;
+        }
         case WM_UISRV_SHOW:   PlaceWindow(); return 0;
         case WM_UISRV_UPDATE: PlaceWindow(); return 0;
         case WM_UISRV_HIDE:   ShowWindow(hwnd, SW_HIDE); return 0;
@@ -272,7 +294,9 @@ int UiServer_Run(HINSTANCE hInst) {
     RegisterClassW(&wc);
 
     // 입력을 받지 않는 표시 전용 창 (NOACTIVATE·TRANSPARENT: 클릭도 통과시킨다)
-    g_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+    // WS_EX_TRANSPARENT 는 뺐다 — 후보를 마우스로 고를 수 있어야 하기 때문이다 (오너 결정 b,
+    // 2026-09-24). WS_EX_NOACTIVATE 는 그대로라 눌러도 포커스는 앱이 쥔다.
+    g_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                              L"JamotongUiHelper", L"", WS_POPUP | WS_BORDER,
                              0, 0, 10, 10, NULL, NULL, hInst, NULL);
     if (!g_hwnd) return 1;
