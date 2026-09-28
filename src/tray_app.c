@@ -675,7 +675,7 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     if (cmd && wcsstr(cmd, L"/uninstallime")) return UninstallIme();   // 구버전 IMM32 잔재 정리 전용
     // RFC-0015: UWP 호스트 안의 TIP 은 창을 못 띄운다 → 이 프로세스가 대신 그려 주는 모드.
     // 창도 트레이 아이콘도 없이 파이프만 듣는다. 세션당 하나(뮤텍스)."
-    // RFC-0019: 설치기(MSI·install.bat)가 부르는 등록 동사. 창도 트레이도 없이 하고 끝난다.
+    // RFC-0019: MSI 가 부르는(설치기 없는 zip 에서는 관리자가 직접 부르는) 등록 동사. 창도 트레이도 없이 하고 끝난다.
     if (cmd && wcsstr(cmd, L"--unregister")) return Setup_Register(true);
     if (cmd && wcsstr(cmd, L"--register")) return Setup_Register(false);
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);

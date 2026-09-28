@@ -535,12 +535,40 @@ compatibility capability. This records the project's tested deployment choice; i
 symbols for registration and unregistration; do not copy a missing header name in one
 direction and a different local value in the other.
 
-### 4.4 Install scripts
-Jamotong's model (field-tested on Windows 11, 2026-09-22):
-- **Install to a fixed machine-wide folder** (`%ProgramFiles%\<name>`), not the folder the
-  zip was extracted to: Store/UWP (AppContainer) hosts can read `Program Files` by inheritance,
-  and a registered extraction folder breaks as soon as the user moves or deletes it.
-- **One transaction**: copy into a staging folder and compare bytes (`fc /B`) → move each old
+### 4.4 Installing
+Jamotong's model (MSI since 0.60.0, folder choice since 0.61.0; field notes from Windows 11):
+- **Install machine-wide, into a folder the user may choose** (`%ProgramFiles%\<name>` by default),
+  never into the folder a zip was extracted to — a registered extraction folder breaks as soon as the
+  user moves or deletes it.
+- **The folder is a privilege boundary.** A TIP DLL is loaded into every process, elevated ones
+  included, so whoever can replace it runs code as the administrator who next types. Before
+  registering, check the install folder **and every folder above it**: refuse when anyone other than
+  SYSTEM, Administrators or TrustedInstaller owns one of them or holds DELETE, FILE_DELETE_CHILD,
+  WRITE_DAC, WRITE_OWNER or GENERIC_ALL on it (any of these lets a user rename a path component and put
+  another folder in its place); ignore inherit-only ACEs; refuse links (reparse points) and anything
+  that is not a local fixed disk. Then lock the install folder itself with a protected DACL: SYSTEM and
+  Administrators full, Users and both AppContainer groups (`S-1-15-2-1`, `S-1-15-2-2`) read+execute,
+  children reset to inherit. **Lock before any file lands**: a new folder inherits its parent's ACL, and
+  many data-drive roots pass Authenticated Users *Modify* down (measured), so between InstallFiles and
+  the registering action a user could swap the exe. In an MSI that is `MsiLockPermissionsEx` on the
+  folder's CreateFolder row (it applies at CreateFolders, also to a folder that already existed —
+  measured); then check again in the code that registers (it runs elevated and sees the final path; a
+  launch condition runs before the folder dialog). Files already inside a pre-existing folder survive the
+  lock, and the registering exe loads its non-KnownDLL imports (`COMCTL32.dll`) from its own folder
+  first, so refuse a pre-existing folder that administrators do not own **before** any file is copied.
+  Load the TIP DLL for self-registration with `LOAD_LIBRARY_SEARCH_SYSTEM32`, not
+  `LOAD_WITH_ALTERED_SEARCH_PATH`, so its dependencies come from System32 only.
+- **Register from the installed program, not from table rows**: `RegisterProfile`/`RegisterCategory`
+  write an undocumented registry layout, so an MSI runs `app.exe --register` as a deferred,
+  no-impersonate custom action (and `--unregister` on removal, with rollback twins). That action
+  must initialize COM itself — `regsvr32` used to do it.
+- **MSI traps**: a File-table row without a version makes Windows keep a "newer" versioned file on
+  disk and skip the component (the action on that file then fails with 2753); a machine-wide IME
+  package must set `REBOOT=ReallySuppress` and `MSIRESTARTMANAGERCONTROL=Disable`, or Windows
+  schedules a reboot, or tries to close every app that has the DLL loaded. The removal of an older
+  version during an upgrade follows **that version's** property table, so author both from the first
+  release.
+- If you write a script installer instead, it needs **one transaction**: copy into a staging folder and compare bytes (`fc /B`) → move each old
   file aside as `<name>.old.<tag>` and move the staged one in → `regsvr32` x64, then
   `SysWOW64\regsvr32` x86 → **check that both registrations point at the new folder** →
   commit (delete `*.old.*`). Any failure unregisters the new copy, moves the old files back
@@ -1261,7 +1289,7 @@ Minimum parts for a commit-only Korean TSF IME:
       mutation as `NONE`/`DONE`/`UNKNOWN`, and publish/eat/pass only from that outcome
 - [ ] Boundary delivery policy (space in the same text operation; tested EDIT/terminal
       routes for control keys; magic marker on any `SendInput`)
-- [ ] Registration: COM CLSID + `RegisterProfile` + `RegisterCategory(TIP_KEYBOARD)` + install/uninstall.bat
+- [ ] Registration: COM CLSID + `RegisterProfile` + `RegisterCategory(TIP_KEYBOARD)` + an installer that runs `--register`/`--unregister` and checks the install folder
 - [ ] Build & register both 32- and 64-bit
 
 **Nice to have**: hanja candidate window, settings (hotkey / separate exe), tray branding icon.

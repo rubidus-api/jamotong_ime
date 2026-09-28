@@ -266,7 +266,7 @@ int wmain(int argc, wchar_t **argv)
                      TF_IPPMF_ENABLEPROFILE | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
             wprintf(L"  [%d] 켜기 hr=0x%08lX %s\n", i, (unsigned long)hr, SUCCEEDED(hr) ? L"OK" : L"실패");
         }
-        if (n == 0) wprintf(L"  해당 CLSID 의 프로파일이 등록되어 있지 않습니다 (install.bat 을 먼저).\n");
+        if (n == 0) wprintf(L"  해당 CLSID 의 프로파일이 등록되어 있지 않습니다 (설치 MSI 나 관리자 jamotong.exe --register 를 먼저).\n");
         wprintf(L"\n  Win+Space 로 확인하세요. 안 보이면 로그아웃 후 로그인.\n");
     }
 

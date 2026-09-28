@@ -500,12 +500,33 @@ HRESULT UnregisterCategories(void)
 독립적으로 검증해 로컬 심볼을 선언하고, 등록 해제에서도 위와 **동일한 `_J` 이름과 값**을
 사용한다.
 
-### 4.4 설치 스크립트
-자모통의 방식 (Windows 11 실기, 2026-09-22):
-- **고정된 기계 전체 폴더**(`%ProgramFiles%\<이름>`)에 설치한다. 압축을 푼 폴더를 그대로 등록하지 않는다:
-  Store/UWP(AppContainer) 호스트는 `Program Files` 를 상속 권한으로 읽을 수 있고, 등록된 압축 폴더는 사용자가
-  옮기거나 지우는 순간 깨진다.
-- **한 번의 트랜잭션**: 준비 폴더에 복사하고 바이트 비교(`fc /B`) → 기존 파일을 `<이름>.old.<꼬리표>` 로 옆에
+### 4.4 설치
+자모통의 방식 (0.60.0 부터 MSI, 0.61.0 부터 폴더 선택; Windows 11 실기 기록):
+- **기계 전체로, 사용자가 고를 수 있는 폴더에**(기본 `%ProgramFiles%\<이름>`) 설치한다. 압축을 푼 폴더를 그대로
+  등록하지 않는다 — 등록된 압축 폴더는 사용자가 옮기거나 지우는 순간 깨진다.
+- **폴더가 권한 경계다.** TIP DLL 은 승격된 프로세스를 포함한 모든 프로세스에 실리므로, 그것을 바꿀 수 있는
+  사람은 다음에 타자를 치는 관리자의 권한으로 코드를 돌린다. 등록하기 전에 설치 폴더와 **그 위의 모든 폴더**를
+  본다: SYSTEM·Administrators·TrustedInstaller 아닌 누가 그중 하나를 소유하거나 DELETE·FILE_DELETE_CHILD·
+  WRITE_DAC·WRITE_OWNER·GENERIC_ALL 을 가지면 거절한다(어느 것이든 경로의 한 칸 이름을 바꾸고 다른 폴더를 그
+  자리에 둘 수 있게 한다). 상속 전용 ACE 는 보지 않고, 연결 지점(reparse point)과 로컬 고정 디스크가 아닌 곳은
+  거절한다. 그다음 설치 폴더 자신을 보호된 DACL 로 잠근다: SYSTEM·Administrators 는 모두, Users 와 두 앱 컨테이너
+  묶음(`S-1-15-2-1`, `S-1-15-2-2`)은 읽기·실행, 안의 것은 상속으로 되돌린다. **파일이 놓이기 전에 잠근다**: 새 폴더는 위 폴더의
+  권한을 상속하고, 많은 데이터 드라이브 루트가 인증된 사용자에게 하위 '수정'을 물려준다(실측) — 그대로 두면
+  InstallFiles 와 등록 액션 사이에 사용자가 exe 를 바꿔치기할 수 있다. MSI 에서는 그 폴더의 CreateFolder 행에
+  `MsiLockPermissionsEx` 를 단다(CreateFolders 에서 적용되고, 이미 있던 폴더에도 적용된다 — 실측). 그리고 등록하는
+  코드에서 다시 검사한다(승격되어 돌고 마지막 경로를 본다; 시작 조건은 폴더 대화창보다 먼저 돈다). 이미 있던 폴더
+  안의 파일은 잠금 뒤에도 남고, 등록하는 exe 는 KnownDLL 이 아닌 import(`COMCTL32.dll`)를 자기 폴더에서 먼저
+  찾으므로, 관리자가 소유하지 않은 기존 폴더는 **파일을 복사하기 전에** 거절한다. 자기등록을 위해 TIP DLL 을 부를
+  때는 `LOAD_WITH_ALTERED_SEARCH_PATH` 가 아니라 `LOAD_LIBRARY_SEARCH_SYSTEM32` 로 불러, 의존 DLL 을 System32 에서만
+  찾게 한다.
+- **등록은 표가 아니라 설치한 프로그램이 한다**: `RegisterProfile`/`RegisterCategory` 가 쓰는 레지스트리 배치는
+  문서화돼 있지 않으므로, MSI 는 `app.exe --register` 를 지연·비가장 커스텀 액션으로 부른다(제거 때는
+  `--unregister`, 되돌림 짝 포함). 그 액션은 COM 을 직접 초기화해야 한다 — 예전에는 `regsvr32` 가 해 주던 일이다.
+- **MSI 함정**: File 표에 판이 없으면 윈도는 디스크의 "더 새" 판 있는 파일을 두고 컴포넌트를 건너뛴다(그 파일을
+  부르는 액션이 2753 으로 죽는다). 기계 전체 입력기 패키지는 `REBOOT=ReallySuppress` 와
+  `MSIRESTARTMANAGERCONTROL=Disable` 을 둬야 한다 — 없으면 재부팅을 걸거나 DLL 을 물고 있는 앱을 모두 닫으려
+  든다. 업그레이드 중 옛 판의 제거는 **옛 판의** 속성 표를 따르므로, 첫 릴리스부터 둘 다 넣는다.
+- 스크립트 설치기를 쓴다면 **한 번의 트랜잭션**이어야 한다: 준비 폴더에 복사하고 바이트 비교(`fc /B`) → 기존 파일을 `<이름>.old.<꼬리표>` 로 옆에
   옮기고 준비본을 들여놓음 → `regsvr32` x64, 이어서 `SysWOW64\regsvr32` x86 → **두 등록이 새 폴더를 가리키는지
   확인** → 확정(`*.old.*` 삭제). 어느 단계든 실패하면 새 사본의 등록을 풀고, 옛 파일을 되돌리고, 이전 경로를
   다시 등록한다. x86 실패도 실패로 다뤄야 64비트와 32비트 등록이 갈라지지 않는다.
@@ -1117,7 +1138,7 @@ IME 팝업(후보창·코드 입력·조합 칩)에 적용하는 법 (2026-09-22
       `UNKNOWN` 소비는 경로별로 문서화한 risk policy
 - [ ] 앱 클래스별 확정 삽입(`InsertTextAtSelection`/EDIT 메시지/실제 키) + 커서 끝 이동
 - [ ] 경계키 분기(공백 단일 삽입, EDIT 큐, 터미널 `SendInput`+표식, 단축키 무주입)
-- [ ] 등록: COM CLSID + `RegisterProfile` + `RegisterCategory(TIP_KEYBOARD)` + install/uninstall.bat
+- [ ] 등록: COM CLSID + `RegisterProfile` + `RegisterCategory(TIP_KEYBOARD)` + `--register`/`--unregister` 를 부르고 설치 폴더를 검사하는 설치기
 - [ ] 32/64 두 벌 빌드·등록
 
 **있으면 좋은 것**: 한자 후보창, 설정(단축키/별도 exe), 트레이 브랜딩 아이콘.

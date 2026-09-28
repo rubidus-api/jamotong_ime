@@ -37,7 +37,7 @@ dist/jamotong32.dll: $(SRCS) $(HEADERS) $(DEF) $(RCDEP)
 	$(CC32) $(CFLAGS) -o $@ $(SRCS) $(DEF) dist/jamotong_res32.o $(LDFLAGS)
 
 # 트레이 모니터링/설정 앱
-APP_SRCS = src/tray_app.c src/setup_cmd.c src/config.c src/layout.c src/fsm.c src/hangul_layout.c src/hangul_parse.c \
+APP_SRCS = src/tray_app.c src/setup_cmd.c src/install_acl.c src/config.c src/layout.c src/fsm.c src/hangul_layout.c src/hangul_parse.c \
            src/chord.c src/chord_layout.c src/chord_parse.c src/seq_layout.c src/seq_parse.c src/jdict.c src/jdict_build.c src/dict_import.c src/klc_import.c src/ngs_import.c src/jlay.c src/jlay_build.c src/klay.c src/lowlay_lex.c src/lowlay_expr.c src/lowlay_parse.c src/lowlay_check.c src/lowlay_build.c src/lowlay_chord.c src/klay_diag.c src/klay_src.c src/klay_cli.c src/plugin_loader.c src/settings_ui.c src/ui_server.c src/popup_style.c src/popup_style_win.c src/jamo_class.c
 configapp: dist/jamotong.exe
 dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico src/version.h
@@ -45,12 +45,12 @@ dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico src/version.
 	$(WINDRES64) -I src src/jamotong_app.rc -O coff -o dist/jamotong_app_res.o
 	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) dist/jamotong_app_res.o -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32 -ladvapi32
 
-# 빌드 산출물 + 재배포 데이터(redist/: 한자 데이터·설치 스크립트·예제 자판)를 dist/에 모아
-# '설치 가능한 폴더'를 만든다. 소스 빌드 사용자는 이 폴더에서 install.bat 실행.
+# 빌드 산출물 + 재배포 데이터(redist/: 한자 데이터·자판)를 dist/에 모아 '설치할 파일들'을 만든다.
+# 소스 빌드 사용자는 이 파일들을 관리자만 바꿀 수 있는 폴더에 복사하고 관리자로 jamotong.exe --register.
 stage: all win32 configapp
 	cp redist/* dist/
 	cp README.md README.ko.md LICENSE COPYRIGHT.md jmt-format.md jmt-format.ko.md dist/
-	@echo "dist/ = installable folder (run install.bat as administrator)"
+	@echo "dist/ = the files to install: copy them to a folder only administrators can change, then run jamotong.exe --register as administrator"
 
 clean:
 	rm -f $(TARGET) dist/jamotong32.dll dist/jamotong.exe dist/*_res*.o

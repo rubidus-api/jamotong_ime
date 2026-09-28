@@ -1,4 +1,4 @@
-[한국어](README.ko.md) | **English** — **Jamotong v0.60.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip)
+[한국어](README.ko.md) | **English** — **Jamotong v0.61.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.zip)
 
 # Jamotong (자모통)
 
@@ -9,8 +9,8 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer package (recommended)** | **[jamotong-0.60.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi)** — double-click to install; remove it from Installed apps |
-| Jamotong zip (the older way) | [jamotong-0.60.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip) — extract anywhere, run `install.bat` as administrator |
+| **Jamotong installer package (recommended)** | **[jamotong-0.61.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
+| Jamotong zip (no installer) | [jamotong-0.61.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -19,33 +19,41 @@ Framework) text service with no frameworks and no external libraries.
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
-### Two ways to install
+### Installing
 
-- **The MSI (recommended)**: double-click `jamotong-0.60.0.msi`. It asks for administrator rights once —
-  registering an input method writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by
-  running the newer MSI; remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart:
-  apps that were already running keep the previous copy until you sign in again.
-- **The zip with `install.bat`**: the older way, still shipped for now. It does the same work.
+- **The MSI (recommended)**: double-click `jamotong-0.61.0.msi`. The first page asks for the language
+  of the installer (English, or Korean — picked for you when Windows is set to Korean), then shows the
+  license and the install folder. It asks for administrator rights once — registering an input method
+  writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by running the newer MSI;
+  remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart: apps that were already
+  running keep the previous copy until you sign in again. A silent install works too:
+  `msiexec /i jamotong-0.61.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
+- **The zip**: the same files without an installer, for people who place and register them by hand
+  (see [Install](#install)). `install.bat` and `uninstall.bat` are gone as of 0.61.0.
 
-Both put the files in the same place, so you can move between them. Once you are on the MSI, though,
-**remove it only from Installed apps.** An older zip install may have left
-`C:\Program Files\Jamotong\uninstall.bat` behind; running that unregisters the IME while Windows still
-believes the product is installed.
+**Upgrading from 0.60.0: save your work first.** The 0.60.0 package was built without the setting that
+stops Windows from closing apps that have the IME loaded, and Windows removes the old version by its own
+rules — so this one upgrade **closes the apps that are using Jamotong** (they are not reopened). Before
+anything is closed the installer lists those apps and waits: save your work, close them and choose
+**Retry**, or continue and let them be closed. A silent install (`/qn`) cannot ask and closes them. Later
+upgrades do not close anything. Any `uninstall.bat` an older zip install left behind is removed by the MSI.
 
 ### Where it installs
 
-Both installers put the program in **`C:\Program Files\Jamotong`** — a fixed, machine-wide
-folder that every app, including Store (UWP) apps, can read. Your settings stay per user in
-`%APPDATA%\Jamotong`. The zip you extracted is only the source: delete it after installing.
+The default is **`C:\Program Files\Jamotong`**, and you may choose another folder on the install-folder
+page. The folder has one requirement: **only administrators may be able to change it or any folder above
+it.** An input method is loaded into every app, including ones running as administrator, so a folder an
+ordinary user can rename or write to would let that user swap the DLL. When the IME registers itself it
+checks the folder and every folder above it; if a non-administrator could change one of them (a folder
+under your user profile, a link, a network or removable drive), the installation stops and is rolled
+back, and `%ProgramData%\Jamotong\install.log` says which folder and why. A new folder on a local drive,
+such as `D:\Jamotong`, is fine. After the check the installer locks the install folder: administrators
+may change it, everyone else — including Store (UWP) apps — may only read it. Pick an empty folder; its
+contents get the same lock.
 
-- **Upgrade**: extract the new zip and run its `install.bat` again (as administrator). If
-  anything fails — a file in use, a registration error — the previous version is put back.
-- **Earlier installs** (an extracted folder that was registered in place, or the former
-  per-user copy in `%LocalAppData%\Programs\Jamotong`) are moved over automatically: the
-  registration switches to `Program Files` and the old per-user copy is removed.
-  After such a move the tray icon may show plain "한글" until Explorer restarts — answer **Y**
-  to the restart question at the end, or sign out and in.
-- The release binaries are **not code-signed yet**, so SmartScreen may warn before the first
+Your settings stay per user in `%APPDATA%\Jamotong`. An upgrade reuses the folder you chose before.
+
+- The release binaries and the MSI are **not code-signed yet**, so SmartScreen may warn before the first
   run.
 
 ## Why this IME
@@ -104,13 +112,16 @@ folder that every app, including Store (UWP) apps, can read. Your settings stay 
 
 ## Install
 
-1. Download the latest zip from
-   [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
-   (or build from source: `make stage` produces an installable `dist/` folder) and extract it.
-2. Right-click `install.bat` → **"Run as administrator"**. It copies the program to
-   `C:\Program Files\Jamotong`, registers the 64-bit and 32-bit text services, and checks that
-   both point there.
-3. Press `Win+Space` and select **"Jamotong IME"**. Apps that were already running pick
+1. Download `jamotong-0.61.0.msi` from
+   [Releases](https://github.com/rubidus-api/jamotong_ime/releases) and double-click it. It installs the
+   program and registers the 64-bit and 32-bit text services.
+
+   Without the installer (the zip, or `make stage`, which gathers the files in `dist/`): copy the files to
+   a folder only administrators can change — `C:\Program Files\Jamotong` is the usual one — and run
+   `jamotong.exe --register` from an administrator prompt in that folder. It refuses a folder that
+   ordinary users can change (the log in `%ProgramData%\Jamotong\install.log` says why). To remove,
+   run `jamotong.exe --unregister` the same way, then delete the folder.
+2. Press `Win+Space` and select **"Jamotong IME"**. Apps that were already running pick
    up the IME after you restart them; sign out and back in only if it does not appear
    in the list.
 
@@ -233,8 +244,8 @@ jamotong --check my-layout.jmt          # checks the source and says whether the
 
 You rarely need to run these by hand:
 
-- `install.bat` builds the layouts that ship with Jamotong and the ones already in the
-  machine-wide and your own layout folders.
+- Installing (`jamotong.exe --register`, which the MSI runs) builds the layouts that ship with
+  Jamotong and the ones already in the machine-wide and your own layout folders.
 - The manager app (`jamotong.exe`, the tray icon) builds anything new or edited when it starts,
   and after Settings → Layouts → **Apply**.
 - Settings → Layouts → **Add** builds the file you pick and reports any error in it.
@@ -248,9 +259,9 @@ You rarely need to run these by hand:
   From a Windows Store app's settings window this cannot start the manager — build the file
   yourself with `jamotong --build` and copy it into the layout folder instead.
 
-A `.jmt` placed next to `jamotong.dll` (in `C:\Program Files\Jamotong`) is **not** built by the
-manager — that folder needs administrator rights. Re-run `install.bat` as administrator, or run
-`jamotong --build-dir "C:\Program Files\Jamotong"` from an elevated prompt.
+A `.jmt` placed next to `jamotong.dll` (the install folder, `C:\Program Files\Jamotong` by default) is
+**not** built by the manager — that folder needs administrator rights. Run
+`jamotong --build-dir "<install folder>"` from an elevated prompt.
 
 At most 8 layouts can be active in the list. The bundled `example.jmt`,
 `example-dvorak.jmt` and `example-artsey.jmt` are commented syntax samples of each type.
@@ -824,11 +835,11 @@ support.
 
 ## Uninstall
 
-1. Run `uninstall.bat` as administrator — from the zip, or the copy in
-   `C:\Program Files\Jamotong`. It unregisters both text services (whatever folder they
-   point at, so older installs are covered too), stops jamotong.exe and deletes the files.
-2. A DLL still loaded in running apps cannot be deleted; it is moved aside and removed at the
-   next sign-in. A reboot is not required.
+1. **Settings ▸ Apps ▸ Installed apps ▸ Jamotong ▸ Uninstall.** It unregisters both text services and
+   removes the files. (Installed by hand from the zip: run `jamotong.exe --unregister` from an
+   administrator prompt, then delete the folder.)
+2. A DLL still loaded in running apps cannot be deleted; Windows moves it aside and removes it at the
+   next restart. A reboot is not required — running apps keep the old copy until they exit.
 3. Your settings remain at `%APPDATA%\Jamotong`; delete that folder too if you do not
    plan to reinstall.
 
@@ -841,12 +852,12 @@ make            # dist/jamotong.dll (x64)
 make win32      # dist/jamotong32.dll (x86)
 make configapp  # dist/jamotong.exe (manager: .jmt editor / settings / input test)
 make stage      # build everything + copy redist/ into dist/
-                #  -> dist/ becomes an installable folder (run install.bat as admin)
+                #  -> dist/ holds the files to install (see Install: --register)
 ```
 
 `redist/` contains the redistributable data required at runtime: the hanja reading
 table (`hanja.txt`), the meaning/reading table (`hanja_hunum.txt`), a copy of the
-Unicode License, install/uninstall scripts, and sample `.jmt` layouts.
+Unicode License, and the sample and shipped `.jmt` layouts.
 
 ## Documentation
 

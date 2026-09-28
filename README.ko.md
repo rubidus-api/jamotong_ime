@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.60.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip)
+**한국어** | [English](README.md) — **Jamotong v0.61.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.zip)
 
 # Jamotong (자모통)
 
@@ -9,8 +9,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.60.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi)** — 두 번 눌러 설치. 제거는 "앱 및 기능"에서 |
-| 자모통 zip (예전 방식) | [jamotong-0.60.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip) — 아무 곳에 풀고 `install.bat` 을 관리자 권한으로 실행 |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.61.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.61.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.0/jamotong-0.61.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -19,30 +19,39 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
-### 설치 방법 둘
+### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.60.0.msi` 를 두 번 누르면 설치됩니다. 관리자 권한을 한 번 묻습니다(입력기 등록은
-  기계 전체 자리에 써야 합니다 — 윈도가 그렇게 정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고,
-  제거는 **설정 ▸ 앱 ▸ 설치된 앱**에서 "Jamotong" 을 제거하면 됩니다. 재부팅은 걸지 않습니다 — 그때 돌고 있던
-  앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을 씁니다.
-- **zip + `install.bat`**: 예전 방식이며 당분간 같이 냅니다. 하는 일은 MSI 와 같습니다.
+- **MSI (권장)**: `jamotong-0.61.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+  한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
+  폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
+  정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱**에서 "Jamotong" 을
+  제거하면 됩니다. 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.61.0.msi /qn` (폴더를 정하려면
+  `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
+- **zip**: 설치기 없이 같은 파일만 담았습니다. 손으로 두고 등록할 분을 위한 것입니다([설치](#설치) 참고).
+  `install.bat`·`uninstall.bat` 은 0.61.0 부터 없습니다.
 
-두 방식 모두 같은 자리에 넣으므로 섞어 써도 됩니다. 다만 **MSI 로 옮긴 뒤에는 "설치된 앱"에서만
-제거하세요.** 예전 zip 설치가 남긴 `C:\Program Files\Jamotong\uninstall.bat` 이 폴더에 남아 있을 수
-있는데, 그것으로 지우면 윈도는 자모통이 아직 설치돼 있다고 여깁니다(등록만 사라집니다).
+**0.60.0 에서 올라올 때는 먼저 저장하세요.** 0.60.0 패키지에는 "입력기가 실린 앱을 닫지 말라"는 설정이 빠져
+있었고, 윈도는 옛 판을 그 판의 규칙대로 지웁니다. 그래서 이번 업그레이드 한 번은 **자모통을 쓰고 있던 앱들이
+닫힙니다**(다시 열리지 않습니다). 닫기 전에 설치기가 그 앱들을 보여 주고 기다립니다: 작업을 저장하고 앱을 닫은 뒤
+**다시 시도**를 누르거나, 그대로 계속해서 닫히게 둘 수 있습니다. 창 없는 설치(`/qn`)는 물을 수 없어 바로 닫습니다.
+그다음 업그레이드부터는 아무것도 닫지 않습니다. 예전 zip 설치가 남긴 `uninstall.bat` 은
+MSI 가 지웁니다.
 
 ### 설치 위치
 
-두 설치기 모두 프로그램을 **`C:\Program Files\Jamotong`** 에 넣습니다 — 모든 앱(Store/UWP 앱 포함)이
-읽을 수 있는 고정된 기계 전체 폴더입니다. 설정은 사용자별로 `%APPDATA%\Jamotong` 에 남습니다. 압축을 푼
-폴더는 원본일 뿐이니 설치 뒤 지워도 됩니다.
+기본은 **`C:\Program Files\Jamotong`** 이고, 설치 폴더 화면에서 다른 폴더를 고를 수 있습니다. 조건은 하나입니다:
+**그 폴더와 그 위의 모든 폴더를 관리자만 바꿀 수 있어야 합니다.** 입력기는 관리자 권한으로 도는 앱을 포함한
+모든 앱에 실리므로, 일반 사용자가 이름을 바꾸거나 쓸 수 있는 폴더라면 그 사용자가 DLL 을 바꿔치기할 수
+있습니다. 입력기가 자기를 등록할 때 폴더와 그 위 폴더를 모두 검사하고, 관리자 아닌 누가 바꿀 수 있는 폴더(사용자
+프로필 아래 폴더, 연결 지점, 네트워크·이동식 드라이브)가 있으면 설치를 멈추고 되돌립니다. 어느 폴더가 왜
+걸렸는지는 `%ProgramData%\Jamotong\install.log` 에 적힙니다. `D:\Jamotong` 처럼 로컬 드라이브에 새로 만드는
+폴더는 괜찮습니다. 검사를 통과하면 설치 폴더를 잠급니다: 관리자는 바꿀 수 있고, 그 밖의 모두(Store/UWP 앱
+포함)는 읽기만 합니다. 빈 폴더를 고르세요 — 안에 있던 것도 같이 잠깁니다.
 
-- **업그레이드**: 새 zip 을 풀고 그 `install.bat` 을 다시 관리자 권한으로 실행합니다. 중간에 실패하면(쓰는 중인
-  파일, 등록 오류) 이전 판으로 되돌립니다.
-- **예전 방식의 설치**(압축 폴더 자체를 등록한 경우, 또는 `%LocalAppData%\Programs\Jamotong` 의 사용자별 사본)는
-  자동으로 옮겨집니다: 등록이 `Program Files` 로 바뀌고 옛 사용자별 사본은 지워집니다. 옮긴 직후에는 트레이
-  아이콘이 "한글" 글자로 보일 수 있습니다 — 끝의 탐색기 재시작 질문에 **Y** 를 누르거나 다시 로그인하세요.
-- 릴리스 바이너리는 **아직 코드 서명되지 않아** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다.
+설정은 사용자별로 `%APPDATA%\Jamotong` 에 남습니다. 업그레이드는 전에 고른 폴더를 그대로 씁니다.
+
+- 릴리스 바이너리와 MSI 는 **아직 코드 서명되지 않아** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다.
 
 ## 장점
 
@@ -86,11 +95,14 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 최신 zip을 내려받아 푼다
-   (소스 빌드는 `make stage` → 설치 가능한 `dist/` 폴더 생성).
-2. `install.bat`를 우클릭 → **"관리자 권한으로 실행"**. 프로그램을 `C:\Program Files\Jamotong` 에 복사하고
-   64비트·32비트 입력기를 등록한 뒤, 둘 다 그 폴더를 가리키는지 확인한다.
-3. `Win+Space` → **"Jamotong IME"** 선택. 이미 떠 있던 앱은 재시작해야 IME를 받으며,
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.61.0.msi` 를 내려받아 두 번
+   누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
+
+   설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
+   `C:\Program Files\Jamotong`)에 복사하고, 그 폴더에서 관리자 명령 프롬프트로 `jamotong.exe --register` 를
+   실행한다. 일반 사용자가 바꿀 수 있는 폴더는 거절한다(이유는 `%ProgramData%\Jamotong\install.log`). 제거는
+   같은 식으로 `jamotong.exe --unregister` 를 실행한 뒤 폴더를 지운다.
+2. `Win+Space` → **"Jamotong IME"** 선택. 이미 떠 있던 앱은 재시작해야 IME를 받으며,
    목록에 안 보일 때만 로그아웃 후 재로그인한다.
 
 ### 설치 직후 기본값
@@ -204,7 +216,7 @@ jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 
 
 손으로 칠 일은 거의 없다:
 
-- `install.bat` 이 배포 자판과, 기계 전체·내 자판 폴더에 이미 있는 자판을 굽는다.
+- 설치(MSI 가 부르는 `jamotong.exe --register`)가 배포 자판과, 기계 전체·내 자판 폴더에 이미 있는 자판을 굽는다.
 - 관리 앱(`jamotong.exe`, 트레이 아이콘)이 뜰 때 새로 넣었거나 고친 것을 굽고, 설정 →
   Layouts → **Apply** 뒤에도 굽는다.
 - 설정 → Layouts → **Add** 는 고른 파일을 구워 보고, 잘못이 있으면 그 자리에서 알려 준다.
@@ -217,9 +229,8 @@ jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 
   스토어 앱(UWP)의 설정창에서는 관리 앱을 띄울 수 없다. 그럴 땐 `jamotong --build` 로 직접 구워
   자판 폴더에 넣는다.
 
-`jamotong.dll` 옆(`C:\Program Files\Jamotong`)에 둔 `.jmt` 는 관리 앱이 굽지 **않는다** — 그 폴더는
-관리자 권한이 필요하다. `install.bat` 을 관리자 권한으로 다시 실행하거나, 관리자 명령 프롬프트에서
-`jamotong --build-dir "C:\Program Files\Jamotong"` 을 돌린다.
+`jamotong.dll` 옆(설치 폴더, 기본은 `C:\Program Files\Jamotong`)에 둔 `.jmt` 는 관리 앱이 굽지 **않는다** —
+그 폴더는 관리자 권한이 필요하다. 관리자 명령 프롬프트에서 `jamotong --build-dir "<설치 폴더>"` 를 돌린다.
 
 자판 목록은 최대 8개. 배포판의 `example.jmt`·`example-dvorak.jmt`·`example-artsey.jmt`가
 각 종류의 주석 달린 문법 예제다.
@@ -750,9 +761,10 @@ jieba 의 낱말 빈도에서 왔고 셋 다 MIT 다. 설치는 일본어 팩과
 
 ## 삭제 (언인스톨)
 
-1. `uninstall.bat` 을 관리자 권한으로 실행한다 — zip 안의 것이든 `C:\Program Files\Jamotong` 안의 사본이든.
-   두 입력기 등록을 해제하고(어느 폴더를 가리키든 — 예전 방식 설치도 포함), jamotong.exe 를 끝내고 파일을 지운다.
-2. 실행 중인 앱이 물고 있는 DLL 은 지울 수 없어 옆으로 옮겨 두고, 다음 로그인 때 지운다. 재부팅은 필요 없다.
+1. **설정 ▸ 앱 ▸ 설치된 앱 ▸ Jamotong ▸ 제거.** 두 입력기 등록을 해제하고 파일을 지운다. (zip 으로 손수
+   설치했다면: 관리자 명령 프롬프트에서 `jamotong.exe --unregister` 를 실행하고 폴더를 지운다.)
+2. 실행 중인 앱이 물고 있는 DLL 은 지울 수 없어 윈도가 옆으로 옮겨 두고 다음 재시작 때 지운다. 재부팅은
+   필요 없다 — 돌던 앱은 끝날 때까지 이전 사본을 쓴다.
 3. 설정은 `%APPDATA%\Jamotong` 에 남는다. 다시 설치하지 않을 거라면 그 폴더도 지운다.
 
 ## 빌드
@@ -763,12 +775,12 @@ MinGW-w64 크로스 컴파일 (Linux에서):
 make            # dist/jamotong.dll (x64)
 make win32      # dist/jamotong32.dll (x86)
 make configapp  # dist/jamotong.exe (관리 앱: .jmt 편집/설정/입력 테스트)
-make stage      # 위 전부 빌드 + redist/(한자 데이터·설치 스크립트) 를 dist/에 복사
-                #  → dist/ 가 곧 설치 폴더 (install.bat 를 관리자 권한으로 실행)
+make stage      # 위 전부 빌드 + redist/(한자 데이터·자판) 를 dist/에 복사
+                #  → dist/ 가 설치할 파일 (설치 절의 --register 참고)
 ```
 
 `redist/`에는 실행에 필요한 재배포 데이터가 있다: 한자 독음 테이블(`hanja.txt`),
-훈음 표(`hanja_hunum.txt`), Unicode License 사본, 설치/삭제 스크립트, 예제 자판(`.jmt`).
+훈음 표(`hanja_hunum.txt`), Unicode License 사본, 예제·배포 자판(`.jmt`).
 
 ## 문서
 

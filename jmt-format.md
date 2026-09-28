@@ -15,7 +15,8 @@ tools can print. The README has the friendly introduction and worked examples.
 
 The IME reads only the built files. Compiling checks the whole source, so a layout that appears in
 the list is one that loaded cleanly — including its dictionary. Building happens for you:
-`install.bat` builds what ships and what is already in the layout folders, and the manager app
+installing (`jamotong.exe --register`, run by the MSI) builds what ships and what is already in
+the layout folders, and the manager app
 (`jamotong.exe`) builds new or edited sources when it starts and after Settings → Apply.
 
 ```sh
