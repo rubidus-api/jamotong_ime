@@ -1,6 +1,6 @@
-# Jamotong (자모통)
+**한국어** | [English](README.md) — **Jamotong v0.60.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip)
 
-**한국어** | [English](README.md)
+# Jamotong (자모통)
 
 **Windows용 순수 C23 + WinAPI 한글 IME** — 프레임워크·외부 라이브러리 없이
 TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.

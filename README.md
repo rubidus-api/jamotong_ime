@@ -1,6 +1,6 @@
-# Jamotong (자모통)
+[한국어](README.ko.md) | **English** — **Jamotong v0.60.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.60.0/jamotong-0.60.0.zip)
 
-[한국어](README.ko.md) | **English**
+# Jamotong (자모통)
 
 **A Korean (Hangul) IME for Windows in pure C23 + WinAPI** — a TSF (Text Services
 Framework) text service with no frameworks and no external libraries.
