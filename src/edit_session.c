@@ -420,9 +420,38 @@ static bool ReadSelViaRichEdit(HWND h, wchar_t *outBuf, int maxLen) {
     return true;
 }
 
-// 컨트롤 h의 현재 선택 텍스트 읽기: ① RichEdit 정확 경로 ② 플레인 EDIT(EM_GETSEL=문자 단위)
+// Scintilla(Notepad++ 등)는 EDIT 계열 메시지에 바이트로 답해 블록 한자 변환이 무동작이었다(실기 2026-09-30, C3).
+//   SCI_* 메시지로 선택을 읽는다 — 입력기는 앱 프로세스 안에 있으므로 지역 버퍼를 그대로 넘겨도 된다.
+//   선택은 문서 코드 페이지의 바이트로 온다(65001 = UTF-8, 0 = 시스템 ANSI, 그 밖은 DBCS 코드 페이지).
+#define JAMO_SCI_GETCODEPAGE        2137
+#define JAMO_SCI_GETSELECTIONSTART  2143
+#define JAMO_SCI_GETSELECTIONEND    2145
+#define JAMO_SCI_GETSELTEXT         2161
+static bool ReadSelViaScintilla(HWND h, wchar_t *outBuf, int maxLen) {
+    wchar_t cls[16];
+    if (GetClassNameW(h, cls, 16) <= 0 || _wcsicmp(cls, L"Scintilla") != 0) return false;
+    LRESULT s = SendMessageW(h, JAMO_SCI_GETSELECTIONSTART, 0, 0);
+    LRESULT e = SendMessageW(h, JAMO_SCI_GETSELECTIONEND, 0, 0);
+    char buf[16 * 4 + 8];                                // 사전 조회 상한 16자 × UTF-8 최대 4바이트
+    if (s < 0 || e <= s || e - s >= (LRESULT)sizeof buf) return false;
+    memset(buf, 0, sizeof buf);
+    SendMessageW(h, JAMO_SCI_GETSELTEXT, 0, (LPARAM)buf); // 선택 바이트 + NUL (버퍼는 선택+1 이상)
+    int bytes = (int)strnlen(buf, sizeof buf - 1);
+    if (bytes <= 0 || bytes != (int)(e - s)) return false; // 다중 선택·응답 불일치는 건드리지 않는다
+    UINT cp = (UINT)SendMessageW(h, JAMO_SCI_GETCODEPAGE, 0, 0);
+    if (cp == 0) cp = CP_ACP;
+    int n = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, buf, bytes, outBuf, maxLen);
+    if (n <= 0 || n > maxLen) { outBuf[0] = L'\0'; return false; }
+    outBuf[n] = L'\0';
+    return true;
+}
+
+// 컨트롤 h의 현재 선택 텍스트 읽기: ① Scintilla ② RichEdit 정확 경로 ③ 플레인 EDIT(EM_GETSEL=문자 단위)
+//   Scintilla 가 먼저다: EM_EXGETSEL·EM_GETSELTEXT 에도 답하지만 바이트 오프셋과 UTF-8 바이트를 돌려줘,
+//   RichEdit 경로로 읽으면 '한'이 글자 셋짜리 쓰레기(U+95ED…)가 되어 사전 조회가 조용히 실패했다(실기 2026-09-30).
 static bool ReadSelFromCtl(HWND h, wchar_t *outBuf, int maxLen) {
     outBuf[0] = L'\0';
+    if (ReadSelViaScintilla(h, outBuf, maxLen)) return true;
     if (ReadSelViaRichEdit(h, outBuf, maxLen)) return true;
     DWORD s = 0, e = 0;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
@@ -568,9 +597,13 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es, TF_ES_SYNC | TF_ES_READ, &hrSession);
     es->lpVtbl->Release((ITfEditSession*)es);
+    JamoDiag("SELREAD tsf len=%d first=U+%04X", (int)wcslen(outBuf), (unsigned)outBuf[0]);
     // TSF가 빈손이면(레거시 앱) 포커스 EDIT 컨트롤에서 직접 읽기 — 후보창 위치는 호출자의
     // GUIThreadInfo 캐럿 폴백이 잡는다. 삽입=선택 교체는 EDIT의 표준 동작이라 그대로 성립.
-    if (outBuf[0] == L'\0') ReadSelectionFromFocusCtl(outBuf, maxLen);
+    if (outBuf[0] == L'\0') {
+        ReadSelectionFromFocusCtl(outBuf, maxLen);
+        JamoDiag("SELREAD ctl len=%d first=U+%04X", (int)wcslen(outBuf), (unsigned)outBuf[0]);
+    }
     return FAILED(hr) ? hr : hrSession;   // 세션 내부 실패까지 전파 (RFC-0004 P2-2)
 }
 

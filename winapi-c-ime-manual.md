@@ -2682,6 +2682,15 @@ message first, then the plain-EDIT message:
   itself — offset-unit agnostic) → else `EM_GETSEL`+`WM_GETTEXT` (plain EDIT, char offsets).
   The first path also fixed "대한민국 read as 대한": with `WM_GETTEXT` we sliced by an offset
   whose unit the control disagreed about; `EM_GETSELTEXT` hands back the exact text.
+- **★Scintilla (Notepad++ and friends) goes first, by class name.** It *does* answer
+  `EM_EXGETSEL`/`EM_GETSELTEXT`, but with **byte** offsets and the selection as **UTF-8 bytes**
+  written into your `WCHAR` buffer — `한` (`ED 95 9C`) comes back as three junk characters
+  (`U+95ED …`), the dictionary lookup misses, and selection hanja silently does nothing (measured
+  on Notepad++ 8.9, 2026-09-30). For class `Scintilla` use `SCI_GETSELECTIONSTART`/`END` (2143/2145)
+  and `SCI_GETSELTEXT` (2161) into a byte buffer, then convert with the document code page
+  `SCI_GETCODEPAGE` (2137; 65001 = UTF-8, 0 = the ANSI code page). The TIP lives in the app's
+  process, so local buffers are fine. Replacing works through the normal TSF insert — Scintilla
+  replaces the selection with the IME result.
 - **Replace a word before the caret** (the tested EDIT-family route, replacing the TSF
   `ShiftStart`): get the caret via `EM_EXGETSEL` (fallback `EM_GETSEL`), select the run with
   `EM_EXSETSEL`/`EM_SETSEL`, **read it back and verify it equals the expected word** (don't

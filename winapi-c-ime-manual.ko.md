@@ -2428,6 +2428,13 @@ KEYDOWN이 queue된 뒤 KEYUP만 실패하면 결과는 부분/미확정이다. 
   무관) → 실패 시 `EM_GETSEL`+`WM_GETTEXT`(플레인 EDIT, 문자 오프셋). 첫 경로가 "대한민국이
   대한으로 잘리던" 것도 고쳤다: `WM_GETTEXT`로 자를 땐 컨트롤과 오프셋 단위 해석이 어긋났는데,
   `EM_GETSELTEXT`는 정확한 텍스트를 그대로 준다.
+- **★Scintilla(Notepad++ 등)는 클래스 이름으로 가려 맨 먼저 다룬다.** `EM_EXGETSEL`/`EM_GETSELTEXT` 에
+  답하긴 하지만 **바이트** 오프셋과 **UTF-8 바이트**로 된 선택을 `WCHAR` 버퍼에 써 넣는다 — `한`(`ED 95 9C`)이
+  쓰레기 글자 셋(`U+95ED …`)으로 돌아와 사전 조회가 빗나가고, 선택 한자 변환이 소리 없이 무동작이 된다
+  (Notepad++ 8.9 실측, 2026-09-30). 클래스 `Scintilla` 면 `SCI_GETSELECTIONSTART`/`END`(2143/2145)와
+  `SCI_GETSELTEXT`(2161)로 바이트 버퍼에 받아, 문서 코드 페이지 `SCI_GETCODEPAGE`(2137; 65001 = UTF-8,
+  0 = ANSI 코드 페이지)로 바꾼다. TIP 은 앱 프로세스 안에 있으니 지역 버퍼로 충분하다. 교체는 평소의 TSF 삽입으로
+  된다 — Scintilla 는 IME 결과로 선택을 바꾼다.
 - **캐럿 앞 단어 교체**(CUAS 호환, 네이티브 전용이던 `ShiftStart` 대체): `EM_EXGETSEL`(폴백
   `EM_GETSEL`)로 캐럿을 얻고, `EM_EXSETSEL`/`EM_SETSEL`로 구간을 선택한 뒤, **읽어서 기대 단어와
   일치하는지 검증**하고 `EM_REPLACESEL`한다. Windows의 `wchar_t` 길이는 이미 UTF-16 code-unit
