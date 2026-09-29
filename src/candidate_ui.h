@@ -19,6 +19,9 @@ void CandidateUI_SetStyle(const wchar_t *face, int sizePx);
 // 호출자가 넘긴 문맥(ctx 가 쥔 참조)은 호출자가 정리한다.
 // ※ candidates 배열과 그 문자열은 **복사하지 않는다** — 창이 닫힐 때까지 호출자가 살려 두어야
 //   한다(스택 배열을 넘기면 첫 줄만 살아남는 식으로 깨진다. 실기 2026-09-23).
+// 포커스 창이 없을 때(UWP CoreWindow 스레드 등) 소유자로 쓸 창 — ITfContextView::GetWnd 의 창.
+// Microsoft IME 지침: 후보창은 소유된 창이어야 앱 위에 보이고, 소유자는 GetWnd 로 얻는다.
+void CandidateUI_SetViewWindow(HWND hwnd);
 bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
 
 // 키보드 이벤트 가로채기

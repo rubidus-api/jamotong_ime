@@ -129,7 +129,9 @@ static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
             RECT raw = rc;
             if (obj->prevChipValid &&
                 raw.left == obj->prevChipRect.left && raw.top == obj->prevChipRect.top) {
-                if (res.commitChar) obj->chipPendingAdv += (raw.bottom - raw.top);
+                // 실패한 커밋(가득 찬 칸 등 — EM_REPLACESEL 이 무시됨)은 캐럿을 옮기지 않았으므로 세지 않는다.
+                //   세면 칸이 가득 찬 동안 칩이 커밋마다 한 칸씩 오른쪽으로 밀려났다(실기 2026-09-30, D4).
+                if (res.commitChar && ok) obj->chipPendingAdv += (raw.bottom - raw.top);
             } else {
                 obj->chipPendingAdv = 0;
             }
@@ -379,6 +381,26 @@ static bool HostIsAppContainer(void) {
     }
     JamoDiag("HOST appcontainer=%d", cached);
     return cached != 0;
+}
+
+// 실험 빌드(-DJAMO_EXP_OWNER, 배포 안 함): UWP 에서도 헬퍼·순환 대신 우리 후보창을 띄워 본다 —
+// 소유자를 문서 뷰의 창(ITfContextView::GetWnd)으로 준 소유된 창이 보이는지 재는 용도(B4·D1).
+#ifdef JAMO_EXP_OWNER
+#define UwpDetour() false
+#else
+#define UwpDetour() HostIsAppContainer()
+#endif
+
+// 문서 뷰의 창 — 후보창 소유자의 대체값(포커스 창이 없을 때). 실패하면 NULL.
+static HWND ContextViewWindow(ITfContext *pic) {
+    HWND h = NULL;
+    ITfContextView *view = NULL;
+    if (pic && SUCCEEDED(pic->lpVtbl->GetActiveView(pic, &view)) && view) {
+        if (FAILED(view->lpVtbl->GetWnd(view, &h))) h = NULL;
+        view->lpVtbl->Release(view);
+    }
+    JamoDiag("VIEW wnd=%p focus=%p", (void*)h, (void*)GetFocus());
+    return h;
 }
 
 // 후보창 없는 순환 변환 상태 (한자키를 거듭 누르면 다음 후보로 교체)
@@ -1382,7 +1404,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
                 // UWP(AppContainer) 호스트: 후보창을 띄워도 화면에 나타나지 않는다(위 HostIsAppContainer
                 // 주석). 첫 후보를 바로 적용하고, 한자키를 다시 누르면 다음 후보로 교체한다.
-                if (HostIsAppContainer()) {
+                if (UwpDetour()) {
                     // RFC-0015: 데스크톱 헬퍼가 떠 있으면 진짜 후보창을 그리게 한다.
                     if (obj->config.options.useUiHelper
                         && UiCandShow(obj, cands, count, replaceLen, special, x, y, caretTop,
@@ -1392,7 +1414,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         goto kd_done;
                     }
                 }
-                if (obj->config.options.uwpHanjaCycle && HostIsAppContainer()) {
+                if (obj->config.options.uwpHanjaCycle && UwpDetour()) {
                     ApplyHanjaChoice(obj, cands[0], replaceLen);
                     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
                     obj->hanjaCycle.active = true;
@@ -1408,6 +1430,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
                 if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rcSel;
                 obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
+                CandidateUI_SetViewWindow(ContextViewWindow(pic));
                 if (!CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj)) {
                     // 표시 실패(W1-08): 콜백이 안 불리므로 여기서 문맥 참조를 놓는다. 원문 보류(W1-02)면
                     // 조합이 그대로 남아 잃는 것이 없다.

@@ -22,6 +22,8 @@
 // 어느 쪽이든 **횟수는 배포판에서도 센다**(UiGuard_CrossThread) — 진단 빌드는 배포하지 않으므로,
 // 세지 않으면 '로그에 찍히면 올린다'는 계획이 영원히 결론에 못 이른다.
 static DWORD g_ownerTid = 0;
+static HWND g_viewWnd = NULL;   // ITfContextView::GetWnd — 포커스 창이 없을 때의 소유자 후보
+void CandidateUI_SetViewWindow(HWND hwnd) { g_viewWnd = hwnd; }
 
 static void OwnerThreadClaim(void) { g_ownerTid = GetCurrentThreadId(); }
 
@@ -310,8 +312,11 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
         if (!g_hwndCandi) {
             // RFC-0008 W1-08: 소유자 = 이 스레드의 포커스 창의 최상위 창(GetFocus 는 호출 스레드 큐 기준이라
             // 다른 스레드 창과 입력 큐가 묶일 일이 없다). 소유자가 없으면 예전처럼 소유자 없는 팝업.
+            //   포커스 창이 없으면(UWP CoreWindow 등) 문서 뷰의 창(ITfContextView::GetWnd)을 소유자로 한다 —
+            //   Microsoft IME 지침 "Owned window". 소유자 없는 최상위 창은 AppContainer 에서 합성되지 않았다.
             HWND focus = GetFocus();
-            HWND owner = focus ? GetAncestor(focus, GA_ROOT) : NULL;
+            HWND owner = focus ? GetAncestor(focus, GA_ROOT)
+                               : (g_viewWnd && IsWindow(g_viewWnd) ? GetAncestor(g_viewWnd, GA_ROOT) : NULL);
             g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
                 x, y, g_winW, h, owner, NULL, g_hInst, NULL);

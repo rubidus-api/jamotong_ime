@@ -1359,6 +1359,11 @@ without claiming the same mechanism for every CUAS path.
     comparison control the rect moved, so the compensation did not fire.
   - Pitfall: store the **raw** rect for comparison — storing the compensated one breaks
     the next comparison.
+  - Pitfall: count only commits that **landed**. A rejected commit (a full `MaxLength` edit, an
+    `EM_REPLACESEL` the control ignores) leaves the caret where it was, so the rect stays equal
+    for a different reason; counting it pushed the chip one advance to the right per rejected
+    commit (measured 2026-09-30, WinForms `TextBox` with `MaxLength` reached: 17 rejected commits,
+    +425 px). Gate the accumulation on the commit's own success verdict.
 
 ### 12.3 ★The vanishing-last-syllable incident — racing your own synthetic key
 - **Problem**: in the affected compatibility-host runs the **last syllable of a word
@@ -3101,6 +3106,14 @@ and document edits stay in the TIP (keep the helper display-only — no reverse 
 shape). One catch: shell popups (the taskbar search) are drawn in a band above ordinary
 `HWND_TOPMOST` windows, so the helper window must **step aside** when it would overlap one.
 
+
+**Correction (measured 2026-09-30, Windows 11 26200):** the above holds for an **unowned** top-level
+window. An **owned** popup — owner = the root of the focus window, or of `ITfContextView::GetWnd`,
+which is what Microsoft's IME requirements page prescribes ("Owned window") — **did** appear inside
+the taskbar search box (`SearchHost.exe`, AppContainer, `TF_TMF_IMMERSIVEMODE`): shown, placed,
+navigated and committed like on the desktop. Jamotong gave its candidate window an owner two days
+after the measurement above and never re-tested this host. Only one AppContainer host is confirmed;
+treat others as unverified until you see your window on screen.
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 
 The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will
