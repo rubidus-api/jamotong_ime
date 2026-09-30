@@ -38,14 +38,12 @@ typedef struct {
     int count;
 } ShortcutList;
 
-#include "jamotong_plugin.h"
-
 // 레이아웃 종류 (하이브리드 아키텍처 준비)
 typedef enum {
     LAYOUT_TYPE_PASSTHROUGH = 0,
     LAYOUT_TYPE_KOREAN_FSM = 1,
     LAYOUT_TYPE_STATIC_MAP = 2, // .jamo 1:1 텍스트 매핑 자판
-    LAYOUT_TYPE_DLL_PLUGIN = 3, // .dll 외부 라이브러리 엔진
+    // 3 = 옛 DLL 플러그인 자판 — 없앴다(RFC-0006 D2, 2026-09-30: 코드 실행 없는 데이터). 번호는 다시 쓰지 않는다.
     LAYOUT_TYPE_HANGUL_CUSTOM = 4, // .jmt 설정파일 기반 사용자 한글 자판(세벌식 계열·결합규칙)
     LAYOUT_TYPE_CHORD = 5,      // .cord 설정파일 기반 일반 코드 자판(ARTSEY류 조합→출력)
     LAYOUT_TYPE_SEQUENCE = 6    // .jmt 3판 `Type = input`+`Engine = sequence` 순차 변환(로마자→가나류)
@@ -69,14 +67,6 @@ typedef struct {
     // LAYOUT_TYPE_SEQUENCE용 로드된 순차 변환표 (SeqLayout*). live config가 소유.
     void* pSeqLayout;
 
-    // LAYOUT_TYPE_DLL_PLUGIN용 함수 포인터 및 컨텍스트
-    HMODULE hPluginModule;
-    void* pvPluginContext;
-    PFN_JamoPlugin_Initialize pfnInitialize;
-    PFN_JamoPlugin_ProcessKey pfnProcessKey;
-    PFN_JamoPlugin_Flush pfnFlush;
-    PFN_JamoPlugin_Command pfnCommand;
-    PFN_JamoPlugin_Uninitialize pfnUninitialize;
 
     bool enabled;   // 전환 순환에 포함되는가 (설정 체크박스). 기본 켜짐: en_qwerty, ko_2bul 만.
 } LayoutConfig;
@@ -92,6 +82,8 @@ typedef struct {
     bool useUIElements;     // 자체 UI 를 UIElementMgr 게이트로 (RFC-0012 Phase 3). 기본 켜짐. 킬스위치.
     bool useUiHelper;       // UWP 호스트에서 데스크톱 UI 헬퍼에 후보창을 그리게 한다(RFC-0015). 기본 켜짐.
     bool uwpHanjaCycle;     // AppContainer(UWP) 호스트에서 후보창 대신 한자키 순환 변환. 기본 켜짐. 킬스위치.
+    bool uwpOwnWindow;      // AppContainer(UWP) 호스트에서도 자체 후보창·코드 입력창을 먼저 쓴다(오너 결정 A9, 2026-09-30).
+                            //   끄면 예전처럼 헬퍼 → 순환. 창이 안 보이는 호스트를 만난 사용자를 위한 탈출구.
     wchar_t previewFont[32];// 미리보기 글꼴 face 이름 (32 = LF_FACESIZE). 기본 "Malgun Gothic".
     int previewFontSize;    // 미리보기 글꼴 크기(px). 0=Auto(캐럿 높이 근사), 8~96=고정.
     wchar_t candFont[32];   // 한자 후보창 글꼴 face. 후보·훈음·페이지 표시 전부 이 글꼴 하나.
@@ -102,8 +94,12 @@ typedef struct {
 typedef struct {
     ShortcutList shortcuts[SC_FN_COUNT];   // 기능별 단축키 목록 (ShortcutFn 인덱스)
 
-    LayoutConfig layouts[8];
+    // 자판 목록 — 개수 제한 없이 늘어난다(RFC-0006 D3, 오너 결정 2026-09-30 "동적으로").
+    //   배열 자체는 이 구조체가 소유하고, 각 자판의 자원(name·HangulLayout 등)은 live 가 소유한다.
+    //   구조체를 통째로 대입하지 말 것 — 배열이 공유된다. 복사는 Config_CopyShallow 로 한다.
+    LayoutConfig *layouts;
     int layoutCount;
+    int layoutCap;
     int currentLayoutIndex;
 
     ImeOptions options;
@@ -137,7 +133,7 @@ bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath);
 // ── 설정창 파일 작업은 Apply 때만 (RFC-0008 W1-06 남은 절반, BACKLOGS B8) ──
 // Import 의 번들 자판은 restoreDir(스테이징)에 복원하고 이름을 기록한다. Apply = Commit(저장소로 이동,
 // 덮어쓰지 않음), Cancel = Discard(스테이징만 지움). restoreDir=NULL 이면 예전처럼 사용자 저장소에 바로.
-#define CONFIG_STAGED_MAX 8
+#define CONFIG_STAGED_MAX 64   // 설정 가져오기 한 번에 되살리는 자판 파일 수(적대적 파일 방어)
 typedef struct ConfigStagedLayouts {
     int count;
     wchar_t names[CONFIG_STAGED_MAX][128];
@@ -179,6 +175,12 @@ void Config_DecodeLayoutName(wchar_t *s);   // 제자리 역변환
 void Config_Free(JamotongConfig *cfg);                                       // live 파괴 시 전체 해제
 void Config_ApplyEdited(JamotongConfig *live, const JamotongConfig *edited); // 설정 적용(떨어낸 것 해제 후 채택)
 void Config_DiscardEdited(JamotongConfig *edited, const JamotongConfig *live);// 설정 취소(비-live 리소스만 해제)
+// 자판 목록 배열 (D3): 덧붙이기, 배열까지 복제하는 복사(자판 자원은 공유 — 소유 원칙은 그대로), 배열만 해제.
+bool Config_AppendLayout(JamotongConfig *config, const LayoutConfig *layout);
+bool Config_CopyShallow(JamotongConfig *dst, const JamotongConfig *src);
+void Config_ReleaseLayoutArray(JamotongConfig *config);
+// 설정 파일이 적어 둔 자판 개수의 안전 상한 — 제품의 한도가 아니라 조작된 파일이 메모리를 잡아먹지 못하게 하는 선.
+#define CONFIG_FILE_LAYOUTS_MAX 256
 void Config_FreeLayoutResources(LayoutConfig *L);                            // 단일 자판 리소스 해제(중복 로드본 등)
 // 편집본에서 idx 자판 제거. live가 소유하지 않은(Add 직후 등) 리소스는 제거 전에 해제한다 —
 // shift로 배열에서 사라지면 Discard/Apply가 볼 수 없어 누수됐다(RFC-0004 P0-3).

@@ -2836,7 +2836,9 @@ jamotong 은 한자 후보창을 "한자키를 거듭 눌러 후보를 순환 �
 정한 방식("Owned window")이다 — 은 작업표시줄 검색 상자(`SearchHost.exe`, AppContainer,
 `TF_TMF_IMMERSIVEMODE`) 안에서 **보였다**: 데스크톱과 똑같이 뜨고, 자리 잡고, 고르고, 확정됐다. 자모통은 위
 실측 이틀 뒤에 후보창에 소유자를 주었고, 이 호스트를 다시 재지 않았다. 확인된 AppContainer 호스트는 하나뿐이다
-— 다른 호스트는 화면에서 창을 보기 전까지 미확인으로 다룬다.
+— 다른 호스트는 화면에서 창을 보기 전까지 미확인으로 다룬다. 그래서 자모통 0.61.1 은 AppContainer 호스트에서도
+소유된 자체 창을 먼저 쓰고, 데스크톱 헬퍼(아래)와 한자키 순환은 물러서는 길로만 남긴다 — `CreateWindowEx` 가
+실패할 때, 또는 창을 숨기는 호스트를 위한 설정(`UwpOwnWindow=0`)으로.
 ### 14.8 ★함정: AppContainer 는 `%APPDATA%` 를 읽지 못한다
 
 같은 이유로 더 조용한 사고가 하나 더 있다. 설정 파일을 `%APPDATA%` 에 두면 **UWP 앱 안에서만**
@@ -2913,7 +2915,6 @@ SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL
 | 입력기가 쓰는 자판 런타임 | `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | 사전 파일: 컴파일러(도구에만)와 읽기 전용 매핑 로더 | `src/jdict_build.c`, `src/jdict.c` |
 | 구운 자판: 컴파일러(도구에만)와 입력기가 쓰는 읽개 | `src/jlay_build.c`, `src/jlay.c` |
-| (사망) IMM32 IME 시도 | `src/imm/` |
 
 
 ## 부록 B: 참고 자료

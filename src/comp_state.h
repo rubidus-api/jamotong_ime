@@ -14,7 +14,7 @@
 #define JAMO_CMODE_FULLSHAPE    0x0008
 
 // 자판 종류(config.h LayoutType 과 같은 수) → 한글 자판인가.
-//   KOREAN_FSM(1)·HANGUL_CUSTOM(4) = 한글. PASSTHROUGH(0)·STATIC_MAP(2)·DLL_PLUGIN(3)·CHORD(5) = 아님.
+//   KOREAN_FSM(1)·HANGUL_CUSTOM(4) = 한글. PASSTHROUGH(0)·STATIC_MAP(2)·CHORD(5)·SEQUENCE(6) = 아님.
 bool CompState_IsHangulType(int layoutType);
 
 // 현재 상태 → compartment 두 값.

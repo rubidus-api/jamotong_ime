@@ -3,6 +3,7 @@
 #include "jlay.h"      // 구운 자판 읽기 (Add 는 관리 앱을 불러 굽는다)
 #include <commctrl.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 extern HINSTANCE g_hInst;   // 이 모듈(DLL/EXE) 핸들 — 윈도 클래스 소유자.
                             // GetModuleHandleW(NULL)=EXE 인스턴스를 쓰면 DLL WndProc과 소유자가 어긋나
@@ -19,9 +20,18 @@ static JamotongConfig g_TempConfig;
 // Add 는 복사할 파일을 적어 두고, Import 는 번들 자판을 스테이징 폴더에 복원해 둔다. Apply 가 둘을 저장소에
 // 반영하고, Cancel·창 닫기·Revert·Reset 은 버린다. (예전엔 누르는 즉시 저장소가 바뀌어 Cancel 해도 남았다.)
 typedef struct { wchar_t src[MAX_PATH]; wchar_t name[128]; const wchar_t *layoutName; } PendingAdd;
-static PendingAdd g_pendingAdds[8];
-static int g_pendingAddCount = 0;
+static PendingAdd *g_pendingAdds = NULL;   // 자판 수에 제한이 없으니 이것도 늘어난다 (D3)
+static int g_pendingAddCount = 0, g_pendingAddCap = 0;
 static ConfigStagedLayouts g_stagedImport;
+
+static bool GrowPendingAdds(void) {
+    int cap = g_pendingAddCap ? g_pendingAddCap * 2 : 8;
+    PendingAdd *p = (PendingAdd *)realloc(g_pendingAdds, (size_t)cap * sizeof(PendingAdd));
+    if (!p) return false;
+    g_pendingAdds = p;
+    g_pendingAddCap = cap;
+    return true;
+}
 
 static void DiscardPendingFileOps(void) {
     wchar_t stg[MAX_PATH];
@@ -809,7 +819,6 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     ToggleLayoutEnabled(hwnd, (int)SendMessageW(GetDlgItem(hwnd, ID_LST_LAYOUTS), LB_GETCURSEL, 0, 0));
                     break;
                 case ID_BTN_LAYOUT_ADD: {   // .jmt 자판 파일 불러와 목록에 추가 (켜진 상태로)
-                    if (g_TempConfig.layoutCount >= 8) { MessageBoxW(hwnd, L"Maximum of 8 layouts reached.", L"Info", MB_OK); break; }
                     wchar_t szFile[MAX_PATH] = {0};
                     OPENFILENAMEW ofn = {0};
                     ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd;
@@ -850,10 +859,14 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         DeleteFileW(tmpJmb);   // 임시 산출물은 읽은 뒤 치운다 (원본은 Apply 때 저장소로)
                         if (addOk) {
                             lc.enabled = true;
-                            g_TempConfig.layouts[g_TempConfig.layoutCount++] = lc;
+                            if (!Config_AppendLayout(&g_TempConfig, &lc)) {
+                                Config_FreeLayoutResources(&lc);
+                                MessageBoxW(hwnd, L"Out of memory - the layout was not added.", L"Jamotong", MB_OK | MB_ICONERROR);
+                                break;
+                            }
                             RefreshLists(hwnd);
                             // 사용자 자판 저장소로의 복사는 [Apply & Save] 때 (B8) — 재시작 후 자동 로드 (RFC-0004 P0-2).
-                            if (g_pendingAddCount < 8) {
+                            if (g_pendingAddCount < g_pendingAddCap || GrowPendingAdds()) {
                                 const wchar_t *base = wcsrchr(szFile, L'\\');
                                 base = base ? base + 1 : szFile;
                                 PendingAdd *pa = &g_pendingAdds[g_pendingAddCount++];
@@ -980,7 +993,7 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     if (g_pRealConfig) {
                         Config_ApplyEdited(g_pRealConfig, &g_TempConfig);   // 내부에서 g_configLock
                         EnterCriticalSection(&g_configLock);   // 스냅샷/저장도 입력 스레드와 직렬화
-                        g_LastSavedConfig = *g_pRealConfig;
+                        Config_CopyShallow(&g_LastSavedConfig, g_pRealConfig);
                         // 사용자 설정 파일에 저장 → 다음 활성화/다른 프로세스·"옵션" 버튼에 반영.
                         wchar_t cfgPath[MAX_PATH];
                         bool saved = Config_UserPath(cfgPath, MAX_PATH) && Config_SaveToFile(g_pRealConfig, cfgPath, false);
@@ -1011,7 +1024,7 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 case ID_BTN_REVERT:
                     DiscardPendingFileOps();   // B8
                     Config_DiscardEdited(&g_TempConfig, g_pRealConfig);   // temp 고유 리소스 해제 후 복원
-                    g_TempConfig = g_LastSavedConfig;
+                    Config_CopyShallow(&g_TempConfig, &g_LastSavedConfig);
                     RefreshLists(hwnd);
                     MessageBoxW(hwnd, L"Reverted to last saved state.", L"Info", MB_OK);
                     break;
@@ -1060,8 +1073,8 @@ static DWORD WINAPI SettingsThreadProc(LPVOID lpParam) {
     // 트랜잭션 버퍼 복사 (입력 스레드의 자판 전환/설정 적용과 직렬화)
     if (g_pRealConfig) {
         EnterCriticalSection(&g_configLock);
-        g_TempConfig = *g_pRealConfig;
-        g_LastSavedConfig = *g_pRealConfig;
+        Config_CopyShallow(&g_TempConfig, g_pRealConfig);
+        Config_CopyShallow(&g_LastSavedConfig, g_pRealConfig);
         LeaveCriticalSection(&g_configLock);
     }
     g_pendingAddCount = 0;          // B8: 새 창은 적어 둔 파일 작업 없이 시작

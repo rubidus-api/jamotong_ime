@@ -258,14 +258,7 @@ static void Jamotong_FoldInput(JamotongTextService *obj) {
 static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfContext *pic) {
     if (why == TRANS_WHY_KEY && pic) {
         LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
-        if (cur && cur->type == LAYOUT_TYPE_DLL_PLUGIN) {
-            JAMOTONG_PLUGIN_RESULT pRes = cur->pfnFlush(cur->pvPluginContext);
-            if (pRes.wszCommitted[0]) {
-                EditSessionData esd = {0};
-                wcscpy(esd.committed, pRes.wszCommitted);
-                RequestEditSessionData(obj, pic, &esd);
-            }
-        } else if (cur && cur->type == LAYOUT_TYPE_SEQUENCE) {
+        if (cur && cur->type == LAYOUT_TYPE_SEQUENCE) {
             // 순차 변환: 보류한 입력을 잃지 않도록 리터럴로 확정한다 (RFC-0016 §6.3)
             SeqResult r = SeqKb_Flush(&obj->seqKb, (const SeqLayout*)cur->pSeqLayout);
             if (r.committed[0]) SeqApply(obj, pic, &r);
@@ -288,6 +281,7 @@ void Jamotong_FlushForExternalSwitch(JamotongTextService *obj) {
 static void RotateLayoutFromKey(JamotongTextService *obj, ITfContext *pic) {
     Jamotong_Transition(obj, TRANS_WHY_KEY, pic);
     Config_RotateLayout(&obj->config);
+    JamoDiag("ROTATE idx=%d/%d", obj->config.currentLayoutIndex, obj->config.layoutCount);
     LangBar_Update(obj->pLangBarItem);
     Compart_Publish(obj);
 }
@@ -383,13 +377,12 @@ static bool HostIsAppContainer(void) {
     return cached != 0;
 }
 
-// 실험 빌드(-DJAMO_EXP_OWNER, 배포 안 함): UWP 에서도 헬퍼·순환 대신 우리 후보창을 띄워 본다 —
-// 소유자를 문서 뷰의 창(ITfContextView::GetWnd)으로 준 소유된 창이 보이는지 재는 용도(B4·D1).
-#ifdef JAMO_EXP_OWNER
-#define UwpDetour() false
-#else
-#define UwpDetour() HostIsAppContainer()
-#endif
+// AppContainer(UWP) 호스트에서 자체 창 대신 헬퍼·순환으로 곧장 돌아가는가 (오너 결정 A9, 2026-09-30).
+//   기본은 자체 창이 먼저다 — 소유된 창은 작업표시줄 검색(AppContainer) 안에서도 보였다(실기 2026-09-30).
+//   RFC-0015 의 "합성되지 않는다"(2026-09-19)는 소유자 없는 창에서 잰 것이었다. 옵션을 끄면 예전 순서.
+static bool UwpDetour(const JamotongTextService *obj) {
+    return HostIsAppContainer() && !obj->config.options.uwpOwnWindow;
+}
 
 // 문서 뷰의 창 — 후보창 소유자의 대체값(포커스 창이 없을 때). 실패하면 NULL.
 static HWND ContextViewWindow(ITfContext *pic) {
@@ -1148,6 +1141,31 @@ tk_done:
     return S_OK;
 }
 
+// A9 의 물러서기: 데스크톱 헬퍼가 후보창을 그리게 하고(RFC-0015), 그것도 안 되면 한자키 순환으로.
+//   처리했으면 true — 문맥 참조(candCtx.pic)는 여기서 놓는다.
+static bool UwpCandFallback(JamotongTextService *obj, wchar_t **cands, int count, int replaceLen, bool special,
+                            int x, int y, int caretTop) {
+    if (obj->config.options.useUiHelper
+        && UiCandShow(obj, cands, count, replaceLen, special, x, y, caretTop,
+                      obj->config.options.candFont, obj->config.options.candFontSize)) {
+        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+        return true;
+    }
+    if (obj->config.options.uwpHanjaCycle) {
+        ApplyHanjaChoice(obj, cands[0], replaceLen);
+        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+        obj->hanjaCycle.active = true;
+        obj->hanjaCycle.cands = cands;   // 사전 소유 배열(수명은 사전이 보장)
+        obj->hanjaCycle.count = count;
+        obj->hanjaCycle.idx = 0;
+        obj->hanjaCycle.targetHwnd = obj->candCtx.targetHwnd;
+        wcsncpy(obj->hanjaCycle.applied, cands[0], 7); obj->hanjaCycle.applied[7] = L'\0';
+        JamoDiag("HANJA cycle start count=%d", count);
+        return true;
+    }
+    return false;
+}
+
 static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContext *pic, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
     JamotongTextService *obj = IMPL_TO_OBJ(KES, pThis);
     if (pfEaten) *pfEaten = FALSE;
@@ -1247,7 +1265,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // UWP(AppContainer) 호스트에서는 팝업 창이 화면에 나타나지 않는다(HostIsAppContainer 주석).
         //  - 헬퍼가 있으면(RFC-0015 Phase 2) 창 없이 상태만 열고 헬퍼가 그 줄을 그린다 → 평소 UX.
         //  - 헬퍼가 없으면 "먼저 16진수를 치고 이 키" 로 강등한다(0.19.1 동작).
-        if (HostIsAppContainer()) {
+        if (UwpDetour(obj)) {
             RECT rcC; int cx = 100, cy = 100, cTop = 96;
             if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
             if (obj->config.options.useUiHelper && UiClient_Available()) {
@@ -1404,26 +1422,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
                 // UWP(AppContainer) 호스트: 후보창을 띄워도 화면에 나타나지 않는다(위 HostIsAppContainer
                 // 주석). 첫 후보를 바로 적용하고, 한자키를 다시 누르면 다음 후보로 교체한다.
-                if (UwpDetour()) {
-                    // RFC-0015: 데스크톱 헬퍼가 떠 있으면 진짜 후보창을 그리게 한다.
-                    if (obj->config.options.useUiHelper
-                        && UiCandShow(obj, cands, count, replaceLen, special, x, y, caretTop,
-                                      obj->config.options.candFont, obj->config.options.candFontSize)) {
-                        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
-                        if (pfEaten) *pfEaten = TRUE;
-                        goto kd_done;
-                    }
-                }
-                if (obj->config.options.uwpHanjaCycle && UwpDetour()) {
-                    ApplyHanjaChoice(obj, cands[0], replaceLen);
-                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
-                    obj->hanjaCycle.active = true;
-                    obj->hanjaCycle.cands = cands;   // 사전 소유 배열(수명은 사전이 보장)
-                    obj->hanjaCycle.count = count;
-                    obj->hanjaCycle.idx = 0;
-                    obj->hanjaCycle.targetHwnd = obj->candCtx.targetHwnd;
-                    wcsncpy(obj->hanjaCycle.applied, cands[0], 7); obj->hanjaCycle.applied[7] = L'\0';
-                    JamoDiag("HANJA cycle start count=%d", count);
+                if (UwpDetour(obj) && UwpCandFallback(obj, cands, count, replaceLen, special, x, y, caretTop)) {
                     if (pfEaten) *pfEaten = TRUE;
                     goto kd_done;
                 }
@@ -1432,10 +1431,14 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
                 CandidateUI_SetViewWindow(ContextViewWindow(pic));
                 if (!CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj)) {
-                    // 표시 실패(W1-08): 콜백이 안 불리므로 여기서 문맥 참조를 놓는다. 원문 보류(W1-02)면
-                    // 조합이 그대로 남아 잃는 것이 없다.
-                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
                     JamoDiag("HANJA candidate window failed to show");
+                    // A9: UWP 에서 자체 창을 못 만들면 헬퍼 → 순환으로 물러선다.
+                    if (!(HostIsAppContainer()
+                          && UwpCandFallback(obj, cands, count, replaceLen, special, x, y, caretTop))) {
+                        // 표시 실패(W1-08): 콜백이 안 불리므로 여기서 문맥 참조를 놓는다. 원문 보류(W1-02)면
+                        // 조합이 그대로 남아 잃는 것이 없다.
+                        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+                    }
                 }
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
@@ -1488,31 +1491,6 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             OutputResult(obj, pic, res, FALSE);
             goto kd_done;
         }
-    }
-
-    if (layout && layout->type == LAYOUT_TYPE_DLL_PLUGIN) {
-        BYTE kbdState[256];
-        GetKeyboardState(kbdState);
-        JAMOTONG_PLUGIN_RESULT plugRes = layout->pfnProcessKey(
-            layout->pvPluginContext, wParam, lParam, kbdState, NULL);
-        
-        if (plugRes.bEaten) {
-            if (pfEaten) *pfEaten = TRUE;
-        }
-        if (plugRes.wszComposing[0] || plugRes.wszCommitted[0]) {
-            EditSessionData esd = {0};
-            wcscpy(esd.committed, plugRes.wszCommitted);
-            wcscpy(esd.composing, plugRes.wszComposing);
-            RequestEditSessionData(obj, pic, &esd);
-            // 미리보기: 플러그인 조합 문자열(다중 글자 가능) 표시/숨김 (락 보유 중)
-            RECT rc;
-            if (obj->config.options.showPreview && plugRes.wszComposing[0] && GetCaretScreenRect(obj, &rc))
-                PreeditOverlay_Show(&rc, plugRes.wszComposing, obj->config.options.previewFont,
-                                    obj->config.options.previewFontSize);
-            else
-                PreeditOverlay_Hide();
-        }
-        goto kd_done;
     }
 
     if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
@@ -1791,7 +1769,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
             EnsureHanjaDicts();   // W2-10 (preserved key 경로도 같다)
             // UWP(AppContainer): 팝업이 화면에 나타나지 않는다 → "16진수를 먼저 치고 이 키" 로 강등.
             // (preserved key 경로. OnKeyDown 쪽 SC_FN_CODE 분기와 같은 동작이어야 한다.)
-            if (HostIsAppContainer()) {
+            if (UwpDetour(obj)) {
                 RECT rcC; int cx = 100, cy = 100, cTop = 96;
                 if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
                 if (obj->config.options.useUiHelper && UiClient_Available()) {

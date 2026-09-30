@@ -24,7 +24,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     en.name = _wcsdup(L"en_qwerty");   // 모든 name을 heap으로 통일 → Config_Free가 균일하게 해제
     wcscpy(en.abbrev, L"ENQW");   // 2x2 아이콘: EN/QW (비트맵 글꼴, langbar.c)
     en.enabled = true;                  // 기본 켜짐
-    config->layouts[config->layoutCount++] = en;
+    Config_AppendLayout(config, &en);
 
     LayoutConfig dv;
     memset(&dv, 0, sizeof(dv));
@@ -33,7 +33,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     dv.name = _wcsdup(L"en_dvorak");
     wcscpy(dv.abbrev, L"ENDV");   // 2x2 아이콘: EN/DV
     dv.enabled = false;                 // 기본 꺼짐 (설정 체크박스로 켬)
-    config->layouts[config->layoutCount++] = dv;
+    Config_AppendLayout(config, &dv);
 
     LayoutConfig ko;
     memset(&ko, 0, sizeof(ko));
@@ -42,7 +42,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     ko.name = _wcsdup(L"ko_2bul");
     wcscpy(ko.abbrev, L"KO2B");   // 2x2 아이콘: KO/2B (구 "2벌")
     ko.enabled = true;                  // 기본 켜짐
-    config->layouts[config->layoutCount++] = ko;
+    Config_AppendLayout(config, &ko);
 
     LayoutConfig ko3;
     memset(&ko3, 0, sizeof(ko3));
@@ -51,7 +51,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     ko3.name = _wcsdup(L"ko_3bul");   // 세벌식 최종 (표는 provisional — 실기 검증 필요)
     wcscpy(ko3.abbrev, L"KO3B");   // 2x2 아이콘: KO/3B (구 "3벌")
     ko3.enabled = false;                // 기본 꺼짐
-    config->layouts[config->layoutCount++] = ko3;
+    Config_AppendLayout(config, &ko3);
 
     // 플러그인 로더 호출 (.jmt 자동 감지) — 로드된 사용자 자판은 기본 꺼짐(enabled=false, zero-init)
     PluginLoader_LoadAll(config);
@@ -88,6 +88,7 @@ void Config_LoadDefault(JamotongConfig *config) {
     config->options.useUIElements = true;       // UI element 게이트 (RFC-0012 Phase 3)
     config->options.useUiHelper = true;         // RFC-0015 UI 헬퍼
     config->options.uwpHanjaCycle = true;       // UWP 후보창 미표시 대응 — 한자키 순환 변환
+    config->options.uwpOwnWindow = true;        // A9: UWP 에서도 자체 창이 먼저
     wcscpy(config->options.previewFont, L"Malgun Gothic");
     config->options.previewFontSize = 0;       // 0 = Auto(캐럿 높이)
     wcscpy(config->options.candFont, L"Malgun Gothic");
@@ -161,6 +162,53 @@ LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config) {
     return &config->layouts[config->currentLayoutIndex];
 }
 
+// ── 자판 목록 배열 (RFC-0006 D3) ─────────────────────────────────────────────────────
+// 배열은 구조체가 소유한다. 늘릴 때 새 칸은 0 으로 채운다 — 파일에서 읽는 도중의 빈 칸이 쓰레기가 아니게.
+static bool Config_Reserve(JamotongConfig *config, int need) {
+    if (need <= config->layoutCap) return true;
+    int cap = config->layoutCap ? config->layoutCap : 8;
+    while (cap < need) {
+        if (cap > (1 << 20)) return false;
+        cap *= 2;
+    }
+    LayoutConfig *p = (LayoutConfig *)realloc(config->layouts, (size_t)cap * sizeof(LayoutConfig));
+    if (!p) return false;
+    memset(p + config->layoutCap, 0, (size_t)(cap - config->layoutCap) * sizeof(LayoutConfig));
+    config->layouts = p;
+    config->layoutCap = cap;
+    return true;
+}
+
+bool Config_AppendLayout(JamotongConfig *config, const LayoutConfig *layout) {
+    if (!Config_Reserve(config, config->layoutCount + 1)) return false;
+    config->layouts[config->layoutCount++] = *layout;
+    return true;
+}
+
+void Config_ReleaseLayoutArray(JamotongConfig *config) {
+    free(config->layouts);
+    config->layouts = NULL;
+    config->layoutCount = 0;
+    config->layoutCap = 0;
+}
+
+// dst 의 옛 배열은 버리고 src 를 복사한다. 자판 자원(name·HangulLayout…)의 포인터는 공유 — 소유 원칙 그대로.
+//   실패하면(메모리) dst 는 손대지 않고 false.
+bool Config_CopyShallow(JamotongConfig *dst, const JamotongConfig *src) {
+    if (dst == src) return true;
+    LayoutConfig *arr = NULL;
+    if (src->layoutCount > 0) {
+        arr = (LayoutConfig *)malloc((size_t)src->layoutCount * sizeof(LayoutConfig));
+        if (!arr) return false;
+        memcpy(arr, src->layouts, (size_t)src->layoutCount * sizeof(LayoutConfig));
+    }
+    free(dst->layouts);
+    *dst = *src;
+    dst->layouts = arr;
+    dst->layoutCap = src->layoutCount;
+    return true;
+}
+
 // ── 레이아웃 리소스 소유권 ────────────────────────────────────────────────────────
 // 원칙: 실제 리소스(플러그인 DLL/컨텍스트, heap name)는 "live" config 하나만 소유한다.
 // 설정 UI의 g_TempConfig 등 값복사본은 포인터를 공유하되 절대 해제하지 않는다. 해제는
@@ -168,11 +216,6 @@ LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config) {
 // 동일 리소스 판별은 name 포인터로 한다(모든 name이 유일한 heap 포인터).
 
 static void Layout_FreeResources(LayoutConfig *L) {
-    if (L->type == LAYOUT_TYPE_DLL_PLUGIN) {
-        if (L->pfnUninitialize && L->pvPluginContext) L->pfnUninitialize(L->pvPluginContext);
-        if (L->hPluginModule) FreeLibrary(L->hPluginModule);
-        L->pvPluginContext = NULL; L->hPluginModule = NULL;
-    }
     if (L->pHangulLayout) { HangulLayout_Free((HangulLayout*)L->pHangulLayout); L->pHangulLayout = NULL; }
     if (L->pChordLayout) { ChordLayout_Free((ChordLayout*)L->pChordLayout); L->pChordLayout = NULL; }
     if (L->pSeqLayout) { SeqLayout_Free((SeqLayout*)L->pSeqLayout); L->pSeqLayout = NULL; }
@@ -188,7 +231,7 @@ static bool Config_HasLayout(const JamotongConfig *cfg, const LayoutConfig *L) {
 void Config_Free(JamotongConfig *cfg) {
     EnterCriticalSection(&g_configLock);
     for (int i = 0; i < cfg->layoutCount; i++) Layout_FreeResources(&cfg->layouts[i]);
-    cfg->layoutCount = 0;
+    Config_ReleaseLayoutArray(cfg);
     LeaveCriticalSection(&g_configLock);
 }
 // 설정 적용: edited가 떨어낸(삭제/교체) live 레이아웃의 리소스만 해제한 뒤 edited를 채택.
@@ -196,7 +239,9 @@ void Config_ApplyEdited(JamotongConfig *live, const JamotongConfig *edited) {
     EnterCriticalSection(&g_configLock);   // 입력 스레드의 현재-레이아웃 사용과 직렬화 → 플러그인 free 안전
     for (int i = 0; i < live->layoutCount; i++)
         if (!Config_HasLayout(edited, &live->layouts[i])) Layout_FreeResources(&live->layouts[i]);
-    *live = *edited;
+    if (!Config_CopyShallow(live, edited)) {   // 메모리가 없으면 옛 목록을 쓸 수 없다(자원을 이미 떼어 냈다) —
+        live->layoutCount = 0;                 //   빈 목록으로 두면 다음 로드가 기본값을 다시 채운다
+    }
     // enabled 자판이 하나도 없으면 첫 자판을 켠다 — 회전이 영구히 먹통이 되는 0-enabled 상태 방어
     // (삭제 경로 등으로 만들어질 수 있었음, RFC-0004 P0-3).
     if (live->layoutCount > 0) {
@@ -219,7 +264,7 @@ void Config_DiscardEdited(JamotongConfig *edited, const JamotongConfig *live) {
     EnterCriticalSection(&g_configLock);
     for (int i = 0; i < edited->layoutCount; i++)
         if (!Config_HasLayout(live, &edited->layouts[i])) Layout_FreeResources(&edited->layouts[i]);
-    edited->layoutCount = 0;
+    Config_ReleaseLayoutArray(edited);
     LeaveCriticalSection(&g_configLock);
 }
 
@@ -580,6 +625,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"UseUIElements=%d\n", config->options.useUIElements ? 1 : 0);
     fwprintf(fp, L"UseUiHelper=%d\n", config->options.useUiHelper ? 1 : 0);
     fwprintf(fp, L"UwpHanjaCycle=%d\n", config->options.uwpHanjaCycle ? 1 : 0);
+    fwprintf(fp, L"UwpOwnWindow=%d\n", config->options.uwpOwnWindow ? 1 : 0);
     fwprintf(fp, L"PreviewFontSize=%d\n", config->options.previewFontSize);
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
@@ -594,9 +640,9 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
 //   실제 자판 리소스(charMap·HangulLayout·플러그인 포인터)는 *config(기본+플러그인 로드본)의 것을
 //   그대로 쓰고, 파일의 순서/켜짐만 이름 매칭으로 반영한다.
 //   ※ 통째 대입(*config = temp)이었던 구버전의 두 버그를 고침:
-//     (1) 기존 config의 heap name/플러그인/HangulLayout 리소스가 전부 누수됐고,
-//     (2) 파일에서 온 자판은 리소스가 빈 껍데기라(드보락 charMap 소실, 플러그인 pfn=NULL 호출
-//         크래시 위험) 실사용이 깨졌다. 파일에만 있고 현재 없는 자판은 무시한다.
+//     (1) 기존 config의 heap name/HangulLayout 리소스가 전부 누수됐고,
+//     (2) 파일에서 온 자판은 리소스가 빈 껍데기라(드보락 charMap 소실) 실사용이 깨졌다.
+//         파일에만 있고 현재 없는 자판은 무시한다 — 옛 DLL 플러그인 자판(형식 3) 줄도 그렇게 조용히 빠진다.
 bool Config_LoadFromFile(JamotongConfig *config, const wchar_t *filepath) {
     return Config_LoadFromFileEx(config, filepath, NULL, NULL);
 }
@@ -616,6 +662,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     temp.options.useUIElements = true;       // 구버전 .ini 대비 기본 켜짐 (RFC-0012 Phase 3)
     temp.options.useUiHelper = true;
     temp.options.uwpHanjaCycle = true;       // 구버전 .ini 대비 기본 켜짐
+    temp.options.uwpOwnWindow = true;        // 구버전 .ini 대비 기본 켜짐 (A9)
     temp.options.previewFontSize = 0;   // 기본 Auto
     wcscpy(temp.options.previewFont, L"Malgun Gothic");
     temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
@@ -651,9 +698,9 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
             // 파일명 안전성 검사: 신뢰 못 할 config.ini 를 Import 할 때 [LayoutFile:...] 이름은
             //   공격자가 100% 제어한다. basename + .jmt 인 경우에만 복원 — 이 검사가 없으면
             //   `..\..\...\Startup\evil.bat` 같은 이름으로 %APPDATA%\Jamotong\layouts 밖
-            //   (예: 시작프로그램 폴더)에 임의 파일을 심을 수 있다. 복원 개수도 자판 배열
-            //   크기(8)로 제한 — 적대적 config가 사용자 자판을 목록에서 밀어내지 못하게.
-            if (haveLayoutDir && lfRestored < 8 && Config_IsSafeLayoutFileName(lfName)) {
+            //   (예: 시작프로그램 폴더)에 임의 파일을 심을 수 있다. 복원 개수도 CONFIG_STAGED_MAX 로
+            //   제한 — 적대적 config 가 사용자 자판 폴더를 파일로 채우지 못하게.
+            if (haveLayoutDir && lfRestored < CONFIG_STAGED_MAX && Config_IsSafeLayoutFileName(lfName)) {
                 _snwprintf(dst, MAX_PATH, L"%ls\\%ls", layoutDir, lfName);
                 dst[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
                 if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
@@ -684,20 +731,25 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
         else if (wcscmp(line, L"[Options]") == 0) section = 3;
         else if (section == 1) {
             int count;
-            if (swscanf(line, L"Count=%d", &count) == 1) temp.layoutCount = count < 0 ? 0 : (count > 8 ? 8 : count);   // 배열 크기(8) 클램프 — 조작된 .ini 오버런 방지
+            // 개수에는 제한이 없다(D3) — 다만 파일이 적은 번호는 CONFIG_FILE_LAYOUTS_MAX 안에서만 믿는다(조작된 .ini).
+            if (swscanf(line, L"Count=%d", &count) == 1)
+                temp.layoutCount = count < 0 ? 0 : (count > CONFIG_FILE_LAYOUTS_MAX ? CONFIG_FILE_LAYOUTS_MAX : count);
             else {
                 int idx, val;
                 wchar_t nameBuf[64];
-                if (swscanf(line, L"%d_Type=%d", &idx, &val) == 2 && (unsigned)idx < 8) {
+                // 줄의 번호가 배열보다 크면 그 자리까지 늘린다(새 칸은 0). 번호 순서가 뒤섞여도 된다.
+                #define TEMP_SLOT(i) ((unsigned)(i) < CONFIG_FILE_LAYOUTS_MAX && Config_Reserve(&temp, (i) + 1))
+                if (swscanf(line, L"%d_Type=%d", &idx, &val) == 2 && TEMP_SLOT(idx)) {
                     temp.layouts[idx].type = (LayoutType)val;
                 // %l[ 필수: C 표준상 swscanf의 %[ 는 'l' 없이는 char* 대상(glibc가 그렇게 동작).
                 // MSVCRT는 %l[ 도 wide로 동일 처리하므로 양쪽 CRT에서 안전.
-                } else if (swscanf(line, L"%d_Name=%63l[^\n]", &idx, nameBuf) == 2 && (unsigned)idx < 8) {
+                } else if (swscanf(line, L"%d_Name=%63l[^\n]", &idx, nameBuf) == 2 && TEMP_SLOT(idx)) {
                     free((void*)temp.layouts[idx].name);   // 중복 Name 줄이면 이전 것 해제 (누수 방지; NULL이면 no-op)
                     temp.layouts[idx].name = _wcsdup(nameBuf);   // 균일 heap 소유 (Config_Free/reconcile가 관리)
-                } else if (swscanf(line, L"%d_Enabled=%d", &idx, &val) == 2 && (unsigned)idx < 8) {
+                } else if (swscanf(line, L"%d_Enabled=%d", &idx, &val) == 2 && TEMP_SLOT(idx)) {
                     temp.layouts[idx].enabled = (val != 0);
                 }
+                #undef TEMP_SLOT
             }
         }
         else if (section == 2) {
@@ -753,6 +805,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
             else if (swscanf(line, L"UseUIElements=%d", &val) == 1) temp.options.useUIElements = (val != 0);
             else if (swscanf(line, L"UseUiHelper=%d", &val) == 1) temp.options.useUiHelper = (val != 0);
             else if (swscanf(line, L"UwpHanjaCycle=%d", &val) == 1) temp.options.uwpHanjaCycle = (val != 0);
+            else if (swscanf(line, L"UwpOwnWindow=%d", &val) == 1) temp.options.uwpOwnWindow = (val != 0);
             else if (swscanf(line, L"CandFontSize=%d", &val) == 1)
                 temp.options.candFontSize = (val < 12) ? 12 : (val > 72 ? 72 : val);
             else if (swscanf(line, L"CandFont=%31l[^\n]", fontBuf) == 1 && fontBuf[0]) {
@@ -769,10 +822,11 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     fclose(fp);
 
     // ── 병합: 파일 순서대로, 현재 config에 '이름이 같은' 자판을 찾아 재배열 + enabled 반영 ──
-    JamotongConfig merged = *config;   // 값 복사(리소스 포인터 공유 — 해제 없음)
-    merged.layoutCount = 0;
-    bool used[8] = { false };
-    for (int i = 0; i < temp.layoutCount && merged.layoutCount < 8; i++) {
+    JamotongConfig merged = *config;   // 값 복사(리소스 포인터 공유 — 해제 없음). 배열은 새로 만든다.
+    merged.layouts = NULL; merged.layoutCount = 0; merged.layoutCap = 0;
+    bool *used = config->layoutCount > 0 ? (bool *)calloc((size_t)config->layoutCount, sizeof(bool)) : NULL;
+    bool ok = (config->layoutCount == 0 || used) && Config_Reserve(&merged, config->layoutCount);
+    for (int i = 0; ok && i < temp.layoutCount && i < temp.layoutCap; i++) {
         if (!temp.layouts[i].name) continue;
         for (int j = 0; j < config->layoutCount; j++) {
             if (!used[j] && config->layouts[j].name &&
@@ -784,12 +838,15 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
                 break;
             }
         }
-        // 매칭 실패(파일에만 있는 자판) → 무시: 빈 껍데기/NULL 플러그인 방지
+        // 매칭 실패(파일에만 있는 자판) → 무시: 빈 껍데기 방지. 옛 DLL 플러그인 자판(형식 3)도 여기서 빠진다.
     }
-    for (int j = 0; j < config->layoutCount && merged.layoutCount < 8; j++)   // 파일에 없는(새) 자판은 뒤에 유지
+    for (int j = 0; ok && j < config->layoutCount; j++)   // 파일에 없는(새) 자판은 뒤에 유지
         if (!used[j]) merged.layouts[merged.layoutCount++] = config->layouts[j];
-    for (int i = 0; i < 8; i++)   // 매칭용 임시 이름 해제 — Count가 엔트리보다 작은 기형 파일도 전체 해제
+    free(used);
+    for (int i = 0; i < temp.layoutCap; i++)   // 매칭용 임시 이름 해제 — Count가 엔트리보다 작은 기형 파일도 전체 해제
         if (temp.layouts[i].name) free((void*)temp.layouts[i].name);
+    Config_ReleaseLayoutArray(&temp);
+    if (!ok) { Config_ReleaseLayoutArray(&merged); return false; }   // 메모리 없음 — config 는 그대로
 
     for (int f = 0; f < SC_FN_COUNT; f++) {
         // 파일에 명시된 기능 목록만 교체. 자판 전환은 0개가 되면 자판을 못 바꾸므로 0이면 기존 유지.
@@ -802,6 +859,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     for (int i = 0; i < merged.layoutCount; i++)
         if (merged.layouts[i].enabled) { merged.currentLayoutIndex = i; break; }
 
+    free(config->layouts);   // 옛 배열만 버린다(자판 자원은 merged 로 옮겨 갔다)
     *config = merged;
     return true;
 }

@@ -298,7 +298,7 @@ the whole file (checksum, order, key characters) before the layout can be used.
 | chords per layout / layers / macros / macro steps | 2048 / 16 / 8 / 128 |
 | chord text (v2) | 23 characters |
 | dictionary: typed side / output / entries | 32 / 64 characters, 500,000 entries |
-| layouts in the list | 8 |
+| layouts in the list | no limit (a settings file is read up to index 256) |
 
 ## Messages
 

@@ -1,4 +1,5 @@
 #include "compartment.h"
+#include <stdlib.h>
 #include "comp_state.h"
 #include "langbar.h"
 
@@ -104,10 +105,13 @@ static HRESULT STDMETHODCALLTYPE CES_OnChange(ITfCompartmentEventSink *pThis, RE
     int target = -1;
     EnterCriticalSection(&g_configLock);
     {
-        int   types[8]; bool enabled[8];
-        int n = obj->config.layoutCount; if (n > 8) n = 8;
+        int n = obj->config.layoutCount;
+        int *types = n > 0 ? (int *)malloc((size_t)n * sizeof(int)) : NULL;
+        bool *enabled = n > 0 ? (bool *)malloc((size_t)n * sizeof(bool)) : NULL;
+        if (!types || !enabled) n = 0;   // 메모리 없음 → 고를 것 없음(target = -1)
         for (int i = 0; i < n; i++) { types[i] = (int)obj->config.layouts[i].type; enabled[i] = obj->config.layouts[i].enabled; }
-        target = CompState_PickIndex(types, enabled, n, obj->config.currentLayoutIndex, wantHangul);
+        target = n > 0 ? CompState_PickIndex(types, enabled, n, obj->config.currentLayoutIndex, wantHangul) : -1;
+        free(types); free(enabled);
         if (target >= 0 && target != obj->config.currentLayoutIndex) obj->config.currentLayoutIndex = target;
     }
     LeaveCriticalSection(&g_configLock);

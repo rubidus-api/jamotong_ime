@@ -165,19 +165,19 @@ Default keys — every function is configurable and accepts multiple bindings
   handle display scaling they follow the monitor's scale (sizes in Settings are at 100%), and
   with a **high-contrast** theme they use the theme's colors.
 
-> **Inside UWP apps (taskbar search, the Settings app, Store apps) some of this works
-> differently.** Windows does not let an input method show its own windows in those apps, so a
-> candidate list or popup can never appear there. In such apps:
-> - **Hanja**: a small **UI helper** that ships with Jamotong draws the candidate list for you —
->   pick with the number keys, arrows or Enter, as usual. The helper starts by itself once you use
->   Jamotong in a desktop app. Turn it off (`UseUiHelper=0`) and you get the fallback instead:
->   **press the hanja key again** to step through candidates (`UwpHanjaCycle=0` disables that too).
-> - **Unicode input**: with the helper running it works as usual — `Ctrl+Alt+U`, type the hex,
->   press `Enter`. With the helper off, **type the hex first, then press `Ctrl+Alt+U`**
->   (type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
+> **Inside UWP apps (taskbar search, Store apps)** Jamotong shows its own candidate list and
+> Unicode-input popup there too, as in desktop apps (0.61.1; verified in the taskbar search box).
+> If an app keeps them invisible, set `UwpOwnWindow=0` in `config.ini` to go back to the earlier way:
+> - **Hanja**: a small **UI helper** that ships with Jamotong draws the candidate list — pick with the
+>   number keys, arrows or Enter. The helper starts by itself once you use Jamotong in a desktop app.
+>   With the helper off too (`UseUiHelper=0`), **press the hanja key again** to step through
+>   candidates (`UwpHanjaCycle=0` disables that as well).
+> - **Unicode input**: with the helper it works as usual; with the helper off, **type the hex first,
+>   then press `Ctrl+Alt+U`** (type `AC00`, press `Ctrl+Alt+U`, and you get `가`).
 > - The composing syllable is shown inline by the app itself, so no preview chip appears.
 >
-> Ordinary desktop apps behave exactly as before.
+> The same fallback (helper, then cycling) is used automatically if the candidate window cannot be
+> created at all. Ordinary desktop apps behave exactly as before.
 - **Settings window**: `Ctrl+Alt+K`, or run `jamotong.exe` (Layout ▸ Settings).
   Tabs: *Layouts* (enable/disable, reorder, add `.jmt`), *Shortcuts* (pick a function,
   then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview
@@ -263,7 +263,7 @@ A `.jmt` placed next to `jamotong.dll` (the install folder, `C:\Program Files\Ja
 **not** built by the manager — that folder needs administrator rights. Run
 `jamotong --build-dir "<install folder>"` from an elevated prompt.
 
-At most 8 layouts can be active in the list. The bundled `example.jmt`,
+The layout list has no fixed size — add as many as you like and switch through the enabled ones. The bundled `example.jmt`,
 `example-dvorak.jmt` and `example-artsey.jmt` are commented syntax samples of each type.
 
 ### Common header

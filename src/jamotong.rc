@@ -3,17 +3,7 @@
 #include "version.h"   // 판은 version.h 에서 파생 — 여기서 고치지 않는다
 100 ICON "jamotong.ico"
 
-// Layout Display Name용 문자열(레지스트리 "@...jamotong.ime,-1000" 이 참조) — 보존 중인 IMM32 .ime
-// 실험 빌드에서만 넣는다(비공개 빌드가 -DJAMOTONG_IME_BUILD). TSF DLL 은 쓰지 않는다 (RFC-0008 W2-08).
-#ifdef JAMOTONG_IME_BUILD
-STRINGTABLE
-BEGIN
-    1000 "Jamotong (IMM32)"
-END
-#endif
-
-// 버전 리소스(RT_VERSION). ImmInstallIME는 IME의 버전 리소스를 읽으며, 없으면 등록이
-// ERROR_RESOURCE_TYPE_NOT_FOUND(1813)로 실패한다. (DLL/.ime 공용 — 둘 다 VFT_DLL)
+// 버전 리소스(RT_VERSION) — MSI 가 이 판으로 덮어쓰기를 정한다.
 1 VERSIONINFO
  FILEVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
  PRODUCTVERSION JAMOTONG_VERSION_MAJOR,JAMOTONG_VERSION_MINOR,JAMOTONG_VERSION_PATCH,0
@@ -32,9 +22,7 @@ BEGIN
             VALUE "FileVersion", JAMOTONG_VERSION_A
             VALUE "InternalName", "jamotong"
             VALUE "LegalCopyright", "(c) rubidus-api. MIT License."
-#ifdef JAMOTONG_IME_BUILD
-            VALUE "OriginalFilename", "jamotong.ime"
-#elif defined(JAMOTONG_X86)
+#if defined(JAMOTONG_X86)
             VALUE "OriginalFilename", "jamotong32.dll"
 #else
             VALUE "OriginalFilename", "jamotong.dll"

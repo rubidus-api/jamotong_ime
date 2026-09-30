@@ -3113,7 +3113,9 @@ which is what Microsoft's IME requirements page prescribes ("Owned window") — 
 the taskbar search box (`SearchHost.exe`, AppContainer, `TF_TMF_IMMERSIVEMODE`): shown, placed,
 navigated and committed like on the desktop. Jamotong gave its candidate window an owner two days
 after the measurement above and never re-tested this host. Only one AppContainer host is confirmed;
-treat others as unverified until you see your window on screen.
+treat others as unverified until you see your window on screen. Jamotong 0.61.1 therefore tries its own
+owned window first in AppContainer hosts and keeps the desktop helper (below) and key cycling only as
+fallbacks — for a failed `CreateWindowEx`, or by a setting (`UwpOwnWindow=0`) for a host that hides it.
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 
 The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will
@@ -3192,7 +3194,6 @@ failure on the third file rolled back the first two, downgrade with the same scr
 | Layout runtimes the IME uses | `src/hangul_layout.c`, `src/chord_layout.c`, `src/seq_layout.c` |
 | Dictionary files: compiler (tool only) and read-only mapped reader | `src/jdict_build.c`, `src/jdict.c` |
 | Built layouts: compiler (tool only) and the reader the IME uses | `src/jlay_build.c`, `src/jlay.c` |
-| (dead) IMM32 IME attempt | `src/imm/` |
 
 
 ## Appendix B: References
