@@ -1178,6 +1178,24 @@ tk_done:
     return S_OK;
 }
 
+// 코드 입력 열기 (Ctrl+Alt+U — 키 경로와 preserved key 경로가 함께 쓴다).
+//   자체 팝업이 먼저다 — UWP(AppContainer) 에서도 소유된 창은 보인다(A9). 소유자는 후보창과 같은 규칙.
+//   자체 창을 쓰지 않거나(UwpOwnWindow=0) 못 만들면(AppContainer), 헬퍼가 그 줄을 그리고, 그것도 안 되면
+//   "16진수를 먼저 치고 이 키" 로 강등한다(0.19.1 동작). 창 없이 키만 먹는 상태로는 두지 않는다.
+static void OpenCodeInput(JamotongTextService *obj, ITfContext *pic) {
+    RECT rc; int x = 100, y = 100, top = 96;
+    if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
+    if (!UwpDetour(obj) && CodeInput_Show(x, y, top, ContextViewWindow(pic))) return;
+    if (!HostIsAppContainer()) return;             // 데스크톱에서 창을 못 만들었다 — 예전처럼 아무 일 없음
+    if (obj->config.options.useUiHelper && UiClient_Available()) {
+        obj->uiCode.x = x; obj->uiCode.y = y; obj->uiCode.caretTop = top;
+        CodeInput_ShowWindowless();
+        UiCodeDraw(obj);
+        if (!obj->uiCode.active) CodeInput_Hide();   // 헬퍼가 못 그렸다 → 열어 두지 않는다
+    }
+    if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
+}
+
 // A9 의 물러서기: 데스크톱 헬퍼가 후보창을 그리게 하고(RFC-0015), 그것도 안 되면 한자키 순환으로.
 //   처리했으면 true — 문맥 참조(candCtx.pic)는 여기서 놓는다.
 static bool UwpCandFallback(JamotongTextService *obj, wchar_t **cands, int count, int replaceLen, bool special,
@@ -1299,25 +1317,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             OutputResultSeq(obj, pic, res, TRUE);
         }
         EnsureHanjaDicts();   // RFC-0008 W2-10: 코드 입력 줄의 훈음은 사전이 있어야 보인다 (한자를 먼저 안 썼어도)
-        // UWP(AppContainer) 호스트에서는 팝업 창이 화면에 나타나지 않는다(HostIsAppContainer 주석).
-        //  - 헬퍼가 있으면(RFC-0015 Phase 2) 창 없이 상태만 열고 헬퍼가 그 줄을 그린다 → 평소 UX.
-        //  - 헬퍼가 없으면 "먼저 16진수를 치고 이 키" 로 강등한다(0.19.1 동작).
-        if (UwpDetour(obj)) {
-            RECT rcC; int cx = 100, cy = 100, cTop = 96;
-            if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
-            if (obj->config.options.useUiHelper && UiClient_Available()) {
-                obj->uiCode.x = cx; obj->uiCode.y = cy; obj->uiCode.caretTop = cTop;
-                CodeInput_ShowWindowless();
-                UiCodeDraw(obj);
-                if (!obj->uiCode.active) CodeInput_Hide();   // 헬퍼가 못 그렸다 → 열어 두지 않는다
-            }
-            if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
-            if (pfEaten) *pfEaten = TRUE;
-            goto kd_done;
-        }
-        RECT rc; int x = 100, y = 100, top = 96;
-        if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
-        CodeInput_Show(x, y, top);
+        OpenCodeInput(obj, pic);
         if (pfEaten) *pfEaten = TRUE;
         goto kd_done;
     }
@@ -1828,23 +1828,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
                 OutputResultSeq(obj, pic, res, TRUE);
             }
             EnsureHanjaDicts();   // W2-10 (preserved key 경로도 같다)
-            // UWP(AppContainer): 팝업이 화면에 나타나지 않는다 → "16진수를 먼저 치고 이 키" 로 강등.
-            // (preserved key 경로. OnKeyDown 쪽 SC_FN_CODE 분기와 같은 동작이어야 한다.)
-            if (UwpDetour(obj)) {
-                RECT rcC; int cx = 100, cy = 100, cTop = 96;
-                if (GetCaretScreenRect(obj, &rcC)) { cx = rcC.left; cy = rcC.bottom + 4; cTop = rcC.top; }
-                if (obj->config.options.useUiHelper && UiClient_Available()) {
-                    obj->uiCode.x = cx; obj->uiCode.y = cy; obj->uiCode.caretTop = cTop;
-                    CodeInput_ShowWindowless();
-                    UiCodeDraw(obj);
-                    if (!obj->uiCode.active) CodeInput_Hide();
-                }
-                if (!obj->uiCode.active) TryReplaceHexCodepoint(obj, pic);
-                break;
-            }
-            RECT rc; int x = 100, y = 100, top = 96;
-            if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
-            CodeInput_Show(x, y, top);
+            OpenCodeInput(obj, pic);   // OnKeyDown 쪽 SC_FN_CODE 분기와 같은 길
             break;
         }
         case SC_FN_PASSTHROUGH: {

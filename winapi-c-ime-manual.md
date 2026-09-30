@@ -3116,6 +3116,9 @@ after the measurement above and never re-tested this host. Only one AppContainer
 treat others as unverified until you see your window on screen. Jamotong 0.61.1 therefore tries its own
 owned window first in AppContainer hosts and keeps the desktop helper (below) and key cycling only as
 fallbacks — for a failed `CreateWindowEx`, or by a setting (`UwpOwnWindow=0`) for a host that hides it.
+**Every** popup needs the owner, not just the one you fixed: Jamotong's code-point popup was still
+created unowned, and in the search box it stayed invisible while it swallowed every key (measured
+2026-10-01, fixed in 0.61.1). A popup that eats keys must never be the one that failed to show.
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 
 The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will

@@ -5,7 +5,9 @@
 #include <windows.h>
 #include <stdbool.h>
 
-void CodeInput_Show(int x, int y, int caretTop);   // 팝업 열기 (입력 스레드, lazy 생성). 아래가 모자라면 caretTop 위로
+// 팝업 열기 (입력 스레드, lazy 생성). 아래가 모자라면 caretTop 위로. viewWnd = 문서 뷰의 창
+//   (ITfContextView::GetWnd, 없으면 NULL) — 포커스 창이 없을 때 소유자로 쓴다(A9). 창을 못 만들면 false.
+bool CodeInput_Show(int x, int y, int caretTop, HWND viewWnd);
 bool CodeInput_IsVisible(void);
 // 키 처리. 소비했으면 true. Enter 확정 시 *outCodepoint에 코드포인트(≥0x20)를 담는다(그 외 0).
 bool CodeInput_HandleKey(UINT vKey, bool shift, unsigned *outCodepoint);

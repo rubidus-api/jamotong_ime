@@ -3,7 +3,7 @@
 이 프로젝트의 주요 변경 사항을 기록한다. [Keep a Changelog](https://keepachangelog.com) 형식과
 [Semantic Versioning](https://semver.org)(MAJOR.MINOR.PATCH — 비호환 변경 / 신규 기능 / 버그 수정)을 따른다.
 
-## [Unreleased]
+## [0.61.1] - 2026-10-01
 
 ### Added
 - **한 손 한글 자판** (`layout-ko-onehand.jmt`, RFC-0007 §12, 오너 결정 E-3). 왼손 여덟 글쇠: 윗줄 `q w e r` 을 함께
@@ -29,7 +29,8 @@
 ### Changed
 - **UWP 앱(작업표시줄 검색·Store 앱)에서도 자모통 자체 후보창과 유니코드 입력창이 뜬다** (오너 결정 A9). 소유된 창은
   그런 앱 안에서도 보였다(작업표시줄 검색에서 실기). 헬퍼·한자키 순환은 물러서는 길로 남는다 — 창을 만들지 못할 때,
-  또는 `config.ini` 의 `UwpOwnWindow=0`.
+  또는 `config.ini` 의 `UwpOwnWindow=0`. 유니코드 입력창도 후보창과 같은 소유자를 쓴다 — 소유자가 없던 이 창은
+  검색 상자에서 보이지 않은 채 키만 먹었다(0.61.1 후보 실기에서 발견해 고쳤다).
 - **자판 목록에 개수 제한이 없다** (RFC-0006 D3, 예전 8개). 설정 파일은 번호 256 까지만 읽는다(조작된 파일 방어).
 - 후보창의 소유자: 포커스 창이 없으면 문서 뷰의 창(`ITfContextView::GetWnd`)을 소유자로 쓴다 — Microsoft IME
   지침의 "Owned window". 포커스 창이 있는 데스크톱 호스트의 동작은 그대로다.

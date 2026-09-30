@@ -176,17 +176,24 @@ void CodeInput_ShowWindowless(void) {   // 창을 만들지 않고 입력만 받
     g_hexLen = 0; g_hex[0] = L'\0';
 }
 
-void CodeInput_Show(int x, int y, int caretTop) {
+bool CodeInput_Show(int x, int y, int caretTop, HWND viewWnd) {
     g_windowless = false;
     g_wlActive = false;
-    if (!UiElem_BeginCode()) return;   // RFC-0012 Phase 3 게이트 (재호출 안전)
-    if (!EnsureClass()) return;
+    if (!UiElem_BeginCode()) return true;   // RFC-0012 Phase 3 게이트 — 호스트가 그린다 (재호출 안전)
+    if (!EnsureClass()) { UiElem_EndCode(); return false; }
     g_hexLen = 0; g_hex[0] = L'\0';
     if (!g_hwnd) {
+        // 소유자 = 포커스 창의 최상위 창, 포커스 창이 없으면(UWP CoreWindow) 문서 뷰의 창 — 후보창과 같은
+        //   규칙(RFC-0008 W1-08, A9). 소유자 없는 최상위 팝업은 AppContainer 에서 화면에 합성되지 않아,
+        //   키만 먹고 아무것도 안 보였다(실기 2026-10-01, 작업표시줄 검색).
+        HWND focus = GetFocus();
+        HWND owner = focus ? GetAncestor(focus, GA_ROOT)
+                           : (viewWnd && IsWindow(viewWnd) ? GetAncestor(viewWnd, GA_ROOT) : NULL);
         g_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             L"JamotongCodeInput", L"", WS_POPUP | WS_BORDER,
-            x, y, CI_W, CI_H, NULL, NULL, g_hInst, NULL);
-        if (!g_hwnd) return;
+            x, y, CI_W, CI_H, owner, NULL, g_hInst, NULL);
+        JamoDiag("CODE create hwnd=%p owner=%p err=%lu", (void*)g_hwnd, (void*)owner, (unsigned long)GetLastError());
+        if (!g_hwnd) { UiElem_EndCode(); return false; }
         OwnerThreadClaim();   // 이 창은 이 스레드 것이다 (W0-03 S2)
     }
     // 보이지 않는 채로 자리부터 옮겨 그 자리의 DPI 를 읽고, 치수·글꼴을 맞춘 뒤 작업영역 안에 띄운다 (W2-03)
@@ -201,6 +208,7 @@ void CodeInput_Show(int x, int y, int caretTop) {
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, CI_W, CI_H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(g_hwnd, NULL, TRUE);
     NotifyWinEvent(EVENT_OBJECT_IME_SHOW, g_hwnd, OBJID_CLIENT, CHILDID_SELF);   // 접근성 (W2-03, 후보창과 같게)
+    return true;
 }
 
 bool CodeInput_IsVisible(void) { return g_wlActive || (g_hwnd && IsWindowVisible(g_hwnd)); }
