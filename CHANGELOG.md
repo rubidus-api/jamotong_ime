@@ -3,7 +3,7 @@
 이 프로젝트의 주요 변경 사항을 기록한다. [Keep a Changelog](https://keepachangelog.com) 형식과
 [Semantic Versioning](https://semver.org)(MAJOR.MINOR.PATCH — 비호환 변경 / 신규 기능 / 버그 수정)을 따른다.
 
-## [Unreleased]
+## [0.61.2] - 2026-10-01
 
 ### Changed
 - **한 손 한글: 자음 두 번이 더는 된소리가 아니다** (오너 결정 2026-10-01). `먹고`·`학교`·`십분` 이 그대로 쳐진다
