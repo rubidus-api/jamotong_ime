@@ -43,6 +43,7 @@ static void PutStr(Buf *b, const wchar_t *s) {
 static void WriteStatic(Buf *b, const LayoutConfig *lc) {
     for (int i = 0; i < 256; i++) Put16(b, (unsigned)(unsigned short)lc->charMap[i]);
 }
+static void WriteChord(Buf *b, const ChordLayout *cl);   // 아래 — 한글 자판의 앞단도 같은 표를 쓴다
 static void WriteHangul(Buf *b, const HangulLayout *hl) {
     PutStr(b, hl->name);
     Put32(b, (unsigned)hl->moachigi);
@@ -68,6 +69,8 @@ static void WriteHangul(Buf *b, const HangulLayout *hl) {
         Put16(b, (unsigned)g->len);
         for (int k = 0; k < HL_GUARD_CODE; k++) Put16(b, (unsigned)(k < g->len ? g->code[k] : 0));
     }
+    Put32(b, hl->chord ? 1u : 0u);                     // 앞단 조합이 있는가 (6판, RFC-0007)
+    if (hl->chord) WriteChord(b, (const ChordLayout *)hl->chord);
 }
 static void WriteChord(Buf *b, const ChordLayout *cl) {
     PutStr(b, cl->name);

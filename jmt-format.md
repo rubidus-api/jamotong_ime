@@ -144,6 +144,38 @@ A minus sign **attached** to digits makes a negative number (`pointer (move -12 
 it is a symbol this language does not have. A word cannot hold one either, so the 1-3 action
 `pointer drag-toggle(left)` is written `pointer (dragtoggle left)` here.
 
+### A chord front on a hangul layout - one-hand typing
+
+An `engine hangul` layout may also carry chord lines. The chords decide first; each `symbol` they
+produce goes into the hangul automaton, exactly as if a key had been typed:
+
+```lowlayout
+layout name "one hand" .
+layout format 4 .
+engine hangul .
+
+keys "qwer" "asdf" .
+chord "er" be symbol "ㄱ" .       rem a jamo letter: a two-set jamo - the automaton picks the slot
+chord "d"  be symbol "ㅏ" .
+combine cho "ㄱ" "ㄱ" be "ㄲ" .   rem consonant twice = tense, as in two-set typing
+```
+
+- A **jamo letter** (`ㄱ`, `ㄲ`, `ㅏ`, `ㅘ` ...) is a two-set jamo: consonants start as initials and
+  become finals (and move on before a vowel) the way two-set typing does. A layout with jamo symbols
+  is therefore two-set; if it also maps final-consonant keys (`map jong`) it is `E-JMT-V4-MIX`.
+- An **ASCII letter** is read as a key of this layout, so it must appear in a `map` line.
+- Anything else is `E-JMT-SYMBOL`. `moachigi` and chords together are `E-JMT-V4-MIX`.
+- Keys that are not chord keys go through the layout's `map` lines as usual; space, enter and
+  backspace work as in any hangul layout. `text`, `key` and the other actions work too (a `text`
+  commits the syllable being composed first).
+- In a two-set file layout, a **simple** final followed by the same consonant that a `combine cho`
+  rule doubles becomes a tense initial of the next syllable (`가` ㄷ ㄷ ㅏ → `가따`), because ㄸ ㅃ ㅉ
+  cannot be finals. A double final never splits that way (`읽고` stays `읽고`).
+
+`redist/layout-ko-onehand.jmt` is the one-hand layout this was made for (eight left-hand keys: the top
+row gives the fourteen consonants, the bottom row the fifteen vowels). Known gap: after a simple final
+the same consonant always doubles, so `먹고` comes out `머꼬` - there is no syllable-break chord yet.
+
 ### What still uses the older grammar
 
 **Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
@@ -360,12 +392,13 @@ there is something to suggest. Warnings do not stop a load; errors do.
 | `E-JMT-REQUIRES-MISSING` | a FormatVersion 3 layout must say which Jamotong it needs | add 'RequiresJamotong = 0.33.0' |
 | `E-JMT-SEQ-INLINE` | a layout file cannot hold the table itself | put the entries in a dictionary source (.jdt), build it with 'jamotong --build-dict' and write 'Dictionary = name.jdb' |
 | `E-JMT-STRING` | bad string: unterminated, unknown escape, NUL, surrogate or too long | write text "..." with escapes \\" \\\\ \\n \\t \\u{hex} |
-| `E-JMT-SYMBOL` | 'symbol' needs an input engine | use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
+| `E-JMT-SYMBOL` | 'symbol' needs an engine, or names something the engine cannot take | v4: write `engine hangul .` and a jamo letter or a mapped key; v1-v3: a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
 | `E-JMT-TEXT-LONG` | chord text is longer than 23 characters | shorten the text (at most 23 characters after \\n, \\t and \\s) |
 | `E-JMT-TOO-LONG` | file has more than 20000 lines | - |
 | `E-JMT-CHORD-KEY` | a chord uses a key the v4 chord layout never declared | declare them first: keys "arts" "eyio" . |
 | `E-JMT-KIND` | a v4 value is not one of the kinds this directive takes | holdpolicy is interrupt or timeout |
 | `E-JMT-SHAPE` | a v4 form has the wrong shape | write: chord "<keys>" be <action> . |
+| `E-JMT-V4-MIX` | the layout mixes things that do not go together | two-set (`map jamo`) or three-set (`map cho/mid/jong`), not both; jamo symbols need a two-set layout; `moachigi` or chords, not both |
 | `E-JMT-TYPE` | Key: type must be C, M or T | C = choseong, M = jungseong, T = jongseong |
 | `E-JMT-TYPE-UNKNOWN` | unknown Type | Type must be static, hangul, chord or (format 3) input |
 | `E-JMT-UNDECLARED` | chord references a key not declared with 'Key' | declare every chord key first, e.g. 'Key j = 0' |

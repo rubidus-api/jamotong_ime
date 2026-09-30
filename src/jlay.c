@@ -43,6 +43,7 @@ static bool ReadStatic(Rd *r, LayoutConfig *out) {
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)Get16(r);
     return !r->bad;
 }
+static ChordLayout *ReadChordTable(Rd *r);   // 아래에서 정의 (순차·한글 자판의 앞단도 같은 표를 쓴다)
 static bool ReadHangul(Rd *r, LayoutConfig *out) {
     // 해제는 HangulLayout_Free(HeapFree) 가 한다 — 같은 할당기를 써야 한다
     HangulLayout *hl = (HangulLayout *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(HangulLayout));
@@ -79,12 +80,16 @@ static bool ReadHangul(Rd *r, LayoutConfig *out) {
         }
         if (len > HL_GUARD_CODE) { HeapFree(GetProcessHeap(), 0, hl); return false; }
     }
+    unsigned hasChord = Get32(r);                      // 앞단 조합 (6판, RFC-0007)
     if (r->bad) { HeapFree(GetProcessHeap(), 0, hl); return false; }
+    if (hasChord) {
+        hl->chord = ReadChordTable(r);
+        if (!hl->chord) { HeapFree(GetProcessHeap(), 0, hl); return false; }
+    }
     out->pHangulLayout = hl;
     out->kbdVariant = KBD_SEBEOL;
     return true;
 }
-static ChordLayout *ReadChordTable(Rd *r);   // 아래에서 정의 (순차 자판의 앞단도 같은 표를 쓴다)
 
 static bool ReadChord(Rd *r, LayoutConfig *out) {
     ChordLayout *cl = ReadChordTable(r);

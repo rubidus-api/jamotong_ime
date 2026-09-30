@@ -788,6 +788,8 @@ static const ChordLayout *CurrentChordTable(const LayoutConfig *layout) {
     if (layout->type == LAYOUT_TYPE_CHORD) return (const ChordLayout*)layout->pChordLayout;
     if (layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout)
         return (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
+    if (layout->type == LAYOUT_TYPE_HANGUL_CUSTOM && layout->pHangulLayout)
+        return (const ChordLayout*)((const HangulLayout*)layout->pHangulLayout)->chord;   // RFC-0007
     return NULL;
 }
 
@@ -877,6 +879,39 @@ static void SeqSymbolSink(void *ctx, const wchar_t *sym) {
     if (!layout || layout->type != LAYOUT_TYPE_SEQUENCE) return;
     SeqResult r = SeqKb_Symbol(&s->obj->seqKb, (const SeqLayout*)layout->pSeqLayout, sym);
     if (r.committed[0] || r.composing[0]) SeqApply(s->obj, s->pic, &r);
+}
+
+// 한글 자판의 앞단 조합(RFC-0007)이 낸 `symbol` 을 오토마타에 넣는다. 글자마다 글쇠 하나를 친 것과
+//   같은 길이다 — 문서에 닿은 뒤에만 FSM 을 확정하고, 못 닿으면 그 글자는 없던 일로 되돌린다(W0-04).
+static void HangulSymbolSink(void *ctx, const wchar_t *sym) {
+    SeqSymbolCtx *s = (SeqSymbolCtx *)ctx;
+    if (!s || !s->obj || !sym) return;
+    JamotongTextService *obj = s->obj;
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    if (!layout || layout->type != LAYOUT_TYPE_HANGUL_CUSTOM || !layout->pHangulLayout) return;
+    const HangulLayout *hl = (const HangulLayout*)layout->pHangulLayout;
+    for (const wchar_t *p = sym; *p; p++) {
+        FsmContext fsmBefore = obj->fsm;
+        FsmResult res = Fsm_ProcessSymbol(&obj->fsm, *p, hl);
+        JamoDiag("FSM sym=U+%04X commit=U+%04X preedit=U+%04X", (unsigned)*p, (unsigned)res.commitChar, (unsigned)res.preeditChar);
+        if (!(res.commitChar || res.preeditChar)) continue;
+        if (!OutputResultSeq(obj, s->pic, res, FALSE)) {
+            obj->fsm = fsmBefore;
+            JamoDiag("TXN rollback sym=U+%04X", (unsigned)*p);
+            FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true };
+            OutputResultSeq(obj, s->pic, redraw, FALSE);
+        }
+    }
+}
+// 앞단 조합의 `text` 동작: 조합 중인 음절을 먼저 확정한다 — 아니면 글자가 음절 앞에 끼어든다.
+static void HangulTextSink(void *ctx, const wchar_t *text) {
+    SeqSymbolCtx *c = (SeqSymbolCtx *)ctx;
+    if (!c || !c->obj || !c->pic || !text || !text[0]) return;
+    if (c->obj->fsm.state != STATE_EMPTY) {
+        FsmResult res = {Fsm_Flush(&c->obj->fsm), 0, false};
+        OutputResultSeq(c->obj, c->pic, res, TRUE);
+    }
+    CommitText(c->obj, c->pic, text);
 }
 
 // 타이머가 살아 있는 동안에는 DLL 을 내리면 안 된다 (dllmain.c 의 DllCanUnloadNow 가 묻는다).
@@ -1101,6 +1136,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             JamoType jt = JAMO_NONE;
             if (qc > 0 && qc < 128)
                 jt = hl ? hl->keymap[(int)qc].type : Layout_MapKeyToJamo(qc, layout->kbdVariant).type;
+            if (hl && hl->chord && qc > 0 && qc < 128 && ((const ChordLayout*)hl->chord)->keyBit[(int)qc] >= 0)
+                jt = JAMO_CHO;                  // 앞단 조합의 글쇠 (RFC-0007) — 자모를 내는 것은 조합이다
             if (jt != JAMO_NONE) {
                 if (pfEaten) *pfEaten = TRUE;   // 자모 키만 소비 (자판별로 판정)
             }
@@ -1630,6 +1667,22 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
             }
+            if (hl && hl->chord) {
+                // 앞단 조합 (RFC-0007): 함께 누른 글쇠가 먼저 결정하고, 그 `symbol` 이 오토마타로 들어간다
+                //   (모두 떼는 KeyUp 에서). 조합 글쇠가 아니면 아래 보통 한글 글쇠 길로 간다.
+                SeqSymbolCtx sctx = { obj, pic };
+                ChordKb_SetSymbolSink(&obj->chordKb, HangulSymbolSink, &sctx);
+                if (pic) ChordKb_SetTextSink(&obj->chordKb, HangulTextSink, &sctx);
+                wchar_t ck = GetQwertyChar(wParam, isShift);
+                bool ceaten = ChordKb_KeyDown(&obj->chordKb, (const ChordLayout*)hl->chord, (UINT)wParam, ck);
+                ScheduleChordTick(obj);
+                ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
+                ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);
+                if (ceaten) {
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
+            }
             LayoutResult lr = {JAMO_NONE, 0};
             wchar_t keyChar = GetQwertyChar(wParam, isShift);   // a~z + 숫자/기호 (세벌식/사용자 자판용)
             if (keyChar > 0 && keyChar < 128) lr = hl ? hl->keymap[(int)keyChar] : Layout_MapKeyToJamo(keyChar, layout->kbdVariant);
@@ -1738,7 +1791,15 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
             cl = (const ChordLayout*)((const SeqLayout*)layout->pSeqLayout)->chord;
             if (cl) ChordKb_SetSymbolSink(&obj->chordKb, SeqSymbolSink, &sctx);   // §6.3
         }
-        if (cl && pic) ChordKb_SetTextSink(&obj->chordKb, ChordTextSink, &sctx);   // `text` 는 문서로
+        bool hangulFront = false;
+        if (layout && layout->type == LAYOUT_TYPE_HANGUL_CUSTOM && layout->pHangulLayout) {   // RFC-0007
+            cl = (const ChordLayout*)((const HangulLayout*)layout->pHangulLayout)->chord;
+            if (cl) { ChordKb_SetSymbolSink(&obj->chordKb, HangulSymbolSink, &sctx); hangulFront = true; }
+        }
+        if (cl && pic) {   // `text` 는 문서로 (한글 앞단은 조합 중인 음절을 먼저 확정한다)
+            if (hangulFront) ChordKb_SetTextSink(&obj->chordKb, HangulTextSink, &sctx);
+            else ChordKb_SetTextSink(&obj->chordKb, ChordTextSink, &sctx);
+        }
         bool eaten = ChordKb_KeyUp(&obj->chordKb, cl, (UINT)wParam);
         ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
         ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);

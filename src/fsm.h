@@ -46,6 +46,9 @@ typedef struct {
 struct HangulLayout;
 void Fsm_Init(FsmContext *ctx);
 FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const struct HangulLayout *hl);
+// 앞단 조합(RFC-0007)이 낸 `symbol` 글자 하나. 낱자 글자(ㄱ·ㅘ …)는 두 벌 낱자로, ASCII 는 hl 의 글쇠로.
+//   낱자도 글쇠도 아니면 조합을 확정하고 eaten=false (Fsm_ProcessKey 의 비자모 키와 같다).
+FsmResult Fsm_ProcessSymbol(FsmContext *ctx, wchar_t sym, const struct HangulLayout *hl);
 // 백스페이스: 조합 중 마지막 자모 제거. 조합이 있었으면 true(소비)와 새 조합 글자(*outPreedit,
 // 0이면 조합 비움), 없었으면 false(앱에 위임).
 bool Fsm_Backspace(FsmContext *ctx, wchar_t *outPreedit);

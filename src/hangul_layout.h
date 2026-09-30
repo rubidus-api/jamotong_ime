@@ -53,6 +53,10 @@ typedef struct HangulLayout {
     int combineCount;
     HangulGuarded guarded[HL_MAX_GUARDED];   // 적은 차례대로 본다 — 처음 맞는 줄이 이긴다
     int guardedCount;
+    // 앞단 조합 (RFC-0007, v4 `engine hangul` + chord). 여러 글쇠를 함께 눌러 낸 `symbol` 이 이 자판의
+    //   오토마타로 들어간다 — 낱자 글자("ㄱ")는 그 낱자로, ASCII 글자는 이 자판의 글쇠로 읽는다.
+    //   ChordLayout* (chord_layout.h). 없으면 NULL. HangulLayout_Free 가 함께 푼다.
+    void *chord;
 } HangulLayout;
 
 // .jmt 파일에서 로드 (heap 할당, 실패 시 NULL). 소유자가 HangulLayout_Free 로 해제.

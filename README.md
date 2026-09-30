@@ -266,6 +266,12 @@ A `.jmt` placed next to `jamotong.dll` (the install folder, `C:\Program Files\Ja
 The layout list has no fixed size — add as many as you like and switch through the enabled ones. The bundled `example.jmt`,
 `example-dvorak.jmt` and `example-artsey.jmt` are commented syntax samples of each type.
 
+`layout-ko-onehand.jmt` is a **one-hand Hangul layout**: eight left-hand keys, where keys pressed
+together in the top row (`q w e r`) give a consonant and in the bottom row (`a s d f`) a vowel; the
+jamo then compose the two-set way (a consonant twice is tense, two vowels make ㅘ-type vowels). Add it
+like any other layout. One gap remains: after a simple final the same consonant always doubles, so
+`먹고` comes out `머꼬` for now. How the chords are written is in [jmt-format.md](jmt-format.md).
+
 ### Common header
 
 ```ini

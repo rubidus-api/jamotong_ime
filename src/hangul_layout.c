@@ -5,7 +5,10 @@
 #include <string.h>
 
 void HangulLayout_Free(HangulLayout *hl) {
-    if (hl) HeapFree(GetProcessHeap(), 0, hl);
+    if (!hl) return;
+    // 앞단 조합표도 프로세스 힙이다 (ChordLayout_Free 와 같은 해제 — 이 파일이 조합 모듈에 기대지 않게 직접 푼다)
+    if (hl->chord) HeapFree(GetProcessHeap(), 0, hl->chord);
+    HeapFree(GetProcessHeap(), 0, hl);
 }
 
 int HangulLayout_Combine(const HangulLayout *hl, JamoType type, int a, int b) {

@@ -41,13 +41,29 @@ void Fsm_Init(FsmContext *ctx) {
     ctx->jong = -1;
 }
 
+static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, const HangulLayout *hl);
+
 FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const HangulLayout *hl) {
+    return fsm_step(ctx, fsm_map(ctx, keyChar, variant, hl), variant, hl);
+}
+
+// 앞단 조합이 낸 글자 하나 (RFC-0007). 낱자 글자는 두 벌 낱자로(자음은 초성 자리, 모음은 중성 자리 —
+//   받침과 도깨비불은 오토마타가 정한다), ASCII 글자는 이 자판의 글쇠로 읽는다.
+FsmResult Fsm_ProcessSymbol(FsmContext *ctx, wchar_t sym, const HangulLayout *hl) {
+    static const wchar_t kCho[]  = L"ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+    static const wchar_t kJung[] = L"ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+    if (sym < 128) return Fsm_ProcessKey(ctx, sym, KBD_SEBEOL, hl);
+    LayoutResult lr = {JAMO_NONE, 0};
+    for (int i = 0; kCho[i]; i++)  if (kCho[i] == sym)  { lr.type = JAMO_CHO;  lr.index = i; }
+    for (int i = 0; kJung[i]; i++) if (kJung[i] == sym) { lr.type = JAMO_JUNG; lr.index = i; }
+    return fsm_step(ctx, lr, KBD_SEBEOL, hl);
+}
+
+static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, const HangulLayout *hl) {
     FsmResult res = {0, 0, false};
     // 직접 종성 자판(세벌식, Composition = sebeol 파일)은 2벌식식 도깨비불(초성↔종성 문맥 전환)을 쓰지 않는다.
     //   RFC-0016 P2: 파일 자판도 Composition = dubeol 이면 내장 두벌식과 같은 전이를 탄다 (전엔 파일 = 늘 직접 종성).
     bool directJong = hl ? (hl->composition != HL_DUBEOL) : (variant == KBD_SEBEOL);
-
-    LayoutResult layoutRes = fsm_map(ctx, keyChar, variant, hl);
 
     if (layoutRes.type == JAMO_NONE) {
         res.commitChar = Fsm_Flush(ctx);   // 조합 중이면 확정(부분 상태 포함), 아니면 0
@@ -141,8 +157,22 @@ FsmResult Fsm_ProcessKey(FsmContext *ctx, wchar_t keyChar, int variant, const Ha
                     if (hl) { int t2 = Layout_ChoToJong(layoutRes.index); combined = (t2 > 0) ? fsm_combineJongPair(ctx->jong, t2, hl) : -1; }
                     else combined = Layout_CombineJong(ctx->jong, layoutRes.index);
                 }
+                // 파일 두 벌 자판: 받침과 새 초성이 겹받침은 못 되지만 파일의 초성 결합(ㄷ+ㄷ=ㄸ)은 될 때 —
+                //   받침을 떼어 그 결합으로 새 음절을 시작한다 (한 손 자판의 "두 번 치면 된소리", RFC-0007).
+                //   ㄸ·ㅃ·ㅉ 는 받침이 될 수 없어서, 이 길이 없으면 '가'+ㄷ+ㄷ 가 '갇'+ㄷ 로 갈라진다.
+                //   홑받침에만 쓴다 — 겹받침(ㄺ+ㄱ)을 가르면 읽고·앉자·닭고기가 일꼬·안짜·달꼬기가 된다.
+                int tenseCho = -1;
+                if (combined == -1 && !directJong && hl) {
+                    int jong1 = 0, cho2 = -1;
+                    Layout_SplitJong(ctx->jong, &jong1, &cho2);
+                    if (jong1 == 0 && cho2 >= 0) tenseCho = fsm_combineCho(cho2, layoutRes.index, variant, hl);
+                }
                 if (combined != -1) {   // 2벌식: 종성+초성 → 겹받침
                     ctx->jong = combined; res.preeditChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
+                } else if (tenseCho != -1) {
+                    res.commitChar = ComposeHangul(ctx->cho, ctx->jung, -1);
+                    Fsm_Init(ctx); ctx->state = STATE_CHO; ctx->cho = tenseCho;
+                    res.preeditChar = Layout_ChoToCompatJamo(ctx->cho);
                 } else {   // 새 음절
                     res.commitChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
                     Fsm_Init(ctx); ctx->state = STATE_CHO; ctx->cho = layoutRes.index;

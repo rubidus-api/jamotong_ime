@@ -5,6 +5,7 @@
 #include "lowlay_parse.h"
 #include "lowlay_expr.h"
 #include "chord_layout.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -228,6 +229,59 @@ bool LowBuild_Hangul(const LowTree *t, const LowCheckResult *c, HangulLayout *ou
     return ok;
 }
 
+// ── 조합표 (프로세스 힙 — ChordLayout_Free·HangulLayout_Free 가 HeapFree 로 푼다) ──────────────
+static ChordLayout *NewChordTable(void) {
+    return (ChordLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
+}
+// 실제 조합 수만큼만 남긴다 — chords[] 전체는 2MB 가 넘고, 그걸 모든 호스트 프로세스가 진다 (jlay.c 와 같다).
+static ChordLayout *ShrinkChordTable(ChordLayout *cl) {
+    size_t need = offsetof(ChordLayout, chords) + (size_t)cl->chordCount * sizeof(ChordEntry);
+    ChordLayout *shrunk = (ChordLayout*)HeapAlloc(GetProcessHeap(), 0, need);
+    if (!shrunk) return cl;
+    memcpy(shrunk, cl, need);
+    HeapFree(GetProcessHeap(), 0, cl);
+    return shrunk;
+}
+
+// 한글 자판에 앞단 조합을 붙인다 (RFC-0007). `symbol` 의 글자마다 오토마타가 알아듣는 것인지 본다:
+//   낱자 글자(ㄱ·ㅏ·ㄲ·ㅘ …)는 두 벌 낱자로 들어간다 — 자리는 오토마타가 정하므로 자판은 두 벌이 된다.
+//   ASCII 글자는 이 자판의 글쇠로 읽힌다 — 그러면 map 에 있어야 한다.
+static bool AttachChordFront(HangulLayout *hl, ChordLayout *cl, KlayDiag *diag) {
+    bool ok = true, jamoSym = false, slots = false;
+    for (int k = 0; k < 128; k++)
+        if (hl->keymap[k].type == JAMO_JONG) slots = true;   // 종성 글쇠가 따로 있으면 세 벌이다
+    for (int g = 0; g < hl->guardedCount; g++)
+        if (hl->guarded[g].r.type == JAMO_JONG) slots = true;
+    if (hl->moachigi) {
+        Err(diag, NULL, L"E-JMT-V4-MIX", L"a moachigi layout cannot also take chords",
+            L"moachigi already reads keys pressed together - drop one of the two");
+        ok = false;
+    }
+    for (int i = 0; i < cl->chordCount; i++) {
+        const ChordEntry *e = &cl->chords[i];
+        if (e->act != CA_SYMBOL) continue;
+        for (const wchar_t *p = e->text; *p; p++) {
+            if (IndexOf(kCho, *p, 0) >= 0 || IndexOf(kJung, *p, 0) >= 0) { jamoSym = true; continue; }
+            if (*p > 0 && *p < 128 && hl->keymap[(int)*p].type != JAMO_NONE) continue;
+            wchar_t msg[96];
+            swprintf(msg, 96, L"symbol '%lc' is neither a jamo letter nor a key this layout maps", (wint_t)*p);
+            Err(diag, NULL, L"E-JMT-SYMBOL", msg,
+                L"write the jamo itself (symbol \"ㄱ\"), or a key from a map line");
+            ok = false;
+            break;
+        }
+    }
+    if (jamoSym && slots) {
+        Err(diag, NULL, L"E-JMT-V4-MIX", L"jamo symbols are two-set jamo, but this layout maps final consonants",
+            L"a chord front feeds the two-set automaton - write map jamo, not map cho/mid/jong");
+        ok = false;
+    }
+    if (!ok) return false;
+    if (jamoSym) hl->composition = HL_DUBEOL;   // 낱자만 말한다 — 초성·받침은 오토마타가 정한다
+    hl->chord = cl;
+    return true;
+}
+
 // UTF-8 파일 한 덩이를 넓은 글월로. 실패하면 NULL(호출자가 free).
 static wchar_t *ReadAllWide(const wchar_t *path) {
     FILE *f = _wfopen(path, L"r, ccs=UTF-8");
@@ -305,24 +359,28 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
     bool ok = LowParse_Run(src, &tree, diag);
     LowCheckResult res;
     if (ok) ok = LowCheck_Run(&tree, &res, diag);
-    // 조합 자판인가 — chord/hold/keys 폼이 있으면 그것이다 (engine 은 none 이다)
+    // 조합 자판인가 — chord/hold/keys 폼이 있으면 조합표가 있다. engine hangul 이면 그 표는 한글
+    //   오토마타의 앞단이고(RFC-0007), 아니면 조합표가 곧 자판이다 (engine 은 none 이다).
     bool isChord = false;
     for (int i = 0; ok && i < tree.n; i++) {
         const wchar_t *h = LowForm_Head(tree.forms[i]);
         if (h && (!wcscmp(h, L"chord") || !wcscmp(h, L"hold") || !wcscmp(h, L"keys"))) { isChord = true; break; }
     }
+    const bool hangulEngine = ok && !wcscmp(res.engine, L"hangul");
+    ChordLayout *cl = NULL;
     if (ok && isChord) {
-        ChordLayout *cl = (ChordLayout*)calloc(1, sizeof *cl);
+        cl = NewChordTable();
         if (!cl) ok = false;
-        else if (!LowBuild_Chord(&tree, &res, cl, diag)) { free(cl); ok = false; }
-        else {
-            memset(out, 0, sizeof *out);
-            out->type = LAYOUT_TYPE_CHORD;
-            out->pChordLayout = cl;
-            out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
-            lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
-            if (!out->name) { free(cl); ok = false; }
-        }
+        else if (!LowBuild_Chord(&tree, &res, cl, diag)) { HeapFree(GetProcessHeap(), 0, cl); cl = NULL; ok = false; }
+        else cl = ShrinkChordTable(cl);
+    }
+    if (ok && isChord && !hangulEngine) {
+        memset(out, 0, sizeof *out);
+        out->type = LAYOUT_TYPE_CHORD;
+        out->pChordLayout = cl;
+        out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
+        lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+        if (!out->name) { HeapFree(GetProcessHeap(), 0, cl); memset(out, 0, sizeof *out); ok = false; }
         LowTree_Free(&tree);
         free(src);
         return ok;
@@ -334,19 +392,23 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
         return ok;
     }
     if (ok) {
-        HangulLayout *hl = (HangulLayout*)calloc(1, sizeof *hl);
+        HangulLayout *hl = (HangulLayout*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof *hl);
         if (!hl) ok = false;
-        else if (!LowBuild_Hangul(&tree, &res, hl, diag)) { free(hl); ok = false; }
-        else {
+        else if (!LowBuild_Hangul(&tree, &res, hl, diag) || (cl && !AttachChordFront(hl, cl, diag))) {
+            HangulLayout_Free(hl);                 // 앞단은 붙기 전이다 — cl 은 아래에서 푼다
+            ok = false;
+        } else {
+            cl = NULL;                             // 이제 hl 의 것이다
             memset(out, 0, sizeof *out);
             out->type = LAYOUT_TYPE_HANGUL_CUSTOM;
             out->kbdVariant = KBD_SEBEOL;
             out->pHangulLayout = hl;
             out->name = _wcsdup(hl->name[0] ? hl->name : L"custom");
             lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
-            if (!out->name) { free(hl); ok = false; }
+            if (!out->name) { HangulLayout_Free(hl); memset(out, 0, sizeof *out); ok = false; }
         }
     }
+    if (cl) HeapFree(GetProcessHeap(), 0, cl);
     LowTree_Free(&tree);
     free(src);
     return ok;

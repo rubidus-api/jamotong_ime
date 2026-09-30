@@ -1,0 +1,80 @@
+rem 한 손 한글 — 행 분리 조합 (RFC-0007 §12). 왼손 여덟 글쇠로 한글을 다 친다.
+rem   윗줄 q w e r 은 자음, 아랫줄 a s d f 는 모음. 한 줄 안의 글쇠를 함께 눌렀다 떼면 낱자 하나가 나온다.
+rem   낱자는 두벌식 오토마타로 들어간다 — 받침·도깨비불·겹받침은 두벌식과 같다.
+rem   된소리는 자음을 두 번(ㄱ ㄱ = ㄲ), ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ 는 모음 두 개(ㅗ ㅏ = ㅘ).
+rem   받침 뒤에 같은 자음을 또 치면 된소리가 된다(가 ㄷ ㄷ ㅏ = 가따, 바 ㄱ ㄱ ㅔ = 바께). 그래서 받침과
+rem   같은 자음으로 시작하는 다음 음절(먹고, 학교)은 이 판에서 칠 수 없다 — 음절을 끊는 조합이 필요하다.
+rem   q w e r 넷을 함께 누르는 자리는 비워 둔다(예약).
+rem   사이띄개·엔터·백스페이스는 여느 한글 자판처럼 쓴다.
+
+layout name "한 손 한글" .
+layout format 4 .
+layout license "자모통 RFC-0007 의 배열. 이 파일의 표기는 자모통의 것이다." .
+engine hangul .
+
+keys "qwer" "asdf" .
+chordterm 50 .
+
+rem 윗줄 — 자음 열넷
+chord "e"    be symbol "ㅇ" .
+chord "r"    be symbol "ㄴ" .
+chord "er"   be symbol "ㄱ" .
+chord "w"    be symbol "ㄹ" .
+chord "ew"   be symbol "ㅅ" .
+chord "rw"   be symbol "ㄷ" .
+chord "erw"  be symbol "ㅈ" .
+chord "q"    be symbol "ㅎ" .
+chord "qw"   be symbol "ㅁ" .
+chord "eq"   be symbol "ㅂ" .
+chord "qr"   be symbol "ㅌ" .
+chord "eqw"  be symbol "ㅊ" .
+chord "qrw"  be symbol "ㅍ" .
+chord "eqr"  be symbol "ㅋ" .
+
+rem 아랫줄 — 모음 열다섯
+chord "d"    be symbol "ㅏ" .
+chord "f"    be symbol "ㅣ" .
+chord "df"   be symbol "ㅡ" .
+chord "s"    be symbol "ㅗ" .
+chord "ds"   be symbol "ㅓ" .
+chord "fs"   be symbol "ㅜ" .
+chord "dfs"  be symbol "ㅕ" .
+chord "a"    be symbol "ㅔ" .
+chord "as"   be symbol "ㅐ" .
+chord "ad"   be symbol "ㅢ" .
+chord "af"   be symbol "ㅛ" .
+chord "ads"  be symbol "ㅠ" .
+chord "afs"  be symbol "ㅑ" .
+chord "adf"  be symbol "ㅖ" .
+chord "adfs" be symbol "ㅒ" .
+
+rem 된소리 — 같은 자음 두 번. 격음은 전용 조합이 있으므로 ㄱ+ㅎ 같은 결합은 두지 않는다 (§12.1.1).
+combine cho "ㄱ" "ㄱ" be "ㄲ" .
+combine cho "ㄷ" "ㄷ" be "ㄸ" .
+combine cho "ㅂ" "ㅂ" be "ㅃ" .
+combine cho "ㅅ" "ㅅ" be "ㅆ" .
+combine cho "ㅈ" "ㅈ" be "ㅉ" .
+combine jong "ㄱ" "ㄱ" be "ㄲ" .
+combine jong "ㅅ" "ㅅ" be "ㅆ" .
+
+rem 겹받침
+combine jong "ㄱ" "ㅅ" be "ㄳ" .
+combine jong "ㄴ" "ㅈ" be "ㄵ" .
+combine jong "ㄴ" "ㅎ" be "ㄶ" .
+combine jong "ㄹ" "ㄱ" be "ㄺ" .
+combine jong "ㄹ" "ㅁ" be "ㄻ" .
+combine jong "ㄹ" "ㅂ" be "ㄼ" .
+combine jong "ㄹ" "ㅅ" be "ㄽ" .
+combine jong "ㄹ" "ㅌ" be "ㄾ" .
+combine jong "ㄹ" "ㅍ" be "ㄿ" .
+combine jong "ㄹ" "ㅎ" be "ㅀ" .
+combine jong "ㅂ" "ㅅ" be "ㅄ" .
+
+rem 겹모음
+combine mid "ㅗ" "ㅏ" be "ㅘ" .
+combine mid "ㅗ" "ㅐ" be "ㅙ" .
+combine mid "ㅗ" "ㅣ" be "ㅚ" .
+combine mid "ㅜ" "ㅓ" be "ㅝ" .
+combine mid "ㅜ" "ㅔ" be "ㅞ" .
+combine mid "ㅜ" "ㅣ" be "ㅟ" .
+combine mid "ㅡ" "ㅣ" be "ㅢ" .

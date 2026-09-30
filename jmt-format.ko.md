@@ -132,6 +132,37 @@ chord "arts" be macro sign .
 숫자에 **붙은** 빼기표는 음수다(`pointer (move -12 0)`). 떨어져 있으면 이 언어에 없는 기호다.
 낱말 안에도 올 수 없어, v1~v3 의 `pointer drag-toggle(left)` 은 여기서 `pointer (dragtoggle left)` 로 적는다.
 
+### 한글 자판의 앞단 조합 — 한 손 입력
+
+`engine hangul` 자판에도 chord 줄을 둘 수 있다. 조합이 먼저 결정하고, 조합이 낸 `symbol` 은 글쇠 하나를
+친 것과 똑같이 한글 오토마타로 들어간다:
+
+```lowlayout
+layout name "한 손" .
+layout format 4 .
+engine hangul .
+
+keys "qwer" "asdf" .
+chord "er" be symbol "ㄱ" .       rem 낱자 글자: 두 벌 낱자 — 자리는 오토마타가 정한다
+chord "d"  be symbol "ㅏ" .
+combine cho "ㄱ" "ㄱ" be "ㄲ" .   rem 자음 두 번 = 된소리 (두벌식처럼)
+```
+
+- **낱자 글자**(`ㄱ`·`ㄲ`·`ㅏ`·`ㅘ` …)는 두 벌 낱자다: 자음은 초성으로 들어가 두벌식처럼 받침이 되고, 모음이
+  오면 다음 음절로 넘어간다. 그래서 낱자 symbol 을 쓰는 자판은 두 벌이다 — 종성 글쇠(`map jong`)까지 적으면
+  `E-JMT-V4-MIX`.
+- **ASCII 글자**는 이 자판의 글쇠로 읽는다 — `map` 줄에 있어야 한다.
+- 그 밖의 글자는 `E-JMT-SYMBOL`. `moachigi` 와 조합을 함께 쓰면 `E-JMT-V4-MIX`.
+- 조합 글쇠가 아닌 글쇠는 여느 때처럼 `map` 줄을 탄다. 사이띄개·엔터·백스페이스는 여느 한글 자판과 같다.
+  `text`·`key` 같은 다른 동작도 된다(`text` 는 조합 중인 음절을 먼저 확정한다).
+- 두 벌 파일 자판에서 **홑받침** 뒤에 `combine cho` 로 겹치는 같은 자음이 오면 다음 음절의 된소리 초성이 된다
+  (`가` ㄷ ㄷ ㅏ → `가따`) — ㄸ ㅃ ㅉ 는 받침이 될 수 없기 때문이다. 겹받침은 그렇게 가르지 않는다(`읽고` 는
+  `읽고`).
+
+`redist/layout-ko-onehand.jmt` 가 이것으로 만든 한 손 자판이다(왼손 여덟 글쇠: 윗줄이 자음 열넷, 아랫줄이 모음
+열다섯). 알려진 틈: 홑받침 뒤 같은 자음은 늘 된소리가 되어 `먹고` 가 `머꼬` 로 나온다 — 음절을 끊는 조합이 아직
+없다.
+
 ### 아직 옛 문법으로 적는 것
 
 **순차 입력 자판(`Type = input`, 사전·시퀀스 엔진)은 아래의 v1~v3 문법으로 적는다.**
@@ -340,12 +371,13 @@ kya	きゃ
 | `E-JMT-REQUIRES-MISSING` | v3 파일인데 RequiresJamotong 이 없다 | add 'RequiresJamotong = 0.33.0' |
 | `E-JMT-SEQ-INLINE` | 변환표는 자판 파일 안에 둘 수 없다 | put the entries in a dictionary source (.jdt), build it with 'jamotong --build-dict' and write 'Dictionary = name.jdb' |
 | `E-JMT-STRING` | 문자열 문법이 잘못됐다 | write text "..." with escapes \\" \\\\ \\n \\t \\u{hex} |
-| `E-JMT-SYMBOL` | symbol 은 엔진이 있는 자판에서만 | use it in a layout with 'Type = input' and an 'Engine =' line; a chord layout has no engine |
+| `E-JMT-SYMBOL` | symbol 은 엔진이 있는 자판에서만, 그 엔진이 받는 것만 | v4: `engine hangul .` 에 낱자 글자나 map 에 있는 글쇠; v1~v3: 'Type = input' 과 'Engine =' 줄이 있는 자판. 조합 자판에는 엔진이 없다 |
 | `E-JMT-TEXT-LONG` | 조합 문자열이 23자를 넘는다 (v2) | shorten the text (at most 23 characters after \\n, \\t and \\s) |
 | `E-JMT-TOO-LONG` | 파일이 2만 줄을 넘는다 | - |
 | `E-JMT-CHORD-KEY` | v4 조합 자판에서 선언하지 않은 글쇠를 조합에 썼다 | declare them first: keys "arts" "eyio" . |
 | `E-JMT-KIND` | v4 값의 갈래가 잘못됐다 (holdpolicy 등) | holdpolicy is interrupt or timeout |
 | `E-JMT-SHAPE` | v4 폼의 모양이 잘못됐다 | write: chord "<keys>" be <action> . |
+| `E-JMT-V4-MIX` | 함께 쓸 수 없는 것을 섞었다 | 두 벌(`map jamo`)이나 세 벌(`map cho/mid/jong`) 중 하나; 낱자 symbol 은 두 벌 자판에서만; `moachigi` 와 조합은 둘 중 하나 |
 | `E-JMT-TYPE` | Type 값이 잘못됐다 | C = choseong, M = jungseong, T = jongseong |
 | `E-JMT-TYPE-UNKNOWN` | 모르는 Type | Type must be static, hangul, chord or (format 3) input |
 | `E-JMT-UNDECLARED` | Key 로 선언하지 않은 글쇠를 조합에 썼다 | declare every chord key first, e.g. 'Key j = 0' |

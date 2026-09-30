@@ -135,7 +135,8 @@ static int FindWordIdx(const LowForm *f, const wchar_t *w) {
 }
 
 // `chord "ar" be …` / `hold "e" be …` 한 줄
-static bool AddChord(ChordLayout *cl, const LowForm *f, int layer, bool isHold, KlayDiag *diag) {
+//   forInput: 엔진이 있는 자판의 앞단이다 — `symbol` 을 받는다 (RFC-0007, engine hangul).
+static bool AddChord(ChordLayout *cl, const LowForm *f, int layer, bool isHold, bool forInput, KlayDiag *diag) {
     const LowItem *k = LowForm_Item(f, 1);
     int beAt = FindWordIdx(f, L"be");
     if (!k || k->kind != LOW_ITEM_TOK || k->tok.kind != LOW_STR || k->tok.strLen < 1 || beAt < 2) {
@@ -164,7 +165,12 @@ static bool AddChord(ChordLayout *cl, const LowForm *f, int layer, bool isHold, 
     ChordEntry e;
     memset(&e, 0, sizeof e);
     e.mask = mask; e.layer = layer; e.isHold = isHold ? 1 : 0;
-    int rc = ChordLayout_ActionText(cl, &e, rhs, e.isHold, false);
+    int rc = ChordLayout_ActionText(cl, &e, rhs, e.isHold, forInput);
+    if (rc != 0 && !forInput && !wcsncmp(rhs, L"symbol", 6)) {
+        ChErr(diag, f, L"E-JMT-SYMBOL", L"symbol feeds an engine, and this layout has none",
+              L"write engine hangul . to feed the hangul automaton, or use text");
+        return false;
+    }
     if (rc != 0) {
         ChErr(diag, f, L"E-JMT-ACTION", L"this action is not one the engine knows",
               L"text, key, mod, layer, oneshot, momentary, toggle, switch, pointer, mouse, macro, cancel");
@@ -216,6 +222,7 @@ bool LowBuild_Chord(const LowTree *t, const LowCheckResult *c, ChordLayout *cl, 
     for (int i = 0; i < 128; i++) cl->keyBit[i] = -1;
     ChordLayout_LayerId(cl, L"base");            // 0 번은 언제나 base
     bool ok = true;
+    const bool forInput = !wcscmp(c->engine, L"hangul");   // 한글 자판의 앞단 조합 (RFC-0007)
 
     // 1) 글쇠와 타이밍 먼저 — 조합이 그것을 가리킨다
     int bit = 0;
@@ -261,7 +268,7 @@ bool LowBuild_Chord(const LowTree *t, const LowCheckResult *c, ChordLayout *cl, 
         const wchar_t *head = LowForm_Head(f);
         if (!head) continue;
         if (!wcscmp(head, L"chord") || !wcscmp(head, L"hold")) {
-            if (!AddChord(cl, f, 0, !wcscmp(head, L"hold"), diag)) ok = false;
+            if (!AddChord(cl, f, 0, !wcscmp(head, L"hold"), forInput, diag)) ok = false;
         } else if (!wcscmp(head, L"layer") && f->block) {
             const wchar_t *name = ItemNameOf(LowForm_Item(f, 1));
             int layer = name ? ChordLayout_LayerId(cl, name) : -1;
@@ -271,7 +278,7 @@ bool LowBuild_Chord(const LowTree *t, const LowCheckResult *c, ChordLayout *cl, 
                 const wchar_t *kh = LowForm_Head(kid);
                 if (!kh) continue;
                 if (!wcscmp(kh, L"chord") || !wcscmp(kh, L"hold")) {
-                    if (!AddChord(cl, kid, layer, !wcscmp(kh, L"hold"), diag)) ok = false;
+                    if (!AddChord(cl, kid, layer, !wcscmp(kh, L"hold"), forInput, diag)) ok = false;
                 } else if (wcscmp(kh, L"map") != 0) {     // map 은 조합 자판에서 뜻이 없다 — 조용히 지나친다
                     ChErr(diag, kid, L"E-JMT-SHAPE", L"a layer of a chord layout holds chord and hold lines", NULL);
                     ok = false;

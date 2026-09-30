@@ -483,6 +483,10 @@ static size_t V4Map(wchar_t *out, size_t cch, size_t o, const wchar_t *kind,
 
 bool Klay_WriteV4(const LayoutConfig *lc, wchar_t *out, size_t cch) {
     if (!lc || !out || cch < 256) return false;
+    // 앞단 조합이 붙은 한글 자판(RFC-0007)은 v4 파일에서만 온다 — 그 원문이 곧 펼친 꼴이므로
+    //   여기서 다시 적지 않는다(조합 줄을 잃은 자판을 내보내면 조용히 다른 자판이 된다).
+    if (lc->type == LAYOUT_TYPE_HANGUL_CUSTOM && lc->pHangulLayout &&
+        ((const HangulLayout*)lc->pHangulLayout)->chord) return false;
     out[0] = L'\0';
     size_t o = 0;
     o = Appendf(out, cch, o, L"rem written by jamotong --export (v4 grammar; comments and order are not kept)\n\n");
