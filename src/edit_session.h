@@ -23,6 +23,8 @@ HRESULT RequestReadSelectionString(JamotongTextService *pService, ITfContext *pC
 //   메모장 같은 최신 편집기는 고전 캐럿(GetGUIThreadInfo)이 아예 없어 TSF 로만 잴 수 있다.
 //   문서 배치 싱크 안에서 부르므로 **비동기 읽기 전용** 세션이다.
 HRESULT RequestCaretMoveProbe(JamotongTextService *pService, ITfContext *pContext);
+// 지금 캐럿 자리를 TSF 로 재어 svc->lastCaretRect 에 둔다(동기 읽기 세션, 키 싱크 안에서). 재었으면 true (B16).
+bool RequestCaretRect(JamotongTextService *pService, ITfContext *pContext);
 // 포커스가 EDIT 계열이면 그 HWND, 아니면 NULL. 삽입/교체 시점에 한 번 얻어 이후 EM_* 조작에
 // 재사용한다(후보창 콜백 시점엔 포커스가 옮겨가 GetGUIThreadInfo가 딴 창을 주기 때문).
 HWND EditCtl_FocusEditWindow(void);

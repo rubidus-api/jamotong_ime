@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.61.1** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.1/jamotong-0.61.1.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.1/jamotong-0.61.1.zip)
+**한국어** | [English](README.md) — **Jamotong v0.61.2** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.zip)
 
 # Jamotong (자모통)
 
@@ -9,8 +9,8 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.61.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.1/jamotong-0.61.1.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
-| 자모통 zip (설치기 없음) | [jamotong-0.61.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.1/jamotong-0.61.1.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.61.2.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.61.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
@@ -21,12 +21,12 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 ### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.61.1.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+- **MSI (권장)**: `jamotong-0.61.2.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
   한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
   폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
   정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱**에서 "Jamotong" 을
   제거하면 됩니다. 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
-  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.61.1.msi /qn` (폴더를 정하려면
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.61.2.msi /qn` (폴더를 정하려면
   `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
 - **zip**: 설치기 없이 같은 파일만 담았습니다. 손으로 두고 등록할 분을 위한 것입니다([설치](#설치) 참고).
   `install.bat`·`uninstall.bat` 은 0.61.0 부터 없습니다.
@@ -95,7 +95,7 @@ MSI 가 지웁니다.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.61.1.msi` 를 내려받아 두 번
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.61.2.msi` 를 내려받아 두 번
    누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
 
    설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
@@ -235,9 +235,9 @@ jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 
 각 종류의 주석 달린 문법 예제다.
 
 `layout-ko-onehand.jmt` 는 **한 손 한글 자판**이다: 왼손 여덟 글쇠로, 윗줄(`q w e r`)을 함께 누르면 자음, 아랫줄
-(`a s d f`)을 함께 누르면 모음이 나오고, 낱자는 두벌식처럼 모인다(자음 두 번은 된소리, 모음 둘은 ㅘ 같은 겹모음).
-다른 자판처럼 추가해 쓴다. 남은 틈이 하나 있다: 홑받침 뒤 같은 자음은 늘 된소리가 되어 지금은 `먹고` 가 `머꼬` 로
-나온다. 조합을 적는 법은 [jmt-format.ko.md](jmt-format.ko.md) 에 있다.
+(`a s d f`)을 함께 누르면 모음이 나오고, 낱자는 두벌식처럼 모인다(받침·겹받침, 모음 둘은 ㅘ 같은 겹모음). 된소리는
+윗줄 넷을 함께 눌렀다 뗀 뒤 평음을 친다(`q+w+e+r` 다음 ㄱ = ㄲ). 자음을 두 번 치면 그대로 두 자음이다(`먹고`).
+다른 자판처럼 추가해 쓴다. 조합을 적는 법은 [jmt-format.ko.md](jmt-format.ko.md) 에 있다.
 
 ### 공통 머리부
 

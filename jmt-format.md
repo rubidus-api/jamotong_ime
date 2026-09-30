@@ -157,7 +157,10 @@ engine hangul .
 keys "qwer" "asdf" .
 chord "er" be symbol "ㄱ" .       rem a jamo letter: a two-set jamo - the automaton picks the slot
 chord "d"  be symbol "ㅏ" .
-combine cho "ㄱ" "ㄱ" be "ㄲ" .   rem consonant twice = tense, as in two-set typing
+chord "qwer" be layer tense .   rem one-shot: the next chord comes from the tense layer
+layer tense do
+  chord "er" be symbol "ㄲ" .
+end
 ```
 
 - A **jamo letter** (`ㄱ`, `ㄲ`, `ㅏ`, `ㅘ` ...) is a two-set jamo: consonants start as initials and
@@ -168,13 +171,12 @@ combine cho "ㄱ" "ㄱ" be "ㄲ" .   rem consonant twice = tense, as in two-set 
 - Keys that are not chord keys go through the layout's `map` lines as usual; space, enter and
   backspace work as in any hangul layout. `text`, `key` and the other actions work too (a `text`
   commits the syllable being composed first).
-- In a two-set file layout, a **simple** final followed by the same consonant that a `combine cho`
-  rule doubles becomes a tense initial of the next syllable (`가` ㄷ ㄷ ㅏ → `가따`), because ㄸ ㅃ ㅉ
-  cannot be finals. A double final never splits that way (`읽고` stays `읽고`).
+- A consonant typed twice is a final and the next initial (`먹고`), never a tense consonant; give
+  tense consonants their own chords or a one-shot layer, as above.
 
 `redist/layout-ko-onehand.jmt` is the one-hand layout this was made for (eight left-hand keys: the top
-row gives the fourteen consonants, the bottom row the fifteen vowels). Known gap: after a simple final
-the same consonant always doubles, so `먹고` comes out `머꼬` - there is no syllable-break chord yet.
+row gives the fourteen consonants, the bottom row the fifteen vowels; all four top keys together, then a
+plain consonant, give its tense form).
 
 ### What still uses the older grammar
 

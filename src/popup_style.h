@@ -9,8 +9,10 @@ typedef struct {
     COLORREF bg, text, dim, accent, selBg, selText;
 } PopupColors;
 
-// (x,y,w,h) 를 작업영역 work 안으로 옮긴다. 아래로 넘치면 anchorTop(캐럿 줄 위) 위로 뒤집고,
-// 그래도 안 되면 바닥에 맞춘다. 오른쪽으로 넘치면 왼쪽으로 민다.
+// (x,y,w,h) 를 작업영역 work 안으로 옮긴다. (x,y) 는 캐럿 줄의 왼쪽 아래(캐럿 줄 = anchorTop..y).
+// 아래로 넘치면 anchorTop 위로 뒤집고, 그래도 안 되면 바닥에 맞추되 캐럿 줄을 덮으면 캐럿 옆으로 비켜 선다
+// (오른쪽 먼저, POPUP_SIDE_GAP 만큼 띄워서 — 조합 중 글자를 가리지 않게). 오른쪽으로 넘치면 왼쪽으로 민다.
+#define POPUP_SIDE_GAP 48
 void Popup_ClampRect(const RECT *work, int anchorTop, int w, int h, int *x, int *y);
 
 // (x,y) 에 가장 가까운 모니터의 작업영역. 실패하면 false.

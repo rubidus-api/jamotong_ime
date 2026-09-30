@@ -1184,6 +1184,7 @@ tk_done:
 //   "16진수를 먼저 치고 이 키" 로 강등한다(0.19.1 동작). 창 없이 키만 먹는 상태로는 두지 않는다.
 static void OpenCodeInput(JamotongTextService *obj, ITfContext *pic) {
     RECT rc; int x = 100, y = 100, top = 96;
+    if (pic) RequestCaretRect(obj, pic);   // 조합 전이라도 지금 캐럿 자리에 (B16) — 못 재면 예전 폴백
     if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom + 4; top = rc.top; }
     if (!UwpDetour(obj) && CodeInput_Show(x, y, top, ContextViewWindow(pic))) return;
     if (!HostIsAppContainer()) return;             // 데스크톱에서 창을 못 만들었다 — 예전처럼 아무 일 없음

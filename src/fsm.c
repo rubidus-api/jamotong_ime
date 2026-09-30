@@ -157,22 +157,8 @@ static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, 
                     if (hl) { int t2 = Layout_ChoToJong(layoutRes.index); combined = (t2 > 0) ? fsm_combineJongPair(ctx->jong, t2, hl) : -1; }
                     else combined = Layout_CombineJong(ctx->jong, layoutRes.index);
                 }
-                // 파일 두 벌 자판: 받침과 새 초성이 겹받침은 못 되지만 파일의 초성 결합(ㄷ+ㄷ=ㄸ)은 될 때 —
-                //   받침을 떼어 그 결합으로 새 음절을 시작한다 (한 손 자판의 "두 번 치면 된소리", RFC-0007).
-                //   ㄸ·ㅃ·ㅉ 는 받침이 될 수 없어서, 이 길이 없으면 '가'+ㄷ+ㄷ 가 '갇'+ㄷ 로 갈라진다.
-                //   홑받침에만 쓴다 — 겹받침(ㄺ+ㄱ)을 가르면 읽고·앉자·닭고기가 일꼬·안짜·달꼬기가 된다.
-                int tenseCho = -1;
-                if (combined == -1 && !directJong && hl) {
-                    int jong1 = 0, cho2 = -1;
-                    Layout_SplitJong(ctx->jong, &jong1, &cho2);
-                    if (jong1 == 0 && cho2 >= 0) tenseCho = fsm_combineCho(cho2, layoutRes.index, variant, hl);
-                }
                 if (combined != -1) {   // 2벌식: 종성+초성 → 겹받침
                     ctx->jong = combined; res.preeditChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
-                } else if (tenseCho != -1) {
-                    res.commitChar = ComposeHangul(ctx->cho, ctx->jung, -1);
-                    Fsm_Init(ctx); ctx->state = STATE_CHO; ctx->cho = tenseCho;
-                    res.preeditChar = Layout_ChoToCompatJamo(ctx->cho);
                 } else {   // 새 음절
                     res.commitChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
                     Fsm_Init(ctx); ctx->state = STATE_CHO; ctx->cho = layoutRes.index;

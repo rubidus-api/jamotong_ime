@@ -693,3 +693,31 @@ HRESULT RequestCaretMoveProbe(JamotongTextService *pService, ITfContext *pContex
     es->lpVtbl->Release((ITfEditSession*)es);
     return hr;
 }
+
+// 캐럿 자리만 재는 동기 읽기 세션 (B16). 조합을 한 번도 하지 않은 문맥에서는 lastCaretRect 가 비어 있다 —
+//   UWP 검색 상자처럼 고전 캐럿도 없으면 팝업이 화면 구석에 떴다. 키 싱크 안에서 부른다(동기 가능).
+static HRESULT STDMETHODCALLTYPE CR_DoEditSession(ITfEditSession *pThis, TfEditCookie ec) {
+    CaretProbeSession *es = (CaretProbeSession*)pThis;
+    CaptureCaretRect(es->pService, es->pContext, ec);
+    return S_OK;
+}
+static ITfEditSessionVtbl CaretRectVtbl = { CP_QueryInterface, CP_AddRef, CP_Release, CR_DoEditSession };
+
+bool RequestCaretRect(JamotongTextService *pService, ITfContext *pContext) {
+    if (!pService || !pContext) return false;
+    CaretProbeSession *es = (CaretProbeSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof *es);
+    if (!es) return false;
+    es->lpVtbl = &CaretRectVtbl;
+    es->refCount = 1;
+    es->pService = pService;
+    es->pContext = pContext;
+    pService->lpVtblTIP->AddRef((ITfTextInputProcessor*)pService);
+    pContext->lpVtbl->AddRef(pContext);
+    HRESULT hrSession = E_FAIL;
+    HRESULT hr = pContext->lpVtbl->RequestEditSession(pContext, pService->clientId, (ITfEditSession*)es,
+                                                      TF_ES_SYNC | TF_ES_READ, &hrSession);
+    es->lpVtbl->Release((ITfEditSession*)es);
+    JamoDiag("CARET probe hr=0x%08lX session=0x%08lX valid=%d", (unsigned long)hr, (unsigned long)hrSession,
+             (int)pService->lastCaretValid);
+    return SUCCEEDED(hr) && SUCCEEDED(hrSession) && pService->lastCaretValid;
+}

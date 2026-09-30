@@ -2,13 +2,23 @@
 #include "popup_style.h"
 
 void Popup_ClampRect(const RECT *work, int anchorTop, int w, int h, int *x, int *y) {
-    if (*x + w > work->right) *x = work->right - w;
-    if (*x < work->left)      *x = work->left;          // 작업영역보다 넓으면 왼쪽 가장자리 우선
+    const int caretX = *x, lineBottom = *y;            // 캐럿 줄: 가로 caretX 부터, 세로 anchorTop..lineBottom
+    bool sideways = false;
     if (*y + h > work->bottom) {
         int above = anchorTop - h - 4;                  // 캐럿 줄 위로 뒤집기 (조합 줄을 덮지 않음)
-        *y = (above >= work->top) ? above : work->bottom - h;
+        if (above >= work->top) *y = above;
+        else { *y = work->bottom - h; sideways = true; }   // 위도 아래도 모자라다 (B15)
     }
     if (*y < work->top) *y = work->top;
+    // 위·아래 어디에도 들어가지 않으면 바닥에 맞춘 채 캐럿 옆으로 비켜 선다 — 캐럿 줄을 덮지 않게 (B15,
+    //   150%·800px 에서 9 줄 후보창). 오른쪽이 되면 오른쪽, 아니면 왼쪽, 둘 다 안 되면 예전처럼 덮는다.
+    if (sideways && *y < lineBottom && *y + h > anchorTop) {
+        const int gap = POPUP_SIDE_GAP;
+        if (caretX + gap + w <= work->right) *x = caretX + gap;
+        else if (caretX - 8 - w >= work->left) *x = caretX - 8 - w;
+    }
+    if (*x + w > work->right) *x = work->right - w;
+    if (*x < work->left)      *x = work->left;          // 작업영역보다 넓으면 왼쪽 가장자리 우선
 }
 
 int Popup_Scale(int px, UINT dpi) {
