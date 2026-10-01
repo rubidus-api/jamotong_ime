@@ -250,6 +250,7 @@ static void Jamotong_FoldInput(JamotongTextService *obj) {
     SeqKb_Init(&obj->seqKb);             // 순차 변환의 보류·읽기
     ResetComposition(obj);               // 인라인 Finalize + FSM·모아치기·칩·조합 대상
     CodeInput_Hide();
+    if (CandidateUI_IsVisible()) JamoDiag("FOLD cancels candidates tid=%lu", (unsigned long)GetCurrentThreadId());
     CandidateUI_Cancel();                // 콜백 경유로 pic 참조까지 정리
     UiCodeHide(obj);                     // UWP 헬퍼가 그린 것들 (RFC-0015)
     UiCandHide(obj);
@@ -991,7 +992,7 @@ static ULONG STDMETHODCALLTYPE KES_Release(ITfKeyEventSink *pThis) {
 
 static HRESULT STDMETHODCALLTYPE KES_OnSetFocus(ITfKeyEventSink *pThis, BOOL fForeground) {
     JamotongTextService *obj = IMPL_TO_OBJ(KES, pThis);
-    (void)fForeground;
+    JamoDiag("KES focus fg=%d tid=%lu", (int)fForeground, (unsigned long)GetCurrentThreadId());
     // 포커스 변경 시 조합 상태 전면 리셋 + 팝업들 정리 → 새 위치에서 깨끗이 시작.
     // 후보창은 Cancel(콜백 경유)로 닫아 pic 참조가 정리되게 한다 — 열린 채 방치되던 '멈춤' 방지.
     Jamotong_Transition(obj, TRANS_WHY_FOCUS, NULL);   // 남은 음절은 조합 대상에 확정 + 정리 (W1-09/W1-03)
@@ -2033,6 +2034,14 @@ static HRESULT STDMETHODCALLTYPE TMES_OnUninitDocumentMgr(ITfThreadMgrEventSink 
 static HRESULT STDMETHODCALLTYPE TMES_OnSetFocus(ITfThreadMgrEventSink *pThis, ITfDocumentMgr *pdimFocus, ITfDocumentMgr *pdimPrev) {
     JamotongTextService *obj = IMPL_TO_OBJ(TMES, pThis);
     (void)pdimPrev;
+#ifdef JAMO_DIAG
+    {   // 무엇이 문서 포커스를 가져갔나 — 2026-10-02 실기에서 시험 도구의 콘솔 창이 후보창을 닫고 있었다
+        HWND fg = GetForegroundWindow(); DWORD pid = 0; wchar_t cls[64] = L"";
+        if (fg) { GetWindowThreadProcessId(fg, &pid); GetClassNameW(fg, cls, 64); }
+        JamoDiag("TMES focus dim=%p prev=%p tid=%lu fg-pid=%lu self=%lu fg-class=%ls", (void*)pdimFocus, (void*)pdimPrev,
+                 (unsigned long)GetCurrentThreadId(), (unsigned long)pid, (unsigned long)GetCurrentProcessId(), cls);
+    }
+#endif
     ITfContext *pCtx = NULL;
     if (pdimFocus && SUCCEEDED(pdimFocus->lpVtbl->GetTop(pdimFocus, &pCtx)) && pCtx) {
         AdviseTextEditSink(obj, pCtx);        // 새 포커스 컨텍스트에 텍스트편집 싱크 부착
@@ -2132,7 +2141,7 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis);  
 static HRESULT TIP_ActivateCommon(ITfTextInputProcessor *pThis, ITfThreadMgr *ptim, TfClientId tid, DWORD dwFlags) {
     JamotongTextService *obj = IMPL_TO_OBJ(TIP, pThis);
     obj->activateFlags = dwFlags;
-    JamoDiag("ACTIVATE flags=0x%08lX", (unsigned long)dwFlags);
+    JamoDiag("ACTIVATE flags=0x%08lX tid=%lu", (unsigned long)dwFlags, (unsigned long)GetCurrentThreadId());
     obj->threadMgr = ptim;
     obj->threadMgr->lpVtbl->AddRef(obj->threadMgr);
     obj->clientId = tid;
@@ -2186,6 +2195,7 @@ static HRESULT STDMETHODCALLTYPE TIP_ActivateEx(ITfTextInputProcessor *pThis, IT
 
 static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     JamotongTextService *obj = IMPL_TO_OBJ(TIP, pThis);
+    JamoDiag("DEACTIVATE tid=%lu", (unsigned long)GetCurrentThreadId());
 
     // 설정창 스레드 종료 후 조인 — 이걸 안 하면 설정창이 (곧 해제될) obj->config를 계속 참조해 UAF.
     SettingsUI_Shutdown();

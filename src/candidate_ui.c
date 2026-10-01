@@ -376,6 +376,8 @@ static void RefreshCandWindow(void) {
 }
 
 void CandidateUI_Hide(void) {
+    JamoDiag("CAND hide tid=%lu owner-tid=%lu hwnd=%p", (unsigned long)GetCurrentThreadId(),
+             (unsigned long)g_ownerTid, (void*)g_hwndCandi);
     OwnerThreadGuard("Hide");
     UiElem_EndCandidate();   // 게이트 종료 (began 아니면 no-op) — EndUIElement 는 의무
     RemoveKbHook();   // 표시 중에만 유지되는 키 라우팅 폴백 해제
