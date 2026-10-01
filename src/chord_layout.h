@@ -122,6 +122,10 @@ typedef struct {
     void  *symbolCtx;
     void (*textSink)(void *ctx, const wchar_t *s);       // CA_TEXT·매크로 text 가 갈 곳 (B11 잔여)
     void  *textCtx;
+    // CA_KEY 를 보내기 직전에 입력기에 묻는다 (RFC-0007 한 손 자판): 조합 중인 음절을 먼저 확정하거나,
+    //   조합 중 Backspace 처럼 그 키를 엔진 안에서 끝내면 true(그러면 키를 보내지 않는다).
+    bool (*keySink)(void *ctx, int vk, int mods);
+    void  *keyCtx;
     bool pendClosed;     // 3판: 형성 중 조합의 첫 글쇠가 떨어져 조합이 닫혔다 (새 글쇠는 다음 조합)
     // 3판 연속 포인터 (§6.5): 글쇠마다 제 몫을 기억해 두었다가 그 글쇠를 떼면 그만큼만 뺀다.
     signed char ptrKeyX[256], ptrKeyY[256];   // 이동 방향 (-1/0/1)
@@ -157,6 +161,8 @@ void ChordKb_Init(ChordKbContext *c);
 // `symbol` 동작이 갈 곳 (RFC-0016 §6.3). 입력 자판에서 입력기가 여기에 엔진을 물린다.
 //   싱크가 없으면 symbol 은 버려진다 — 엔진 없는 자판에서는 파서가 이미 막는다.
 void ChordKb_SetSymbolSink(ChordKbContext *c, void (*sink)(void *ctx, const wchar_t *sym), void *ctx);
+// `key` 동작이 나가기 직전의 확인 (RFC-0007). 없으면 예전처럼 곧장 보낸다. 키 이벤트 동안만 건다.
+void ChordKb_SetKeySink(ChordKbContext *c, bool (*sink)(void *ctx, int vk, int mods), void *ctx);
 // `text` 가 갈 곳. 입력기는 여기에 **문서 편집 경로**(TSF 편집 세션 / EDIT 의 선택 치환)를 물린다 —
 // 합성 유니코드 입력은 시스템 입력 큐를 거쳐 우리가 방금 넣은 글자와 순서가 엉킬 수 있다.
 //   싱크가 없으면(관리 앱 시험칸, 매크로의 늦은 단계처럼 문맥이 없는 자리) 예전처럼 합성 입력으로

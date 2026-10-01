@@ -1,4 +1,4 @@
-[한국어](README.ko.md) | **English** — **Jamotong v0.61.2** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.zip)
+[한국어](README.ko.md) | **English** — **Jamotong v0.61.3** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.3/jamotong-0.61.3.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.3/jamotong-0.61.3.zip)
 
 # Jamotong (자모통)
 
@@ -9,8 +9,8 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer package (recommended)** | **[jamotong-0.61.2.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
-| Jamotong zip (no installer) | [jamotong-0.61.2.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.2/jamotong-0.61.2.zip) — the same files, to place and register by hand (see [Install](#install)) |
+| **Jamotong installer package (recommended)** | **[jamotong-0.61.3.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.3/jamotong-0.61.3.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
+| Jamotong zip (no installer) | [jamotong-0.61.3.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.61.3/jamotong-0.61.3.zip) — the same files, to place and register by hand (see [Install](#install)) |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
@@ -21,13 +21,13 @@ All versions and release notes: [Releases](https://github.com/rubidus-api/jamoto
 
 ### Installing
 
-- **The MSI (recommended)**: double-click `jamotong-0.61.2.msi`. The first page asks for the language
+- **The MSI (recommended)**: double-click `jamotong-0.61.3.msi`. The first page asks for the language
   of the installer (English, or Korean — picked for you when Windows is set to Korean), then shows the
   license and the install folder. It asks for administrator rights once — registering an input method
   writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by running the newer MSI;
   remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart: apps that were already
   running keep the previous copy until you sign in again. A silent install works too:
-  `msiexec /i jamotong-0.61.2.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
+  `msiexec /i jamotong-0.61.3.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
 - **The zip**: the same files without an installer, for people who place and register them by hand
   (see [Install](#install)). `install.bat` and `uninstall.bat` are gone as of 0.61.0.
 
@@ -112,7 +112,7 @@ Your settings stay per user in `%APPDATA%\Jamotong`. An upgrade reuses the folde
 
 ## Install
 
-1. Download `jamotong-0.61.2.msi` from
+1. Download `jamotong-0.61.3.msi` from
    [Releases](https://github.com/rubidus-api/jamotong_ime/releases) and double-click it. It installs the
    program and registers the 64-bit and 32-bit text services.
 
@@ -270,7 +270,11 @@ The layout list has no fixed size — add as many as you like and switch through
 together in the top row (`q w e r`) give a consonant and in the bottom row (`a s d f`) a vowel; the
 jamo then compose the two-set way (finals, double finals, two vowels make ㅘ-type vowels). For a tense
 consonant press all four top keys together, then the plain one (`q+w+e+r`, then ㄱ = ㄲ); a consonant
-typed twice stays two consonants (`먹고`). Add it like any other layout. How the chords are written is in
+typed twice stays two consonants (`먹고`). Three thumb keys reach everything else: hold `v` and press
+a finger to switch to English, symbols, numbers, brackets, navigation, function keys or plain jamo
+(`v`+`r` is back to Hangul); hold `b` for a one-shot Ctrl/Shift/Alt/Win on the next key (so `b`+`f`,
+then English `c`, is Ctrl+C); hold space for Backspace, Enter, Delete, Tab and Esc. The file's header
+has the full table. Add it like any other layout. How the chords are written is in
 [jmt-format.md](jmt-format.md).
 
 ### Common header

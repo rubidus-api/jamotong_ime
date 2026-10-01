@@ -1,20 +1,26 @@
-rem 한 손 한글 — 행 분리 조합 (RFC-0007 §12). 왼손 여덟 글쇠로 한글을 다 친다.
-rem   윗줄 q w e r 은 자음, 아랫줄 a s d f 는 모음. 한 줄 안의 글쇠를 함께 눌렀다 떼면 낱자 하나가 나온다.
-rem   낱자는 두벌식 오토마타로 들어간다 — 받침·도깨비불·겹받침은 두벌식과 같다.
-rem   된소리는 윗줄 넷(q w e r)을 함께 눌렀다 뗀 뒤 평음을 친다: q+w+e+r 다음 ㄱ = ㄲ (ㄷ ㅂ ㅅ ㅈ 도 같다).
-rem   같은 자음을 두 번 친다고 된소리가 되지는 않는다 — ㄱ ㄱ 은 받침 ㄱ 과 다음 초성 ㄱ 이다(먹고, 학교).
-rem   ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ 는 모음 두 개(ㅗ ㅏ = ㅘ).
-rem   사이띄개·엔터·백스페이스는 여느 한글 자판처럼 쓴다.
+rem 한 손 한글 — 행 분리 조합 (RFC-0007). 왼손 여덟 글쇠와 엄지 셋으로 한글·영문·기호·숫자·이동·펑션을 다 친다.
+rem   이 파일은 jamotong-private/tools/gen_onehand.py 가 만든다 — 고칠 때는 그 표를 고친다.
+rem
+rem   한글(기본 층): 윗줄 q w e r 을 함께 누르면 자음, 아랫줄 a s d f 를 함께 누르면 모음. 한 조합을 다 뗀 뒤 다음
+rem     조합을 누른다. 낱자는 두벌식 오토마타로 들어간다 — 받침·도깨비불·겹받침은 두벌식과 같다.
+rem     된소리: 윗줄 넷을 함께 눌렀다 떼고 평음(q+w+e+r 다음 ㄱ = ㄲ). 자음 두 번은 받침과 다음 초성(먹고).
+rem     ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ 는 모음 두 개(ㅗ ㅏ = ㅘ).
+rem   엄지(어느 층에서나): space 탭 = 띄어쓰기.
+rem     v 를 누른 채: f 영문 · r 한글 · d 기호 · e 숫자 · w 괄호 · s 이동 · a 펑션 · q 낱자 (층을 바꿔 둔다)
+rem     b 를 누른 채: f Ctrl · d Shift · s Alt · a Win · r 오른Ctrl · e 오른Shift · w 오른Alt (다음 키 하나에) · q Tab
+rem     space 를 누른 채: f Backspace · d Space · s Enter · a Delete · r Tab · e Esc
+rem   단축키(Ctrl+C 등)는 영문 층에서 친다 — 영문 글자는 실제 글쇠로 나가 수식키가 얹힌다.
 
 layout name "한 손 한글" .
 layout format 4 .
 layout license "자모통 RFC-0007 의 배열. 이 파일의 표기는 자모통의 것이다." .
 engine hangul .
 
-keys "qwer" "asdf" .
+keys "qwer" "asdf" "vb " .
 chordterm 50 .
+holdterm 200 .
 
-rem 윗줄 — 자음 열넷
+rem 한글 — 윗줄 자음 열넷, 아랫줄 모음 열다섯 (§12)
 chord "e"    be symbol "ㅇ" .
 chord "r"    be symbol "ㄴ" .
 chord "er"   be symbol "ㄱ" .
@@ -29,8 +35,6 @@ chord "qr"   be symbol "ㅌ" .
 chord "eqw"  be symbol "ㅊ" .
 chord "qrw"  be symbol "ㅍ" .
 chord "eqr"  be symbol "ㅋ" .
-
-rem 아랫줄 — 모음 열다섯
 chord "d"    be symbol "ㅏ" .
 chord "f"    be symbol "ㅣ" .
 chord "df"   be symbol "ㅡ" .
@@ -47,15 +51,251 @@ chord "afs"  be symbol "ㅑ" .
 chord "adf"  be symbol "ㅖ" .
 chord "adfs" be symbol "ㅒ" .
 
-rem 된소리 — 윗줄 넷을 함께 누르면 다음 조합 하나만 된소리 면이 된다(원샷). 거기서 평음 자리를 치면 된소리,
-rem   다른 조합은 아무것도 내지 않고 된소리 면만 끝난다. 격음은 전용 조합이 있으므로 ㄱ+ㅎ 같은 결합은 두지 않는다 (§12.1.1).
+rem 된소리 — 윗줄 넷이 다음 조합 하나를 된소리 면으로 (원샷, §15.2)
 chord "qwer" be layer tense .
+chord " "  be text " " .
+hold  "v"  be momentary (layer gate) .
+hold  "b"  be momentary (layer mods) .
+hold  " "  be momentary (layer edit) .
+
 layer tense do
-  chord "er"  be symbol "ㄲ" .
-  chord "rw"  be symbol "ㄸ" .
-  chord "eq"  be symbol "ㅃ" .
-  chord "ew"  be symbol "ㅆ" .
-  chord "erw" be symbol "ㅉ" .
+  chord "er"   be symbol "ㄲ" .
+  chord "rw"   be symbol "ㄸ" .
+  chord "eq"   be symbol "ㅃ" .
+  chord "ew"   be symbol "ㅆ" .
+  chord "erw"  be symbol "ㅉ" .
+end
+
+rem v 를 누른 채 — 층 바꾸기 (§6.1.1)
+layer gate do
+  chord "f" be switch (layer eng) .
+  chord "r" be switch (layer base) .
+  chord "d" be switch (layer sym) .
+  chord "s" be switch (layer nav) .
+  chord "a" be switch (layer fn) .
+  chord "e" be switch (layer num) .
+  chord "q" be switch (layer jamo) .
+  chord "w" be switch (layer brk) .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem b 를 누른 채 — 다음 키 하나에 얹는 수식키, 겹쳐 걸 수 있다 (§6.2)
+layer mods do
+  chord "f" be mod ctrl .
+  chord "d" be mod shift .
+  chord "s" be mod alt .
+  chord "a" be mod win .
+  chord "r" be mod rctrl .
+  chord "e" be mod rshift .
+  chord "w" be mod ralt .
+  chord "q" be key tab .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem space 를 누른 채 — 편집 글쇠 (§6.1.1)
+layer edit do
+  chord "f" be key back .
+  chord "d" be text " " .
+  chord "s" be key enter .
+  chord "a" be key delete .
+  chord "r" be key tab .
+  chord "e" be key esc .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L1 영문 (§11.6) — 실제 글쇠로 나가 Shift·Ctrl 이 얹힌다
+layer eng do
+  chord "f"    be key e .
+  chord "d"    be key t .
+  chord "s"    be key a .
+  chord "r"    be key c .
+  chord "e"    be key r .
+  chord "a"    be key v .
+  chord "w"    be key d .
+  chord "q"    be key y .
+  chord "fd"   be key s .
+  chord "ds"   be key n .
+  chord "re"   be key o .
+  chord "fs"   be key i .
+  chord "fe"   be key f .
+  chord "se"   be key z .
+  chord "sa"   be key x .
+  chord "ew"   be key p .
+  chord "fa"   be key l .
+  chord "da"   be key u .
+  chord "rw"   be key w .
+  chord "aw"   be key b .
+  chord "ra"   be key g .
+  chord "ea"   be key h .
+  chord "dr"   be key m .
+  chord "wq"   be key k .
+  chord "fw"   be key j .
+  chord "sr"   be key q .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L2 기호 (§11.7 ①)
+layer sym do
+  chord "f"    be text "_" .
+  chord "d"    be text "," .
+  chord "s"    be text ">" .
+  chord "r"    be text "-" .
+  chord "e"    be text "." .
+  chord "a"    be text ";" .
+  chord "w"    be text ":" .
+  chord "q"    be text "$" .
+  chord "fd"   be text "\"" .
+  chord "ds"   be text "<" .
+  chord "re"   be text "/" .
+  chord "fs"   be text "=" .
+  chord "fe"   be text "*" .
+  chord "se"   be text "&" .
+  chord "sa"   be text "+" .
+  chord "ew"   be text "#" .
+  chord "fa"   be text "|" .
+  chord "da"   be text "\\" .
+  chord "rw"   be text "!" .
+  chord "aw"   be text "~" .
+  chord "ra"   be text "^" .
+  chord "fds"  be text "'" .
+  chord "dsa"  be text "`" .
+  chord "rew"  be text "?" .
+  chord "fda"  be text "%" .
+  chord "fsa"  be text "@" .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L2 괄호 쌍 (§11.7 ②) — 위 = 여는, 홈 = 닫는
+layer brk do
+  chord "r" be text "(" .
+  chord "f" be text ")" .
+  chord "e" be text "{" .
+  chord "d" be text "}" .
+  chord "w" be text "[" .
+  chord "s" be text "]" .
+  chord "q" be text "<" .
+  chord "a" be text ">" .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L2 숫자 (§11.7 ③)
+layer num do
+  chord "f" be text "1" .
+  chord "d" be text "2" .
+  chord "s" be text "3" .
+  chord "a" be text "4" .
+  chord "r" be text "5" .
+  chord "e" be text "6" .
+  chord "w" be text "7" .
+  chord "q" be text "8" .
+  chord "fd" be text "9" .
+  chord "fs" be text "0" .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L3 이동 (§11.8) — 수식키가 얹힌다(Shift+화살표로 고르기)
+layer nav do
+  chord "e" be key up .
+  chord "d" be key down .
+  chord "s" be key left .
+  chord "f" be key right .
+  chord "q" be key home .
+  chord "a" be key End .
+  chord "w" be key pgup .
+  chord "r" be key pgdn .
+  chord "fd" be key delete .
+  chord "sa" be key insert .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem L4 펑션 (§11.8)
+layer fn do
+  chord "q" be key f1 .
+  chord "w" be key f2 .
+  chord "e" be key f3 .
+  chord "r" be key f4 .
+  chord "a" be key f5 .
+  chord "s" be key f6 .
+  chord "d" be key f7 .
+  chord "f" be key f8 .
+  chord "qw" be key f9 .
+  chord "we" be key f10 .
+  chord "er" be key f11 .
+  chord "as" be key f12 .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+rem 낱자 — 오토마타를 거치지 않는 자모(ㅋㅋ·ㅠㅠ). 윗줄 자음, 아랫줄 모음
+layer jamo do
+  chord "e"    be text "ㅇ" .
+  chord "r"    be text "ㄴ" .
+  chord "er"   be text "ㄱ" .
+  chord "w"    be text "ㄹ" .
+  chord "ew"   be text "ㅅ" .
+  chord "rw"   be text "ㄷ" .
+  chord "erw"  be text "ㅈ" .
+  chord "q"    be text "ㅎ" .
+  chord "qw"   be text "ㅁ" .
+  chord "eq"   be text "ㅂ" .
+  chord "qr"   be text "ㅌ" .
+  chord "eqw"  be text "ㅊ" .
+  chord "qrw"  be text "ㅍ" .
+  chord "eqr"  be text "ㅋ" .
+  chord "d"    be text "ㅏ" .
+  chord "f"    be text "ㅣ" .
+  chord "df"   be text "ㅡ" .
+  chord "s"    be text "ㅗ" .
+  chord "ds"   be text "ㅓ" .
+  chord "fs"   be text "ㅜ" .
+  chord "dfs"  be text "ㅕ" .
+  chord "a"    be text "ㅔ" .
+  chord "as"   be text "ㅐ" .
+  chord "ad"   be text "ㅢ" .
+  chord "af"   be text "ㅛ" .
+  chord "ads"  be text "ㅠ" .
+  chord "afs"  be text "ㅑ" .
+  chord "adf"  be text "ㅖ" .
+  chord "adfs" be text "ㅒ" .
+  chord "qwer" be layer jamotense .
+  chord " "  be text " " .
+  hold  "v"  be momentary (layer gate) .
+  hold  "b"  be momentary (layer mods) .
+  hold  " "  be momentary (layer edit) .
+end
+
+layer jamotense do
+  chord "er"   be text "ㄲ" .
+  chord "rw"   be text "ㄸ" .
+  chord "eq"   be text "ㅃ" .
+  chord "ew"   be text "ㅆ" .
+  chord "erw"  be text "ㅉ" .
 end
 
 rem 겹받침

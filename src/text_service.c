@@ -903,6 +903,26 @@ static void HangulSymbolSink(void *ctx, const wchar_t *sym) {
         }
     }
 }
+// 앞단 조합의 `key` 동작 직전 (RFC-0007 한 손 자판의 편집·영문·이동 층). 보내는 키는 합성 입력이라 이 입력기를
+//   거치지 않으므로, 조합 중인 음절을 여기서 정리한다: 수식키 없는 Backspace 는 여느 한글 자판처럼 조합 안에서
+//   지우고(키를 보내지 않는다), 그 밖의 키는 음절을 먼저 확정한 뒤 보낸다 — 아니면 키가 음절을 앞지른다.
+static bool HangulKeySink(void *ctx, int vk, int mods) {
+    SeqSymbolCtx *c = (SeqSymbolCtx *)ctx;
+    if (!c || !c->obj || c->obj->fsm.state == STATE_EMPTY) return false;
+    JamotongTextService *obj = c->obj;
+    if (vk == VK_BACK && !mods) {
+        wchar_t pe = 0;
+        if (obj->config.options.jamoDelete) Fsm_Backspace(&obj->fsm, &pe);
+        else Fsm_Init(&obj->fsm);
+        FsmResult res = {0, pe, true};
+        OutputResultSeq(obj, c->pic, res, FALSE);
+        return true;
+    }
+    FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+    OutputResultSeq(obj, c->pic, res, TRUE);
+    return false;
+}
+
 // 앞단 조합의 `text` 동작: 조합 중인 음절을 먼저 확정한다 — 아니면 글자가 음절 앞에 끼어든다.
 static void HangulTextSink(void *ctx, const wchar_t *text) {
     SeqSymbolCtx *c = (SeqSymbolCtx *)ctx;
@@ -1455,6 +1475,9 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
 
                 RECT rcSel;   // 위치: 선택/캐럿 rect(방금 세션서 캡처) → GUIThreadInfo 폴백
                 int x = 100, y = 100, caretTop = 96;
+                // 둘 다 없으면(조합 없는 COMMIT 경로·고전 캐럿 없는 편집기) 지금 캐럿을 TSF 로 재 본다 — 화면 구석
+                //   (100,100)에 뜨던 것(B14, 메모장 새 탭). 코드 입력창과 같은 방법(B16).
+                if (!GetCaretScreenRect(obj, &rcSel) && pic) RequestCaretRect(obj, pic);
                 if (GetCaretScreenRect(obj, &rcSel)) { x = rcSel.left; y = rcSel.bottom + 4; caretTop = rcSel.top; }
 
                 // 후보창 글꼴/크기는 설정을 따른다 (전 요소 단일 글꼴 — candidate_ui.c)
@@ -1674,11 +1697,13 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 SeqSymbolCtx sctx = { obj, pic };
                 ChordKb_SetSymbolSink(&obj->chordKb, HangulSymbolSink, &sctx);
                 if (pic) ChordKb_SetTextSink(&obj->chordKb, HangulTextSink, &sctx);
+                if (pic) ChordKb_SetKeySink(&obj->chordKb, HangulKeySink, &sctx);
                 wchar_t ck = GetQwertyChar(wParam, isShift);
                 bool ceaten = ChordKb_KeyDown(&obj->chordKb, (const ChordLayout*)hl->chord, (UINT)wParam, ck);
                 ScheduleChordTick(obj);
                 ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
                 ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);
+                ChordKb_SetKeySink(&obj->chordKb, NULL, NULL);
                 if (ceaten) {
                     if (pfEaten) *pfEaten = TRUE;
                     goto kd_done;
@@ -1798,12 +1823,16 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
             if (cl) { ChordKb_SetSymbolSink(&obj->chordKb, HangulSymbolSink, &sctx); hangulFront = true; }
         }
         if (cl && pic) {   // `text` 는 문서로 (한글 앞단은 조합 중인 음절을 먼저 확정한다)
-            if (hangulFront) ChordKb_SetTextSink(&obj->chordKb, HangulTextSink, &sctx);
+            if (hangulFront) {
+                ChordKb_SetTextSink(&obj->chordKb, HangulTextSink, &sctx);
+                ChordKb_SetKeySink(&obj->chordKb, HangulKeySink, &sctx);
+            }
             else ChordKb_SetTextSink(&obj->chordKb, ChordTextSink, &sctx);
         }
         bool eaten = ChordKb_KeyUp(&obj->chordKb, cl, (UINT)wParam);
         ChordKb_SetSymbolSink(&obj->chordKb, NULL, NULL);
         ChordKb_SetTextSink(&obj->chordKb, NULL, NULL);
+        ChordKb_SetKeySink(&obj->chordKb, NULL, NULL);
         LeaveCriticalSection(&g_configLock);
         ScheduleChordTick(obj);
         if (eaten && pfEaten) *pfEaten = TRUE;

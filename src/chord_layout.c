@@ -213,7 +213,9 @@ static void ExecChord(ChordKbContext *c, const ChordLayout *cl, const ChordEntry
     switch (e->act) {
         // 3판: 문자열에는 대기 중 원샷 수정키를 씌우지 않고 취소한다 (§6.2 — "a" 에 Shift 를 씌워 대문자/단축키로 만들지 않는다)
         case CA_TEXT:   SendText(c, e->text, (cl && cl->v3) ? 0 : c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
-        case CA_KEY:    SendVKey(e->vk, mods, e->keyExt); c->oneshotMod = 0; c->oneshotLayer = -1; break;
+        case CA_KEY:
+            if (!(c->keySink && c->keySink(c->keyCtx, e->vk, mods))) SendVKey(e->vk, mods, e->keyExt);
+            c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_MOVE:  SendMouseMove(e->p1, e->p2); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_BTN:   SendMouseBtn(e->p1, e->p2, c->oneshotMod); c->oneshotMod = 0; c->oneshotLayer = -1; break;
         case CA_MOUSE_WHEEL: SendMouseWheel(e->p1); c->oneshotMod = 0; c->oneshotLayer = -1; break;
@@ -247,6 +249,12 @@ void ChordKb_SetSymbolSink(ChordKbContext *c, void (*sink)(void *ctx, const wcha
     if (!c) return;
     c->symbolSink = sink;
     c->symbolCtx = ctx;
+}
+
+void ChordKb_SetKeySink(ChordKbContext *c, bool (*sink)(void *ctx, int vk, int mods), void *ctx) {
+    if (!c) return;
+    c->keySink = sink;
+    c->keyCtx = ctx;
 }
 
 void ChordKb_SetTextSink(ChordKbContext *c, void (*sink)(void *ctx, const wchar_t *s), void *ctx) {

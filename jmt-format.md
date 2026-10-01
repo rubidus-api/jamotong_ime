@@ -169,14 +169,21 @@ end
 - An **ASCII letter** is read as a key of this layout, so it must appear in a `map` line.
 - Anything else is `E-JMT-SYMBOL`. `moachigi` and chords together are `E-JMT-V4-MIX`.
 - Keys that are not chord keys go through the layout's `map` lines as usual; space, enter and
-  backspace work as in any hangul layout. `text`, `key` and the other actions work too (a `text`
-  commits the syllable being composed first).
+  backspace work as in any hangul layout. `text`, `key` and the other actions work too: a `text`
+  commits the syllable being composed first, and so does a `key` - except a `key back` with no
+  modifier, which deletes inside the syllable like the Backspace key. A `key` is the real key, so
+  pending one-shot modifiers apply to it (`mod ctrl`, then `key c` = Ctrl+C); a `text` drops them.
 - A consonant typed twice is a final and the next initial (`먹고`), never a tense consonant; give
   tense consonants their own chords or a one-shot layer, as above.
 
 `redist/layout-ko-onehand.jmt` is the one-hand layout this was made for (eight left-hand keys: the top
 row gives the fourteen consonants, the bottom row the fifteen vowels; all four top keys together, then a
-plain consonant, give its tense form).
+plain consonant, give its tense form). Three thumb keys open the other layers - English, symbols,
+numbers, brackets, navigation, function keys, plain jamo, modifiers and editing keys; its header lists
+them.
+
+Key names are not case-sensitive, but the words of the language are: write the End key `key End`,
+because `end` closes a block.
 
 ### What still uses the older grammar
 
