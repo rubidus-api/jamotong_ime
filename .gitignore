@@ -57,3 +57,16 @@ resources/cache/
 
 # agy-only customization layer (local; see rootsator RFC-0001)
 /.agents/
+
+# ── Private layout (links into the private sibling; kit 0.10.0) ──
+/scripts/gate.sh
+/scripts/worklog.sh
+/docs/agents
+/docs/rfc
+/docs/research
+/docs/benchmark
+/docs/backlogs
+/docs/plans
+/docs/requirements
+/docs/resources
+/docs/tests
