@@ -160,7 +160,14 @@ static int g_CurrentDpi = 96;
 #define ID_CMB_PVSIZE        1043   // 미리보기 글꼴 크기 (Auto / 고정 px, 직접 입력 가능)
 
 // 탭 소속 태그 (컨트롤 GWLP_USERDATA). TAB_ALWAYS=탭전환과 무관하게 항상 표시.
-enum { TAB_LAYOUTS = 0, TAB_SHORTCUTS = 1, TAB_OPTIONS = 2, TAB_GENERAL = 3, TAB_ALWAYS = 99 };
+enum { TAB_LAYOUTS = 0, TAB_LAYOUTOPTS = 1, TAB_SHORTCUTS = 2, TAB_OPTIONS = 3, TAB_GENERAL = 4, TAB_ALWAYS = 99 };
+// Layout Options 탭 (2026-10-03, 오너: "자판별로 옵션 설정이 필요한 경우가 있어요 … 탭을 추가해 주세요").
+//   선택은 자판에 붙는다(간체·번체 중국어도 서로 다른 자판이다) — 그래서 언어가 아니라 자판 이름으로 고른다.
+#define ID_CMB_LOPT_LAYOUT   1050
+#define ID_CHK_LOPT_SENTENCE 1051
+#define ID_CHK_LOPT_SUGGEST  1052
+#define ID_LBL_LOPT_HINT     1053
+static int g_loptSel = 0;   // 고른 자판 (g_TempConfig.layouts 의 번호)
 static int g_curTab = 0;
 
 // Shortcuts Group — 위 콤보로 기능을 고르고 아래 리스트에서 그 기능의 단축키를 추가/삭제
@@ -413,8 +420,31 @@ static HWND MkCtl(HWND parent, LPCWSTR cls, LPCWSTR txt, DWORD style, DWORD ex,
 // 직접 자식만 순회한다. EnumChildWindows는 손자까지 재귀하므로 콤보 박스 내부의
 // 에디트 자식(USERDATA=0=TAB_LAYOUTS)까지 숨겨버림 — 크기 콤보가 "Auto" 대신
 // 빈칸으로 보이던 원인.
+// Layout Options 탭을 지금 g_TempConfig 로 채운다 (자판 목록은 Layouts 탭에서 바뀔 수 있으므로 탭을 열 때마다).
+static void LoptRefresh(HWND hwnd, bool refill) {
+    HWND cmb = GetDlgItem(hwnd, ID_CMB_LOPT_LAYOUT);
+    if (!cmb) return;
+    if (refill) {
+        SendMessageW(cmb, CB_RESETCONTENT, 0, 0);
+        for (int i = 0; i < g_TempConfig.layoutCount; i++)
+            SendMessageW(cmb, CB_ADDSTRING, 0, (LPARAM)(g_TempConfig.layouts[i].name ? g_TempConfig.layouts[i].name : L"?"));
+        if (g_loptSel >= g_TempConfig.layoutCount) g_loptSel = 0;
+        SendMessageW(cmb, CB_SETCURSEL, (WPARAM)g_loptSel, 0);
+    }
+    const LayoutConfig *L = (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) ? &g_TempConfig.layouts[g_loptSel] : NULL;
+    bool seq = L && L->type == LAYOUT_TYPE_SEQUENCE;
+    HWND s = GetDlgItem(hwnd, ID_CHK_LOPT_SENTENCE), g = GetDlgItem(hwnd, ID_CHK_LOPT_SUGGEST);
+    EnableWindow(s, seq); EnableWindow(g, seq);
+    SendMessageW(s, BM_SETCHECK, (seq && !L->optNoSentence) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g, BM_SETCHECK, (seq && !L->optNoSuggest) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
+        ? L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word."
+        : L"This layout has no options of its own. Options appear here for input layouts that convert a reading (Chinese pinyin, Japanese kana).");
+}
+
 static void ShowTab(HWND hwnd, int sel) {
     g_curTab = sel;
+    if (sel == TAB_LAYOUTOPTS) LoptRefresh(hwnd, true);
     // 탭 머리도 같은 탭을 가리키게 한다 — 창을 다시 만들면 탭 컨트롤은 0(Layouts)으로 시작하는데
     // 내용은 기억한 탭을 보여 줘 머리와 내용이 어긋났다 (BACKLOGS B9). 같은 값이면 알림도 없다.
     HWND tab = GetDlgItem(hwnd, ID_TAB);
@@ -430,7 +460,7 @@ static void ShowTab(HWND hwnd, int sel) {
 #define WIN_H_MIN 436
 static int g_winH = WIN_H_MIN;   // 현재 논리 높이
 
-// UI 생성 — 탭 4개(Layouts/Shortcuts/IME Options/General) + 하단 Apply/Cancel(항상 표시)
+// UI 생성 — 탭 5개(Layouts/Layout Options/Shortcuts/IME Options/General) + 하단 Apply/Cancel(항상 표시)
 static void CreateControls(HWND hwnd) {
     const int W = WIN_W, H = g_winH, BB = 40;   // BB=하단 바 높이
     const int listH = H - BB - 96;              // 리스트 높이(세로 리사이즈 반영)
@@ -438,10 +468,20 @@ static void CreateControls(HWND hwnd) {
     // 탭 컨트롤 (항상 표시)
     HWND tab = MkCtl(hwnd, L"SysTabControl32", NULL, 0, 0, 6, 6, W - 12, H - BB - 8, ID_TAB, TAB_ALWAYS);
     TCITEMW ti = {0}; ti.mask = TCIF_TEXT;
-    ti.pszText = (LPWSTR)L"Layouts";     SendMessageW(tab, TCM_INSERTITEMW, 0, (LPARAM)&ti);
-    ti.pszText = (LPWSTR)L"Shortcuts";   SendMessageW(tab, TCM_INSERTITEMW, 1, (LPARAM)&ti);
-    ti.pszText = (LPWSTR)L"IME Options"; SendMessageW(tab, TCM_INSERTITEMW, 2, (LPARAM)&ti);
-    ti.pszText = (LPWSTR)L"General";     SendMessageW(tab, TCM_INSERTITEMW, 3, (LPARAM)&ti);
+    ti.pszText = (LPWSTR)L"Layouts";        SendMessageW(tab, TCM_INSERTITEMW, TAB_LAYOUTS, (LPARAM)&ti);
+    ti.pszText = (LPWSTR)L"Layout Options"; SendMessageW(tab, TCM_INSERTITEMW, TAB_LAYOUTOPTS, (LPARAM)&ti);
+    ti.pszText = (LPWSTR)L"Shortcuts";      SendMessageW(tab, TCM_INSERTITEMW, TAB_SHORTCUTS, (LPARAM)&ti);
+    ti.pszText = (LPWSTR)L"IME Options";    SendMessageW(tab, TCM_INSERTITEMW, TAB_OPTIONS, (LPARAM)&ti);
+    ti.pszText = (LPWSTR)L"General";        SendMessageW(tab, TCM_INSERTITEMW, TAB_GENERAL, (LPARAM)&ti);
+
+    // ── Tab: Layout Options ── 자판을 고르고 그 자판의 선택을 켜고 끈다
+    MkCtl(hwnd, L"STATIC", L"Layout:", 0, 0, 14, 40, 312, 18, 0, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 14, 60, 312, 240, ID_CMB_LOPT_LAYOUT, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Offer the whole sentence first", BS_AUTOCHECKBOX, 0,
+          14, 96, 312, 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Suggest words and idioms (completions, initials)", BS_AUTOCHECKBOX, 0,
+          14, 124, 312, 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 156, 312, 120, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
@@ -670,6 +710,20 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
+                case ID_CMB_LOPT_LAYOUT:
+                    if (HIWORD(wParam) == CBN_SELCHANGE) {
+                        int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                        if (sel >= 0) { g_loptSel = sel; LoptRefresh(hwnd, false); }
+                    }
+                    break;
+                case ID_CHK_LOPT_SENTENCE:
+                case ID_CHK_LOPT_SUGGEST:
+                    if (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) {
+                        bool on = SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                        if (LOWORD(wParam) == ID_CHK_LOPT_SENTENCE) g_TempConfig.layouts[g_loptSel].optNoSentence = !on;
+                        else g_TempConfig.layouts[g_loptSel].optNoSuggest = !on;
+                    }
+                    break;
                 case ID_CHK_FULLWIDTH:
                     g_TempConfig.options.fullWidth =
                         (SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED);

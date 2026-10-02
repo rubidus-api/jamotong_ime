@@ -279,6 +279,31 @@ bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count
     return true;
 }
 
+int JDict_Completions(const JDict *d, const wchar_t *key, int *out, int max, int scanLimit) {
+    if (!d || !key || !*key || !out || max <= 0) return 0;
+    char kb[JDICT_MAX_KEY_CANDIDATES + 4];
+    int kn = KeyToUtf8(key, kb, (int)sizeof(kb));
+    if (kn <= 0) return 0;
+    int at = LowerBound(d, kb, kn), n = 0;
+    int bestCost[64];
+    if (max > 64) max = 64;
+    for (int i = at, seen = 0; i < (int)d->count && seen < scanLimit; i++, seen++) {
+        int klen = 0;
+        const char *k = KeyAt(d, i, &klen);
+        if (klen < kn || memcmp(k, kb, (size_t)kn) != 0) break;   // 앞부분이 다르면 구간이 끝났다
+        if (klen == kn) continue;                                 // 같은 키는 읽기 그대로의 후보다 (여기 아님)
+        int c = d->offCosts ? (int)Rd16(d->base + d->offCosts + (size_t)i * 2u) : seen;
+        if (n < max) { out[n] = i; bestCost[n] = c; n++; }
+        else if (c < bestCost[n - 1]) { out[n - 1] = i; bestCost[n - 1] = c; }
+        else continue;
+        for (int j = n - 1; j > 0 && bestCost[j] < bestCost[j - 1]; j--) {   // 싼 차례로 끼워 넣기
+            int tc = bestCost[j]; bestCost[j] = bestCost[j - 1]; bestCost[j - 1] = tc;
+            int ti = out[j]; out[j] = out[j - 1]; out[j - 1] = ti;
+        }
+    }
+    return n;
+}
+
 bool JDict_HasCosts(const JDict *d) { return d && d->offCosts != 0; }
 int JDict_CostAt(const JDict *d, int index) {
     if (!d || !d->offCosts || index < 0 || index >= (int)d->count) return -1;

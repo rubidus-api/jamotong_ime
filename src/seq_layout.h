@@ -103,6 +103,12 @@ bool      SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl);
 // 변환 글쇠: 보류한 글자를 읽기로 정착시킨 뒤 그 읽기의 후보를 내놓는다 — 읽기 전체의 후보가 먼저,
 // 그다음 앞부분의 후보를 긴 것부터(이어 치기). 읽기가 비었거나 어느 앞부분에도 후보가 없으면 false.
 bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
+// 자판별 선택 (설정의 Layout Options, 2026-10-03). SeqKb_Convert 는 둘 다 켠 것과 같다.
+#define SEQ_CONV_SENTENCE 1u   // 낱말 둘 이상으로 가른 문장을 첫 후보로
+#define SEQ_CONV_PREDICT  2u   // 추천 단어: 읽기로 시작하는 더 긴 낱말·성어 (고르면 읽기 전체를 그것으로)
+#define SEQ_CONV_ALL      (SEQ_CONV_SENTENCE | SEQ_CONV_PREDICT)
+#define SEQ_PREDICT_CANDS 9    // 추천 단어 수 (후보창 한 쪽)
+bool      SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandidates *out);
 // 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다. 앞부분만 쓰는 후보면
 // 나머지 읽기가 남고 composing 에 실린다 — SeqKb_Reading 이 비어 있지 않으면 이어서 다시 변환한다.
 SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index);

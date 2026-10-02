@@ -6,7 +6,17 @@
 
 extern HINSTANCE g_hInst;
 
-// dir 안의 *.jmb(구운 자판) 전부 로드해 목록에 추가 (기본 꺼짐). 같은 이름 자판이 이미 있으면
+// 처음 보는 자판을 켠 채로 들일까 (2026-10-03, 오너: "차이니즈 팩 추가하면 현재 자판에 자동으로 간체 자판 추가").
+//   팩 MSI 가 HKLM\SOFTWARE\Jamotong\AutoEnable 에 자판 이름을 적어 둔다(팩을 지우면 함께 지워진다). 이 판단은
+//   **처음 볼 때만** 쓰인다 — 설정 파일에 이미 있는 자판은 사용자가 고른 켜짐/꺼짐을 따른다(Config_LoadFromFile 병합).
+static bool AutoEnableHint(const wchar_t *name) {
+    if (!name || !name[0]) return false;
+    DWORD v = 0, sz = sizeof v, type = 0;
+    LONG rc = RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Jamotong\\AutoEnable", name, RRF_RT_REG_DWORD, &type, &v, &sz);
+    return rc == ERROR_SUCCESS && v != 0;
+}
+
+// dir 안의 *.jmb(구운 자판) 전부 로드해 목록에 추가 (기본 꺼짐, 팩이 켜 달라고 적어 둔 것은 켬). 같은 이름 자판이 이미 있으면
 // (예: DLL 옆과 사용자 저장소에 같은 파일) 새 로드본의 리소스를 해제하고 건너뛴다.
 //   오너 결정 2026-09-23: 입력기는 **구운 자판만** 읽는다. `.jmt` 를 굽는 일은 도구가 한다
 //   (설치 스크립트가 폴더를 훑고, 관리 앱이 뜰 때 다시 굽는다). 구운 파일은 열면서 검사합과
@@ -37,7 +47,7 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
             if (config->layouts[i].name && lc.name && wcscmp(config->layouts[i].name, lc.name) == 0) { dup = true; break; }
         }
         if (dup) { Config_FreeLayoutResources(&lc); continue; }
-        lc.enabled = false;   // 사용자 자판 기본 꺼짐 (설정에서 켬)
+        lc.enabled = AutoEnableHint(lc.name);   // 사용자 자판 기본 꺼짐 (설정에서 켬) — 팩이 적어 둔 것만 켬
         if (!Config_AppendLayout(config, &lc)) { Config_FreeLayoutResources(&lc); break; }   // 개수 제한 없음(D3)
     } while (FindNextFileW(hFind, &fd));
     FindClose(hFind);

@@ -1,4 +1,4 @@
-[한국어](README.ko.md) | **English** — **Jamotong v0.62.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-0.62.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-0.62.0.zip) · [Chinese pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-chinese-0.62.0.msi)
+[한국어](README.ko.md) | **English** — **Jamotong v0.63.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-0.63.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-0.63.0.zip)
 
 # Jamotong (자모통)
 
@@ -9,24 +9,25 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer package (recommended)** | **[jamotong-0.62.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-0.62.0.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
-| Jamotong zip (no installer) | [jamotong-0.62.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-0.62.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
+| **Jamotong installer package (recommended)** | **[jamotong-0.63.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-0.63.0.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
+| Jamotong zip (no installer) | [jamotong-0.63.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-0.63.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
 | Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
-| Chinese pack (installer) | [jamotong-chinese-0.62.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.62.0/jamotong-chinese-0.62.0.msi) — pinyin input, simplified and traditional, ~470,000 entries each (~9 MB). Install Jamotong first |
+| Chinese Simplified pack (installer) | [jamotong-chinese-simplified-0.63.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-chinese-simplified-0.63.0.msi) — pinyin input in simplified characters, ~500,000 entries (~5 MB). Install Jamotong first |
+| Chinese Traditional pack (installer) | [jamotong-chinese-traditional-0.63.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.63.0/jamotong-chinese-traditional-0.63.0.msi) — the same in traditional characters (~5 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### Installing
 
-- **The MSI (recommended)**: double-click `jamotong-0.62.0.msi`. The first page asks for the language
+- **The MSI (recommended)**: double-click `jamotong-0.63.0.msi`. The first page asks for the language
   of the installer (English, or Korean — picked for you when Windows is set to Korean), then shows the
   license and the install folder. It asks for administrator rights once — registering an input method
   writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by running the newer MSI;
   remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart: apps that were already
   running keep the previous copy until you sign in again. A silent install works too:
-  `msiexec /i jamotong-0.62.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
+  `msiexec /i jamotong-0.63.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
 - **The zip**: the same files without an installer, for people who place and register them by hand
   (see [Install](#install)). `install.bat` and `uninstall.bat` are gone as of 0.61.0.
 
@@ -111,7 +112,7 @@ Your settings stay per user in `%APPDATA%\Jamotong`. An upgrade reuses the folde
 
 ## Install
 
-1. Download `jamotong-0.62.0.msi` from
+1. Download `jamotong-0.63.0.msi` from
    [Releases](https://github.com/rubidus-api/jamotong_ime/releases) and double-click it. It installs the
    program and registers the 64-bit and 32-bit text services.
 
@@ -825,17 +826,19 @@ start the manager. Type `nihon`, press space, pick 日本. The word data comes f
 Mozc dictionary; no native speaker has reviewed this profile yet, so it is offered as an
 experiment rather than as finished Japanese support.
 
-**Chinese (pinyin).** The Chinese pack is an installer of its own, `jamotong-chinese-<version>.msi`:
-it installs only where Jamotong is installed (it puts its files beside `jamotong.dll`), and it
-uninstalls with or without Jamotong. It adds two layouts, **Chinese (pinyin)** (simplified) and
-**Chinese (pinyin, traditional)**; they appear in Settings → Layouts switched off - turn them on.
-Type pinyin without tones and press space: the first candidate is the **whole sentence**
-(`woaini` → 我爱你, `jintiantianqihenhao` → 今天天气很好), and the others are the first word's
-alternatives. Pick one of those and only that word is converted - the rest of what you typed stays
-and its candidates open at once. Write `ü` as `v` (`lv` → 率/绿/旅); the `u` spelling after j, q, x
-and y works too. Readings come from mozillazg's pinyin-data and phrase-pinyin-data, the order from
-jieba's word frequencies (all MIT), and the traditional forms from OpenCC (Apache-2.0); the licenses
-are installed beside the files. No native speaker has reviewed it yet.
+**Chinese (pinyin).** Two installers of their own: `jamotong-chinese-simplified-<version>.msi` and
+`jamotong-chinese-traditional-<version>.msi`. Each installs only where Jamotong is installed (beside
+`jamotong.dll`), uninstalls with or without Jamotong, and adds its layout - **Chinese Simplified (pinyin)**
+or **Chinese Traditional (pinyin)** - switched **on** in your layout list (if you switch it off, it stays
+off). Type pinyin without tones and press space. The first candidate is the **whole sentence**
+(`woaini` → 我爱你, `jintiantianqihenhao` → 今天天气很好); then the reading's own words; then
+**suggestions** - longer words and idioms that start with what you typed (`yijian` → 一箭双雕) and words
+typed by their initials (`wsm` → 为什么); then the first word's alternatives. Pick a word that covers only
+the front and the rest stays, its candidates open at once. Write `ü` as `v` (`lv` → 率/绿/旅). The sentence
+candidate and the suggestions can be switched off per layout in Settings → **Layout Options**. Readings
+come from mozillazg's pinyin-data and phrase-pinyin-data, the order from jieba's word frequencies (all
+MIT), the traditional forms from OpenCC (Apache-2.0); the licenses are installed in
+`licenses\chinese-*` beside Jamotong. No native speaker has reviewed it yet.
 
 - Limits: the typed side of a sequence dictionary is printable ASCII up to 32 characters, a
   candidate reading is up to 96 bytes of UTF-8, one entry emits up to 64 characters, and a

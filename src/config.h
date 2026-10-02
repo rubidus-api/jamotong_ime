@@ -69,6 +69,10 @@ typedef struct {
 
 
     bool enabled;   // 전환 순환에 포함되는가 (설정 체크박스). 기본 켜짐: en_qwerty, ko_2bul 만.
+    // 자판별 선택 (설정의 Layout Options 탭, config.ini [LayoutOptions] "<자판 이름>.<키>=0|1", 2026-10-03).
+    //   0 이 기본(켜짐)이라 0 으로 채운 구조체가 예전 동작이다. 지금은 순차 입력 자판(병음·가나)만 쓴다.
+    bool optNoSentence;   // Sentence=0: 문장 후보를 내지 않는다
+    bool optNoSuggest;    // Suggest=0: 추천 단어(이어질 낱말·줄임)를 내지 않는다
 } LayoutConfig;
 
 // IME 동작 옵션 (설정창 'IME Options' 탭). 단축키류는 JamotongConfig.shortcuts 로 통합.

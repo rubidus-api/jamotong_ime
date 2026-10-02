@@ -655,7 +655,12 @@ static void OnSeqCandidateCancelled(void *ctx) {
 // 읽기를 후보로 바꿔 후보창을 연다 (§6.4). 변환 글쇠와, 앞부분을 고른 뒤 남은 읽기의 이어 변환이 함께 쓴다.
 //   후보가 없으면 false — 엔진 상태는 그대로다.
 static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
-    if (!SeqKb_Convert(&obj->seqKb, sl, &g_seqCands)) return false;
+    // 자판별 선택 (Layout Options 탭): 문장 후보·추천 단어
+    unsigned flags = SEQ_CONV_ALL;
+    const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+    if (cur && cur->optNoSentence) flags &= ~SEQ_CONV_SENTENCE;
+    if (cur && cur->optNoSuggest)  flags &= ~SEQ_CONV_PREDICT;
+    if (!SeqKb_ConvertEx(&obj->seqKb, sl, flags, &g_seqCands)) return false;
     // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
     // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
     SeqResult cr; memset(&cr, 0, sizeof cr);

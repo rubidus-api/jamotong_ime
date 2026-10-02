@@ -3,6 +3,24 @@
 이 프로젝트의 주요 변경 사항을 기록한다. [Keep a Changelog](https://keepachangelog.com) 형식과
 [Semantic Versioning](https://semver.org)(MAJOR.MINOR.PATCH — 비호환 변경 / 신규 기능 / 버그 수정)을 따른다.
 
+## [Unreleased]
+
+### Added
+- **중국어 팩을 간체·번체 둘로** (오너 지시 2026-10-03): `jamotong-chinese-simplified-<판>.msi`,
+  `jamotong-chinese-traditional-<판>.msi` — 따로 깔고 따로 지운다. 간체 팩이 0.62.0 의 합본 팩을 대신한다.
+- **팩을 깔면 자판이 켜진 채로 들어온다**: 팩이 `HKLM\SOFTWARE\Jamotong\AutoEnable` 에 자판 이름을 적고, 입력기는 처음 보는
+  자판을 그에 따라 켠다. 설정에 이미 있는 자판은 사용자가 고른 대로다.
+- **추천 단어**: 순차 입력(병음·가나)의 후보에 친 것으로 시작하는 더 긴 낱말·성어(`yijian` → 一箭双雕)가, 중국어 사전에는
+  첫 글자 줄임(`wsm` → 为什么)이 붙는다.
+- **설정의 Layout Options 탭**: 자판마다 선택을 켜고 끈다 — 지금은 순차 입력 자판의 문장 후보와 추천 단어.
+  `config.ini` 의 `[LayoutOptions]` 에 `<자판 이름>.Sentence`·`.Suggest` 로 적힌다.
+
+### Changed
+- 구운 자판의 이름에 형식 판이 붙는다(`x.v6.jmb`). 새 판이 다시 구워도 업그레이드 뒤 열려 있던 앱의 옛 판이 읽는 파일을
+  덮지 않는다(재부팅 없는 업그레이드 준비, B21). 두 판 묵은 파일은 지운다.
+- 설정 저장이 이 판이 모르는 키와 절을 지운다 → 그대로 옮겨 적는다(옛 판과 새 판이 함께 도는 동안 설정을 잃지 않게).
+  저장의 임시 파일 이름이 쓰는 쪽마다 다르다.
+
 ## [0.62.0] - 2026-10-02
 
 ### Added

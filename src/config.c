@@ -636,8 +636,15 @@ static bool OursOptions(const wchar_t *key, size_t klen) {
     for (int i = 0; kOptionKeys[i]; i++) if (KeyIs(key, klen, kOptionKeys[i])) return true;
     return false;
 }
-// keep[0..2] = [Layouts]·[Shortcuts]·[Options] 안의 모르는 줄, keep[3] = 모르는 절 통째로(머리 줄 포함)
-static void ReadUnknown(const wchar_t *path, KeepList keep[4]) {
+static bool OursLayoutOptions(const wchar_t *key, size_t klen) {
+    const wchar_t *dot = NULL;
+    for (size_t i = 0; i < klen; i++) if (key[i] == L'.') dot = key + i;
+    if (!dot) return false;
+    size_t tl = klen - (size_t)(dot + 1 - key);
+    return KeyIs(dot + 1, tl, L"Sentence") || KeyIs(dot + 1, tl, L"Suggest");
+}
+// keep[0..3] = [Layouts]·[Shortcuts]·[Options]·[LayoutOptions] 안의 모르는 줄, keep[4] = 모르는 절 통째로(머리 줄 포함)
+static void ReadUnknown(const wchar_t *path, KeepList keep[5]) {
     FILE *f = _wfopen(path, L"r, ccs=UTF-8");
     if (!f) return;
     wchar_t line[1024];
@@ -649,15 +656,17 @@ static void ReadUnknown(const wchar_t *path, KeepList keep[4]) {
             if (!_wcsicmp(line, L"[Layouts]")) sec = 0;
             else if (!_wcsicmp(line, L"[Shortcuts]")) sec = 1;
             else if (!_wcsicmp(line, L"[Options]")) sec = 2;
-            else { sec = 3; KeepAdd(&keep[3], L""); KeepAdd(&keep[3], line); }
+            else if (!_wcsicmp(line, L"[LayoutOptions]")) sec = 3;
+            else { sec = 4; KeepAdd(&keep[4], L""); KeepAdd(&keep[4], line); }
             continue;
         }
-        if (sec == 3) { KeepAdd(&keep[3], line); continue; }
+        if (sec == 4) { KeepAdd(&keep[4], line); continue; }
         if (sec < 0 || !n || line[0] == L';' || line[0] == L'#') continue;
         const wchar_t *eq = wcschr(line, L'=');
         if (!eq) continue;
         size_t klen = (size_t)(eq - line);
-        bool ours = sec == 0 ? OursLayouts(line, klen) : sec == 1 ? OursShortcuts(line, klen) : OursOptions(line, klen);
+        bool ours = sec == 0 ? OursLayouts(line, klen) : sec == 1 ? OursShortcuts(line, klen)
+                  : sec == 2 ? OursOptions(line, klen) : OursLayoutOptions(line, klen);
         if (!ours) KeepAdd(&keep[sec], line);
     }
     fclose(f);
@@ -665,12 +674,12 @@ static void ReadUnknown(const wchar_t *path, KeepList keep[4]) {
 static void WriteKept(FILE *fp, const KeepList *k) { for (int i = 0; i < k->n; i++) fwprintf(fp, L"%ls\n", k->line[i]); }
 
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts) {
-    KeepList keep[4];
+    KeepList keep[5];
     memset(keep, 0, sizeof keep);
     if (!bundleLayouts) ReadUnknown(filepath, keep);   // 옮겨 적을 모르는 설정 (내보내기는 아니다)
     wchar_t tmp[MAX_PATH + 40];
     FILE *fp = AtomicOpen(filepath, tmp, MAX_PATH + 40);   // W1-06: 임시 파일에 다 쓴 뒤 교체
-    if (!fp) { for (int i = 0; i < 4; i++) KeepFree(&keep[i]); return false; }
+    if (!fp) { for (int i = 0; i < 5; i++) KeepFree(&keep[i]); return false; }
 
     fwprintf(fp, L"[Layouts]\nCount=%d\n", config->layoutCount);
     for (int i = 0; i < config->layoutCount; i++) {
@@ -708,8 +717,18 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
     fwprintf(fp, L"CandFont=%ls\n", config->options.candFont[0] ? config->options.candFont : L"Malgun Gothic");
     WriteKept(fp, &keep[2]);
-    WriteKept(fp, &keep[3]);   // 모르는 절 통째로
-    for (int i = 0; i < 4; i++) KeepFree(&keep[i]);
+
+    // 자판별 선택 — 순차 입력 자판만 (병음·가나). 이름에 '=' 는 없다(자판 이름 규칙).
+    fwprintf(fp, L"\n[LayoutOptions]\n");
+    for (int i = 0; i < config->layoutCount; i++) {
+        const LayoutConfig *L = &config->layouts[i];
+        if (L->type != LAYOUT_TYPE_SEQUENCE || !L->name || wcschr(L->name, L'=')) continue;
+        fwprintf(fp, L"%ls.Sentence=%d\n", L->name, L->optNoSentence ? 0 : 1);
+        fwprintf(fp, L"%ls.Suggest=%d\n", L->name, L->optNoSuggest ? 0 : 1);
+    }
+    WriteKept(fp, &keep[3]);
+    WriteKept(fp, &keep[4]);   // 모르는 절 통째로
+    for (int i = 0; i < 5; i++) KeepFree(&keep[i]);
 
     if (bundleLayouts) BundleUserLayouts(fp);   // Export: 사용자 자판 .jmt 본문 인라인
 
@@ -750,7 +769,9 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     bool haveSc[SC_FN_COUNT] = { false };   // 파일에 해당 기능 목록이 명시됐는가 (없으면 기존 유지)
     wchar_t line[256];
     wchar_t fontBuf[32];
-    int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options
+    int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options, 4 = LayoutOptions
+    struct { wchar_t name[64]; int sentence, suggest; } lopt[CONFIG_STAGED_MAX];   // -1 = 파일에 없음
+    int nlopt = 0;
 
     // 번들 자판 복원용: 디렉터리는 한 번만 해석(섹션마다 env 읽기+CreateDirectory 반복 방지),
     //   복원 개수는 자판 배열 크기(8)로 제한 — 적대적 config가 사용자 자판을 밀어내지 못하게.
@@ -809,6 +830,30 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
         if (wcscmp(line, L"[Layouts]") == 0) section = 1;
         else if (wcscmp(line, L"[Shortcuts]") == 0) section = 2;
         else if (wcscmp(line, L"[Options]") == 0) section = 3;
+        else if (wcscmp(line, L"[LayoutOptions]") == 0) section = 4;
+        else if (section == 4) {
+            // "<자판 이름>.<키>=<0|1>" — 이름에는 '.' 이 있을 수 있으므로 '=' 앞의 마지막 '.' 로 가른다
+            wchar_t *eq = wcschr(line, L'=');
+            if (eq) {
+                *eq = L'\0';
+                wchar_t *dot = wcsrchr(line, L'.');
+                if (dot && dot != line) {
+                    *dot = L'\0';
+                    int val = _wtoi(eq + 1) != 0;
+                    int k = 0;
+                    while (k < nlopt && wcscmp(lopt[k].name, line) != 0) k++;
+                    if (k == nlopt && nlopt < CONFIG_STAGED_MAX) {
+                        lstrcpynW(lopt[k].name, line, 64);
+                        lopt[k].sentence = lopt[k].suggest = -1;
+                        nlopt++;
+                    }
+                    if (k < nlopt) {
+                        if (!_wcsicmp(dot + 1, L"Sentence")) lopt[k].sentence = val;
+                        else if (!_wcsicmp(dot + 1, L"Suggest")) lopt[k].suggest = val;
+                    }
+                }
+            }
+        }
         else if (section == 1) {
             int count;
             // 개수에는 제한이 없다(D3) — 다만 파일이 적은 번호는 CONFIG_FILE_LAYOUTS_MAX 안에서만 믿는다(조작된 .ini).
@@ -934,6 +979,12 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
             merged.shortcuts[f] = temp.shortcuts[f];
     }
     merged.options = temp.options;
+    for (int k = 0; k < nlopt; k++)   // 자판별 선택 — 이름으로 찾아 붙인다 (없는 자판의 줄은 그냥 둔다)
+        for (int i = 0; i < merged.layoutCount; i++)
+            if (merged.layouts[i].name && !wcscmp(merged.layouts[i].name, lopt[k].name)) {
+                if (lopt[k].sentence >= 0) merged.layouts[i].optNoSentence = !lopt[k].sentence;
+                if (lopt[k].suggest >= 0)  merged.layouts[i].optNoSuggest  = !lopt[k].suggest;
+            }
 
     merged.currentLayoutIndex = 0;   // 첫 '켜진' 자판에서 시작 (없으면 0)
     for (int i = 0; i < merged.layoutCount; i++)

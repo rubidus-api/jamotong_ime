@@ -195,6 +195,10 @@ bool SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl) {
 }
 
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
+    return SeqKb_ConvertEx(st, sl, SEQ_CONV_ALL, out);
+}
+
+bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandidates *out) {
     if (!st || !sl || !sl->cand || !out) return false;
     // 후보가 없으면 **아무것도 바꾸지 않는다**. 바꿔 놓고 실패하면 그 글쇠(사이띄개)는 응용으로
     // 가는데 보류는 이미 읽기로 옮겨져, 사이띄개가 친 글자보다 먼저 문서에 들어간다.
@@ -240,7 +244,7 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
         int cuts[SEQ_MAX_READING + 1], nc = 0;
         for (int j = n; j > 0; j = back[j]) cuts[nc++] = j;   // 낱말 끝 자리들 (뒤에서부터)
         firstSegLen = cuts[nc - 1];
-        if (nc >= 2) {   // 2) 문장 후보
+        if (nc >= 2 && (flags & SEQ_CONV_SENTENCE)) {   // 2) 문장 후보
             wchar_t *sent = out->items[0];
             sent[0] = L'\0';
             bool fits = true;
@@ -264,6 +268,22 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
     for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;
     for (int k = 0; k < no && out->count < SEQ_MAX_CANDS; k++) {
         int len = order[k];
+        if (k == 1 && (flags & SEQ_CONV_PREDICT) && n >= 2) {
+            // 추천 단어 (2026-10-03): 읽기 전체의 후보 바로 뒤에, 읽기로 **시작하는** 더 긴 낱말·성어를 싼 것부터.
+            //   고르면 읽기 전체가 그 낱말이 된다 — 나머지를 칠 필요가 없다(`yishi` → 一石二鸟, `wsm` 같은 줄임도 사전에 있으면).
+            int idx[SEQ_PREDICT_CANDS];
+            int np = JDict_Completions(sl->cand, st->reading, idx, SEQ_PREDICT_CANDS, 20000);
+            for (int i = 0; i < np && out->count < SEQ_MAX_CANDS; i++) {
+                const jdchar *v = NULL; int vn = 0;
+                if (!JDict_CandidateAt(sl->cand, idx[i], &v, &vn)) continue;
+                if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) < 0) continue;
+                bool dup = false;
+                for (int j = 0; j < out->count && !dup; j++) dup = !wcscmp(out->items[j], out->items[out->count]);
+                if (dup) continue;
+                out->consumed[out->count] = n;
+                out->count++;
+            }
+        }
         wchar_t prefix[SEQ_MAX_READING + 1];
         lstrcpynW(prefix, st->reading, len + 1);
         int first = 0, count = 0;
