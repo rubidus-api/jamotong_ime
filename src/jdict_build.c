@@ -14,7 +14,8 @@
 #define JD_MAX_LINE     1024
 
 typedef struct { char key[JDICT_MAX_KEY_CANDIDATES + 1]; int klen;
-                 wchar_t val[JDICT_MAX_VALUE + 1]; int vlen; int line; } Row;
+                 wchar_t val[JDICT_MAX_VALUE + 1]; int vlen; int line;
+                 int cost; } Row;   // cost: 후보 사전의 셋째 칸 (판 3), 없으면 -1
 
 static void Fail(JDictBuildResult *r, int line, const wchar_t *code, const wchar_t *msg, const wchar_t *help) {
     r->line = line;
@@ -262,6 +263,23 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         row->klen = klen;
         row->line = lineno;
         const wchar_t *why = NULL;
+        // 후보 사전은 셋째 칸에 비용을 둘 수 있다 (판 3): 읽기<탭>표기<탭>비용, 0..65535, 작을수록 흔하다
+        row->cost = -1;
+        char *tab2 = strchr(tab + 1, '\t');
+        if (tab2) {
+            *tab2 = '\0';
+            const char *c = tab2 + 1;
+            long cv = 0; int digits = 0;
+            for (; *c >= '0' && *c <= '9' && cv <= JDICT_MAX_COST; c++, digits++) cv = cv * 10 + (*c - '0');
+            if (kind != JDICT_KIND_CANDIDATES || digits == 0 || *c != '\0' || cv > JDICT_MAX_COST) {
+                Fail(res, lineno, L"E-DICT-ROW",
+                     kind != JDICT_KIND_CANDIDATES ? L"a sequence row has two fields: <keys> TAB <output>"
+                                                   : L"the third field is a cost: a whole number 0..65535",
+                     L"candidates: <reading> TAB <output> [TAB <cost>]");
+                ok = false; break;
+            }
+            row->cost = (int)cv;
+        }
         if (!DecodeValue(tab + 1, row->val, JDICT_MAX_VALUE, &row->vlen, &why)) {
             Fail(res, lineno, L"E-DICT-VALUE", why ? why : L"the output side cannot be used", NULL);
             ok = false; break;
@@ -286,6 +304,17 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
                 }
     }
 
+    // 비용은 전부 있거나 전부 없거나 — 반만 있으면 엔진이 고르는 길이 엉뚱해진다
+    bool costs = false;
+    if (ok && kind == JDICT_KIND_CANDIDATES && nrows > 0) {
+        costs = rows[0].cost >= 0;
+        for (int i = 1; i < nrows; i++)
+            if ((rows[i].cost >= 0) != costs) {
+                Fail(res, rows[i].line, L"E-DICT-ROW", L"some rows have a cost and some do not",
+                     L"give every row a cost, or none");
+                ok = false; break;
+            }
+    }
     unsigned keyBytes = 0, valBytes = 0, maxK = 0, maxV = 0;
     if (ok) {
         for (int i = 0; i < nrows; i++) {
@@ -304,7 +333,8 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     unsigned offVals  = (offKeys + keyBytes + 1u) & ~1u;
     unsigned offMeta  = offVals + valBytes;
     unsigned metaLen  = 2u + (unsigned)wcslen(name) * 2u + 2u + (unsigned)wcslen(license) * 2u + 2u + (unsigned)wcslen(version) * 2u;
-    unsigned total    = offMeta + metaLen;
+    unsigned offCosts = offMeta + metaLen;            // 판 3: 꼬리 뒤 (짝수 자리 — 위가 모두 2바이트 단위다)
+    unsigned total    = offCosts + (costs ? (unsigned)nrows * 2u : 0u);
 
     unsigned char *buf = (unsigned char *)calloc(1, total);
     if (!buf) { free(rows); Fail(res, 0, L"E-DICT-MEMORY", L"out of memory", NULL); return false; }
@@ -312,7 +342,8 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     memcpy(buf, "JMTDICT\0", 8);
     // 그 파일이 정말 필요로 하는 판만 적는다 — 32바이트를 넘는 키가 없으면 판 1 이라, 옛 자모통도
     // 이 사전을 그대로 읽는다. 넘는 키가 있으면 판 2 이고 옛 자모통은 분명히 거절한다.
-    Wr32(buf + 8, maxK > (unsigned)JDICT_MAX_KEY ? 2u : 1u);
+    //   비용을 실으면 판 3 이다.
+    Wr32(buf + 8, costs ? 3u : maxK > (unsigned)JDICT_MAX_KEY ? 2u : 1u);
     Wr32(buf + 12, (unsigned)kind);
     Wr32(buf + 16, (unsigned)nrows);
     Wr32(buf + 20, offIndex);
@@ -322,7 +353,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     Wr32(buf + 36, valBytes);
     Wr32(buf + 40, maxK);
     Wr32(buf + 44, maxV);
-    Wr32(buf + 48, kind == JDICT_KIND_SEQUENCE ? 1u : 0u);   // bit0 = 키가 전부 ASCII
+    Wr32(buf + 48, (kind == JDICT_KIND_SEQUENCE ? JDICT_FLAG_ASCII_KEYS : 0u) | (costs ? JDICT_FLAG_COSTS : 0u));
     Wr32(buf + 56, total);
 
     unsigned ko = 0, vo = 0;
@@ -346,6 +377,8 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         for (unsigned i = 0; i < len; i++) Wr16(buf + at + i * 2u, (unsigned)metas[f][i]);
         at += len * 2u;
     }
+    if (costs)
+        for (int i = 0; i < nrows; i++) Wr16(buf + offCosts + (unsigned)i * 2u, (unsigned)rows[i].cost);
     Wr32(buf + 52, JDict_Crc32(buf + JD_HEADER_BYTES, total - JD_HEADER_BYTES));
 
     FILE *out = _wfopen(outPath, L"wb");

@@ -234,6 +234,7 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
 // 설정창 적용(Config_ApplyEdited)은 설정 스레드라 여기 오지 않는다 — 설정창이 포커스를 가져갈 때 ①이 이미 돈다.
 // 순차 변환 결과를 문서에 넣는다 (정의는 아래 조합 타이머 곁) — 경계 확정에서 먼저 쓴다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
+static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl);
 
 static void UiCandHide(JamotongTextService *obj);
 static void UiCodeHide(JamotongTextService *obj);
@@ -631,8 +632,15 @@ static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
     if (!obj) return;
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
     if (layout && layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout) {
-        SeqResult r = SeqKb_Choose(&obj->seqKb, (const SeqLayout*)layout->pSeqLayout, &g_seqCands, index);
+        const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        SeqResult r = SeqKb_Choose(&obj->seqKb, sl, &g_seqCands, index);
         if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
+        // 앞부분만 바꿨으면 남은 읽기의 후보를 곧바로 다시 띄운다 (이어 치기 변환 — 중국어 병음의 문장).
+        //   후보창은 콜백 전에 닫혔다(candidate_ui.c SelectIndex). 문맥 참조는 새 후보창이 이어받는다.
+        if (r.eaten && SeqKb_Reading(&obj->seqKb)[0] && obj->candCtx.pic) {
+            ITfContext *pic = obj->candCtx.pic;
+            if (SeqOpenCandidates(obj, pic, sl)) return;
+        }
     }
     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
 }
@@ -642,6 +650,34 @@ static void OnSeqCandidateCancelled(void *ctx) {
     SeqResult r = SeqKb_CancelCandidates(&obj->seqKb);   // 읽기는 그대로 남는다
     if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+}
+
+// 읽기를 후보로 바꿔 후보창을 연다 (§6.4). 변환 글쇠와, 앞부분을 고른 뒤 남은 읽기의 이어 변환이 함께 쓴다.
+//   후보가 없으면 false — 엔진 상태는 그대로다.
+static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
+    if (!SeqKb_Convert(&obj->seqKb, sl, &g_seqCands)) return false;
+    // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
+    // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
+    SeqResult cr; memset(&cr, 0, sizeof cr);
+    cr.eaten = true;
+    lstrcpynW(cr.composing, SeqKb_Reading(&obj->seqKb), (int)(sizeof cr.composing / sizeof cr.composing[0]));
+    SeqApply(obj, pic, &cr);
+    for (int i = 0; i < g_seqCands.count; i++) g_seqCandPtrs[i] = g_seqCands.items[i];
+    RECT rc; int x = 0, y = 0, caretTop = 0;
+    if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom; caretTop = rc.top; }
+    if (obj->candCtx.pic != pic) {
+        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+        if (pic) { pic->lpVtbl->AddRef(pic); obj->candCtx.pic = pic; }
+    }
+    CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
+    if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
+    obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
+    if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
+                          OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
+        SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
+        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+    }
+    return true;
 }
 
 // 104-key US QWERTY 기준으로 가상 키와 Shift 조합을 통해 영문 Base Char를 가져옵니다.
@@ -852,8 +888,11 @@ static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult 
             esd.committed[--take] = L'\0';
         }
         p += take;
-        if (!*p) lstrcpynW(esd.composing, r->composing, 128);
-        RequestEditSessionData(obj, pic, &esd);
+        // 확정 글자는 한글 확정과 같은 길로 넣는다(CommitText): EDIT 계열은 EM_REPLACESEL, 그 밖은 TSF 삽입.
+        //   AkelEdit 는 TSF 삽입을 받고도 앞의 두 글자만 남겼다 — 병음 문장 `我爱你` 가 `我爱` 로(실기 2026-10-02).
+        //   확정할 것이 없으면 캐럿 자리만 잰다(미리보기용) — 예전과 같은 빈 편집 세션.
+        if (esd.committed[0]) CommitText(obj, pic, esd.committed);
+        else RequestEditSessionData(obj, pic, &esd);
     } while (*p);
     RECT rc;
     if (obj->config.options.showPreview && r->composing[0] && GetCaretScreenRect(obj, &rc))
@@ -1576,26 +1615,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             SeqResult r;
             if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_CanConvert(&obj->seqKb, sl)) {
                 // §6.4: 읽기를 후보로 바꾼다. 후보가 없으면 이 글쇠는 응용의 것이다.
-                if (SeqKb_Convert(&obj->seqKb, sl, &g_seqCands)) {
-                    // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
-                    // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
-                    SeqResult cr; memset(&cr, 0, sizeof cr);
-                    cr.eaten = true;
-                    lstrcpynW(cr.composing, SeqKb_Reading(&obj->seqKb), (int)(sizeof cr.composing / sizeof cr.composing[0]));
-                    SeqApply(obj, pic, &cr);
-                    for (int i = 0; i < g_seqCands.count; i++) g_seqCandPtrs[i] = g_seqCands.items[i];
-                    RECT rc; int x = 0, y = 0, caretTop = 0;
-                    if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom; caretTop = rc.top; }
-                    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
-                    if (pic) { pic->lpVtbl->AddRef(pic); obj->candCtx.pic = pic; }
-                    CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
-                    if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
-                    obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
-                    if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
-                                          OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
-                        SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
-                        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
-                    }
+                if (SeqOpenCandidates(obj, pic, sl)) {
                     if (pfEaten) *pfEaten = TRUE;
                     goto kd_done;
                 }

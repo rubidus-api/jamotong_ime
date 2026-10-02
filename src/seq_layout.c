@@ -209,15 +209,77 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
         // 읽기에 못 들어가고 밖으로 나간 글자가 있으면(읽기가 꽉 찼을 때) 그건 이미 문서의 것이다.
     }
     if (!st->reading[0]) { *st = before; return false; }
-    int first = 0, count = 0;
-    if (!JDict_Candidates(sl->cand, st->reading, &first, &count)) { *st = before; return false; }
+    // 이어 치기 변환 (2026-10-02, 중국어 병음의 문장):
+    //   1) 읽기를 사전의 낱말로 가르는 **가장 그럴듯한 길**을 찾는다 — 낱말 비용(판 3 사전의 항목 비용, 작을수록
+    //      흔하다)의 합에 낱말마다 작은 벌점. 비용이 없는 사전은 낱말 수만 세므로 가장 긴 일치와 비슷하게 간다.
+    //   2) 그 길이 낱말 둘 이상이면 **문장 하나**(각 낱말의 첫 후보를 이은 것)를 첫 후보로 낸다.
+    //   3) 그다음 읽기 전체의 후보, 길의 첫 낱말의 후보, 나머지 앞부분의 후보를 긴 것부터.
+    //   앞부분만 쓰는 후보를 고르면 나머지는 읽기에 남는다(SeqKb_Choose) — 입력기가 이어서 다시 연다.
     memset(out, 0, sizeof *out);
     out->generation = st->generation;
-    if (count > SEQ_MAX_CANDS) count = SEQ_MAX_CANDS;
-    for (int i = 0; i < count; i++) {
-        const jdchar *v = NULL; int vn = 0;
-        if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
-        if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) out->count++;
+    const int n = (int)wcslen(st->reading);
+    enum { SEG_PENALTY = 100, NOCOST_SEG = 1000, INF = 0x3FFFFFFF };
+    int best[SEQ_MAX_READING + 1], back[SEQ_MAX_READING + 1];
+    best[0] = 0;
+    for (int j = 1; j <= n; j++) {
+        best[j] = INF; back[j] = -1;
+        for (int i = 0; i < j; i++) {
+            if (best[i] >= INF) continue;
+            wchar_t seg[SEQ_MAX_READING + 1];
+            lstrcpynW(seg, st->reading + i, j - i + 1);
+            int first = 0, count = 0;
+            if (!JDict_Candidates(sl->cand, seg, &first, &count)) continue;
+            int c = JDict_CostAt(sl->cand, first);
+            if (c < 0) c = NOCOST_SEG;
+            int total = best[i] + c + SEG_PENALTY;
+            if (total < best[j]) { best[j] = total; back[j] = i; }
+        }
+    }
+    int firstSegLen = 0;   // 가장 그럴듯한 길의 첫 낱말 길이 (길이 없으면 0)
+    if (best[n] < INF) {
+        int cuts[SEQ_MAX_READING + 1], nc = 0;
+        for (int j = n; j > 0; j = back[j]) cuts[nc++] = j;   // 낱말 끝 자리들 (뒤에서부터)
+        firstSegLen = cuts[nc - 1];
+        if (nc >= 2) {   // 2) 문장 후보
+            wchar_t *sent = out->items[0];
+            sent[0] = L'\0';
+            bool fits = true;
+            for (int k = nc - 1, from = 0; k >= 0 && fits; from = cuts[k], k--) {
+                wchar_t seg[SEQ_MAX_READING + 1], val[SEQ_MAX_OUT + 1];
+                lstrcpynW(seg, st->reading + from, cuts[k] - from + 1);
+                int first = 0, count = 0;
+                const jdchar *v = NULL; int vn = 0;
+                fits = JDict_Candidates(sl->cand, seg, &first, &count) && JDict_CandidateAt(sl->cand, first, &v, &vn)
+                       && JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) >= 0
+                       && wcslen(sent) + wcslen(val) <= SEQ_MAX_OUT;
+                if (fits) wcscat(sent, val);
+            }
+            if (fits && sent[0]) { out->consumed[0] = n; out->count = 1; }
+        }
+    }
+    // 3) 앞부분별 후보: 읽기 전체 → 길의 첫 낱말 → 나머지 긴 것부터
+    int order[SEQ_MAX_READING + 1], no = 0;
+    order[no++] = n;
+    if (firstSegLen > 0 && firstSegLen < n) order[no++] = firstSegLen;
+    for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;
+    for (int k = 0; k < no && out->count < SEQ_MAX_CANDS; k++) {
+        int len = order[k];
+        wchar_t prefix[SEQ_MAX_READING + 1];
+        lstrcpynW(prefix, st->reading, len + 1);
+        int first = 0, count = 0;
+        if (!JDict_Candidates(sl->cand, prefix, &first, &count)) continue;
+        int take = len == n ? SEQ_MAX_CANDS : SEQ_PREFIX_CANDS;
+        for (int i = 0; i < count && take > 0 && out->count < SEQ_MAX_CANDS; i++) {
+            const jdchar *v = NULL; int vn = 0;
+            if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
+            if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) {
+                if (out->count > 0 && out->consumed[0] == n && len == n && !wcscmp(out->items[0], out->items[out->count]))
+                    continue;   // 문장 후보와 같은 글자면 두 번 보이지 않는다
+                out->consumed[out->count] = len;
+                out->count++;
+                take--;
+            }
+        }
     }
     if (out->count == 0) { *st = before; return false; }
     st->candOpen = true;
@@ -230,8 +292,16 @@ SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *c
     if (!st || !cands || index < 0 || index >= cands->count) return r;
     if (cands->generation != st->generation) return r;   // 늦게 온 결과·이전 읽기의 것은 버린다
     Emit(&r, cands->items[index]);
-    st->reading[0] = L'\0';
-    st->pending[0] = L'\0';
+    // 앞부분만 쓰는 후보면 나머지 읽기는 남는다 — 이어서 바꾼다(입력기가 후보창을 다시 연다).
+    int used = cands->consumed[index];
+    int n = (int)wcslen(st->reading);
+    if (used > 0 && used < n) {
+        memmove(st->reading, st->reading + used, (size_t)(n - used + 1) * sizeof(wchar_t));
+        lstrcpynW(r.composing, st->reading, (int)(sizeof r.composing / sizeof r.composing[0]));
+    } else {
+        st->reading[0] = L'\0';
+        st->pending[0] = L'\0';
+    }
     st->generation++;
     st->candOpen = false;
     r.eaten = true;

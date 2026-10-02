@@ -16,6 +16,8 @@ typedef struct JDict {
     size_t   size;
     unsigned count, kind, maxKeyLen, maxValLen, flags, crc;
     unsigned offIndex, offKeys, offVals, keyBytes, valBytes;
+    unsigned offCosts;                  // 판 3 의 비용 블록 (없으면 0)
+    unsigned format;                    // 파일의 판
     // 꼬리의 이름/라이선스/판 — 파일에는 길이 붙은 문자열이라 형식은 원래 길이 제한이 없다.
     // 자리는 넉넉히 잡는다: 라이선스 한 줄에 출처와 전문 파일 이름이 함께 들어가야 한다
     // (오너 지적 2026-09-24). 사전 하나에 1KB 도 안 되는 값이다.
@@ -125,6 +127,13 @@ static bool CheckLayout(JDict *d) {
         out[f][keep] = L'\0';
         at += len * 2u;
     }
+    d->offCosts = 0;
+    if (d->flags & JDICT_FLAG_COSTS) {   // 판 3: 꼬리 뒤에 항목마다 u16 비용
+        if (d->format < 3 || d->kind != JDICT_KIND_CANDIDATES || (at & 1u) != 0) return false;
+        if ((size_t)at + (size_t)d->count * 2u != d->size) return false;
+        d->offCosts = at;
+        return true;
+    }
     return at == d->size;
 }
 
@@ -149,6 +158,7 @@ JDict *JDict_Open(const wchar_t *path, JDictError *err) {
     unsigned fv = Rd32(d->base + 8);
     if (fv < JDICT_FORMAT_MIN || fv > JDICT_FORMAT_VERSION) { JDict_Close(d); *err = JDICT_E_VERSION; return NULL; }
     d->kind = Rd32(d->base + 12);   // 자리 검사는 종류마다 다른 키 한도를 쓴다
+    d->format = fv;
     if (!CheckLayout(d)) { JDict_Close(d); *err = JDICT_E_LAYOUT; return NULL; }
     return d;
 }
@@ -267,6 +277,12 @@ bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count
     if (first) *first = at;
     if (count) *count = n;
     return true;
+}
+
+bool JDict_HasCosts(const JDict *d) { return d && d->offCosts != 0; }
+int JDict_CostAt(const JDict *d, int index) {
+    if (!d || !d->offCosts || index < 0 || index >= (int)d->count) return -1;
+    return (int)Rd16(d->base + d->offCosts + (size_t)index * 2u);
 }
 
 bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLen) {

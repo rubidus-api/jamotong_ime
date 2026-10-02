@@ -306,6 +306,13 @@ kya	きゃ
 정렬하고 중복을 거르며, 입력기가 읽기 전용으로 매핑하는 이진을 만든다. 열 때 머리부와 색인을
 보고, 그 사전을 쓰는 자판을 읽을 때 파일 전체(검사합·차례·키 글자)를 본다.
 
+후보 사전의 줄은 셋째 칸에 **비용**을 둘 수 있다 — 0..65535 의 정수, 작을수록 흔하다(`zhongguo` 탭 `中国` 탭
+`310`). 모든 줄에 두거나 하나도 두지 않는다(`E-DICT-ROW`). 비용은 **더해서 견줄 수 있어야** 한다: 자모통은 사전에
+통째로 없는 읽기를 비용의 합(낱말마다 조금 더한다)이 가장 작게 되도록 낱말로 갈라, 그 **문장**을 첫 후보로 내고,
+그다음 읽기 전체의 후보, 첫 낱말과 더 짧은 앞부분의 후보를 낸다. 읽기의 앞부분만 쓰는 후보를 고르면 나머지가
+남고 그 후보가 곧바로 뜬다. 비용이 있는 사전은 판 3 으로 적고, 없으면 판 1·2 그대로라 옛 자모통도 읽는다.
+`jamotong --import-dict` 는 다섯 칸(Mozc 꼴) 자료의 비용을 그대로 싣는다.
+
 ## 한도
 
 | 무엇 | 한도 |
@@ -335,7 +342,7 @@ kya	きゃ
 | `E-DICT-MAGIC` | 사전 원본이 아니다 (첫 줄이 JamotongData 1) | the first line must be 'JamotongData 1' |
 | `E-DICT-MEMORY` | 메모리가 모자란다 | - |
 | `E-DICT-OPEN` | 사전 원본을 열 수 없다 | - |
-| `E-DICT-ROW` | 자료 줄은 키<탭>값 이어야 한다 | e.g. 'ka' then a tab then the letters it types |
+| `E-DICT-ROW` | 자료 줄은 키<탭>값 이어야 한다 (후보 사전은 <탭>비용 을 더할 수 있다 — 모든 줄에, 또는 하나도) | e.g. 'ka' then a tab then the letters it types |
 | `E-DICT-VALUE` | 낼 글자를 쓸 수 없다 (이스케이프·서로게이트·길이) | write the letters directly or as \u{hex} |
 | `E-DICT-VERSION` | 더 새 사전 원본 판 | update Jamotong to build it |
 | `E-DICT-WRITE` | 사전 파일을 쓸 수 없다 (폴더 확인) | check that the folder exists and is writable |

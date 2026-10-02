@@ -3,6 +3,23 @@
 이 프로젝트의 주요 변경 사항을 기록한다. [Keep a Changelog](https://keepachangelog.com) 형식과
 [Semantic Versioning](https://semver.org)(MAJOR.MINOR.PATCH — 비호환 변경 / 신규 기능 / 버그 수정)을 따른다.
 
+## [0.62.0] - 2026-10-02
+
+### Added
+- **중국어 팩 MSI** (`jamotong-chinese-0.62.0.msi`, 오너 결정 2026-10-02). 자모통이 깔려 있을 때만 설치되고(파일은
+  `jamotong.dll` 옆), 지우기는 자모통이 없어도 된다. 자판 둘: **Chinese (pinyin)**(간체)과 **Chinese (pinyin,
+  traditional)**(번체, OpenCC 의 간→번 표). 각 약 47만 항목, 자료 라이선스 원문 넷(pinyin-data·phrase-pinyin-data·jieba
+  MIT, OpenCC Apache-2.0)을 함께 설치한다. 0.49.0 의 중국어 zip 팩 둘을 대신한다.
+- **순차 입력의 이어 치기 변환.** 사전에 통째로 없는 읽기도 바뀐다: 낱말 비용의 합이 가장 작은 가르기를 찾아 **문장**
+  을 첫 후보로 내고(`woaini` → 我爱你), 그다음 읽기 전체·첫 낱말·더 짧은 앞부분의 후보를 낸다. 앞부분만 쓰는 후보를
+  고르면 나머지 읽기가 남고 그 후보가 곧바로 다시 뜬다. 일본어 팩에도 그대로 쓰인다.
+- 후보 사전의 **비용**(`.jdt` 셋째 칸, 0..65535). 비용이 있는 사전은 판 3 으로 굽는다 — 비용이 없으면 예전 판 그대로.
+  `--import-dict` 는 다섯 칸(Mozc 꼴) 자료의 비용을 싣는다. 한 번에 내놓는 후보가 16개에서 72개로 늘었다.
+
+### Fixed
+- 순차 입력에서 고른 후보가 AkelPad 에 앞의 두 글자만 들어가던 것 — 확정을 한글과 같은 길(EDIT 는 EM_REPLACESEL)로
+  넣는다(실기 2026-10-02, `我爱你` 가 `我爱` 로).
+
 ## [0.61.3] - 2026-10-02
 
 ### Added

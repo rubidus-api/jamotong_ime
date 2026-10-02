@@ -87,6 +87,7 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
     int n = 0, cap = 0;
     char line[IMP_MAX_LINE];
     bool ok = true;
+    bool allCost = true;      // 모든 줄이 비용을 가졌나 (mozc 꼴) — 그러면 .jdt 의 셋째 칸에 싣는다
 
     while (fgets(line, sizeof line, in)) {
         size_t len = strlen(line);
@@ -124,6 +125,7 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
         }
         v[n].key = DupStr(key); v[n].val = DupStr(val);
         v[n].cost = cost; v[n].order = n;
+        if (nf < 5) allCost = false;
         if (!v[n].key || !v[n].val) { Fail(res, L"out of memory"); ok = false; break; }
         n++;
     }
@@ -182,7 +184,13 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             if (licLine[0]) fprintf(out, "License = %ls\n", licLine);
             fprintf(out, "Source = %ls (converted by jamotong --import-dict)\n", base);
             fprintf(out, "# The data keeps the licence of the file it came from - write it here before sharing.\n");
-            for (int i = 0; i < n; i++) fprintf(out, "%s\t%s\n", v[i].key, v[i].val);
+            // 비용이 있는 자료(mozc 꼴)는 셋째 칸에 실어 둔다 — 사전 판 3, 엔진이 낱말 가르기에 쓴다.
+            for (int i = 0; i < n; i++) {
+                if (allCost) {
+                    long c = v[i].cost < 0 ? 0 : v[i].cost > JDICT_MAX_COST ? JDICT_MAX_COST : v[i].cost;
+                    fprintf(out, "%s\t%s\t%ld\n", v[i].key, v[i].val, c);
+                } else fprintf(out, "%s\t%s\n", v[i].key, v[i].val);
+            }
             if (fclose(out) != 0) { Fail(res, L"cannot write the dictionary source"); ok = false; }
             if (!ok) _wremove(outPath);
         }

@@ -329,6 +329,15 @@ candidate dictionary's reading may be any script. Building sorts the entries, re
 IME maps read-only; opening it checks the header and the index, and a layout that uses it checks
 the whole file (checksum, order, key characters) before the layout can be used.
 
+A candidate row may carry a third field, its **cost** - a whole number 0..65535, smaller is more
+common (`zhongguo` TAB `中国` TAB `310`). Give every row a cost or none (`E-DICT-ROW`). Costs should
+add up meaningfully: Jamotong cuts a reading that is not one entry into the entries whose costs sum
+lowest (plus a small amount per word), offers that **sentence** as the first candidate, then the
+whole reading's own candidates, then the first word's and shorter prefixes'. Choosing a candidate
+that covers only the front of the reading leaves the rest, and its candidates open next. A dictionary
+with costs is written as format 3; without costs it stays format 1 or 2 and older Jamotong reads it.
+`jamotong --import-dict` keeps the cost of a five-column (Mozc-style) source.
+
 ## Limits
 
 | Thing | Limit |
@@ -358,7 +367,7 @@ there is something to suggest. Warnings do not stop a load; errors do.
 | `E-DICT-MAGIC` | this is not a Jamotong dictionary source | the first line must be 'JamotongData 1' |
 | `E-DICT-MEMORY` | out of memory | - |
 | `E-DICT-OPEN` | cannot open the dictionary source | - |
-| `E-DICT-ROW` | a data row must be <keys> TAB <output> | e.g. 'ka' then a tab then the letters it types |
+| `E-DICT-ROW` | a data row must be <keys> TAB <output> (a candidate row may add TAB <cost>, on every row or none) | e.g. 'ka' then a tab then the letters it types |
 | `E-DICT-VALUE` | the output side cannot be used (bad escape, lone surrogate, NUL or too long) | write the letters directly or as \u{hex} |
 | `E-DICT-VERSION` | this source uses a newer dictionary format | update Jamotong to build it |
 | `E-DICT-WRITE` | cannot write the dictionary file | check that the folder exists and is writable |

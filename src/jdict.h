@@ -21,8 +21,14 @@
 // 친 쪽(순차 사전)은 그대로 32바이트다. 파일에 적는 판은 **그 파일이 실제로 필요로 하는 판**이다 —
 // 32바이트를 넘는 키가 하나도 없으면 판 1 로 적어, 옛 자모통도 그대로 읽는다. 옛 자모통이 판 2 를
 // 만나면 "더 새 판" 이라고 분명히 거절한다(0.40.0 교훈: 본문이 바뀌면 판을 반드시 올린다).
-#define JDICT_FORMAT_VERSION 2
+// 판 3 (2026-10-02, 중국어 이어 치기): **후보 사전의 항목마다 비용**(u16, 작을수록 흔하다)을 꼬리 뒤에 붙일 수 있다
+// (flags bit1). 엔진은 이것으로 읽기를 낱말로 가르는 가장 그럴듯한 길을 고른다(SeqKb_Convert). 비용이 없는
+// 사전은 예전 판으로 적어, 옛 자모통도 그대로 읽는다.
+#define JDICT_FORMAT_VERSION 3
 #define JDICT_FORMAT_MIN     1
+#define JDICT_FLAG_ASCII_KEYS 1u   // 키가 전부 ASCII (순차 사전)
+#define JDICT_FLAG_COSTS      2u   // 항목마다 비용 (판 3)
+#define JDICT_MAX_COST        65535
 #define JDICT_KIND_SEQUENCE  1
 // 후보 사전 (RFC-0016 §6.4): 읽기 하나에 후보가 여럿이다 — **같은 키가 여러 줄** 올 수 있고,
 // 원본에 적은 차례가 후보의 차례다. 순차 사전과 달리 중복이 오류가 아니다.
@@ -85,6 +91,9 @@ bool JDict_HasLonger(const JDict *d, const wchar_t *key);
 bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count);
 // 후보 하나 (JDict_Candidates 가 준 범위 안의 자리).
 bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLen);
+// 그 자리의 비용 (판 3, 작을수록 흔하다). 비용이 없는 사전이거나 범위 밖이면 -1.
+int  JDict_CostAt(const JDict *d, int index);
+bool JDict_HasCosts(const JDict *d);
 
 // buf 의 앞부분과 맞는 가장 긴 항목. 찾으면 *keyLen 에 그 길이, val/valLen 에 값.
 bool JDict_LongestPrefix(const JDict *d, const wchar_t *buf, int *keyLen,

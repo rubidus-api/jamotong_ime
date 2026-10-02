@@ -418,8 +418,13 @@ static int PageItemCount(void) {
 
 static void SelectIndex(int realIdx) {
     if (realIdx >= 0 && realIdx < g_count) {
-        if (g_onSelect) g_onSelect(realIdx, g_candidates[realIdx], g_ctx);
+        // 창을 먼저 닫고 콜백을 부른다 — 콜백이 곧바로 새 후보창을 열 수 있게(순차 입력의 이어 변환:
+        //   앞부분을 고르면 나머지 읽기의 후보를 다시 띄운다). 콜백이 쓰는 것(문자열·문맥·교체 길이)은 미리 잡아 둔다.
+        void (*cb)(int, const wchar_t *, void *) = g_onSelect;
+        void *ctx = g_ctx;
+        const wchar_t *str = g_candidates[realIdx];
         CandidateUI_Hide();
+        if (cb) cb(realIdx, str, ctx);
     }
 }
 

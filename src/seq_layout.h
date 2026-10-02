@@ -30,12 +30,14 @@ enum { SEQ_UNMATCHED_FLUSH = 0, SEQ_UNMATCHED_CANCEL = 1 };
 
 // 읽기·후보 (RFC-0016 §6.4). 후보 사전이 없으면 이 자리는 비어 있고 동작도 예전 그대로다.
 #define SEQ_MAX_READING 64     // 우리 소유 preedit 에 쌓을 수 있는 글자 수
-#define SEQ_MAX_CANDS   16     // 한 번에 보여 줄 후보 수
+#define SEQ_MAX_CANDS   72     // 한 번에 내놓는 후보 수 (후보창 여덟 쪽). 병음 한 음절은 후보가 수백이다
+#define SEQ_PREFIX_CANDS 27    // 읽기 전체가 아닌 앞부분 하나에서 가져오는 후보 수 (세 쪽)
 
 typedef struct SeqCandidates {
     unsigned generation;                        // 이 묶음이 어느 읽기의 것인가 (늦은 결과를 버린다)
     int      count;
     wchar_t  items[SEQ_MAX_CANDS][SEQ_MAX_OUT + 1];
+    int      consumed[SEQ_MAX_CANDS];           // 그 후보가 쓰는 읽기 앞부분의 글자 수 (나머지는 읽기에 남는다)
 } SeqCandidates;
 
 typedef struct SeqLayout {
@@ -66,7 +68,7 @@ typedef struct SeqState {
 // 한 번의 입력이 낳은 결과. committed = 지금 문서에 넣을 글자들, composing = 아직 보류(미리보기).
 typedef struct SeqResult {
     wchar_t committed[192];      // 한 번의 재처리가 낳을 수 있는 최대보다 넉넉하다
-    wchar_t composing[SEQ_MAX_IN + 1];
+    wchar_t composing[SEQ_MAX_READING + 1];   // 보류든 읽기든 다 담는다 (읽기가 더 길다)
     bool    eaten;               // 엔진이 이 글쇠를 먹었는가 (false 면 응용으로 그냥 보낸다)
 } SeqResult;
 
@@ -98,10 +100,11 @@ SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym);
 const wchar_t *SeqKb_Reading(const SeqState *st);
 // 변환 글쇠를 지금 받을 수 있는가 (보류만 있어도 받는다 — 보류를 먼저 읽기로 정착시킨다).
 bool      SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl);
-// 변환 글쇠: 보류한 글자를 읽기로 정착시킨 뒤 그 읽기의 후보를 내놓는다. 읽기가 비었거나
-// 후보가 없으면 false.
+// 변환 글쇠: 보류한 글자를 읽기로 정착시킨 뒤 그 읽기의 후보를 내놓는다 — 읽기 전체의 후보가 먼저,
+// 그다음 앞부분의 후보를 긴 것부터(이어 치기). 읽기가 비었거나 어느 앞부분에도 후보가 없으면 false.
 bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
-// 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다.
+// 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다. 앞부분만 쓰는 후보면
+// 나머지 읽기가 남고 composing 에 실린다 — SeqKb_Reading 이 비어 있지 않으면 이어서 다시 변환한다.
 SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index);
 // 후보를 접는다 — 읽기는 그대로 남는다.
 SeqResult SeqKb_CancelCandidates(SeqState *st);
