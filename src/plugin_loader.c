@@ -6,7 +6,7 @@
 
 extern HINSTANCE g_hInst;
 
-// 처음 보는 자판을 켠 채로 들일까 (2026-10-03, 오너: "차이니즈 팩 추가하면 현재 자판에 자동으로 간체 자판 추가").
+// 처음 보는 자판을 켠 채로 들일까 (2026-10-02, 오너: "차이니즈 팩 추가하면 현재 자판에 자동으로 간체 자판 추가").
 //   팩 MSI 가 HKLM\SOFTWARE\Jamotong\AutoEnable 에 자판 이름을 적어 둔다(팩을 지우면 함께 지워진다). 이 판단은
 //   **처음 볼 때만** 쓰인다 — 설정 파일에 이미 있는 자판은 사용자가 고른 켜짐/꺼짐을 따른다(Config_LoadFromFile 병합).
 static bool AutoEnableHint(const wchar_t *name) {

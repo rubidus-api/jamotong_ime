@@ -44,7 +44,7 @@ const wchar_t *JLay_ErrorText(JLayError e);
 //   실제로 다시 굽는 일은 도구가 한다 — 입력기는 굽지 않는다.
 bool JLay_IsStale(const wchar_t *jmbPath, const wchar_t *jmtPath);
 
-// 원본 `x.jmt` 를 구운 파일의 이름 `x.v<판>.jmb` (2026-10-03, 판 바꿈 업그레이드). 판마다 이름이 달라야 새 자모통이
+// 원본 `x.jmt` 를 구운 파일의 이름 `x.v<판>.jmb` (2026-10-02, 판 바꿈 업그레이드). 판마다 이름이 달라야 새 자모통이
 //   다시 구워도 옛 판 파일을 덮어쓰지 않는다 — 업그레이드 뒤에도 열려 있던 앱의 옛 DLL 은 제 판 파일을 계속 읽는다
 //   (입력기는 `*.jmb` 를 다 훑고 제 판이 아닌 것은 건너뛰며, 같은 이름의 자판은 하나만 둔다). .jmt 가 아니면 false.
 bool JLay_BuiltPath(const wchar_t *jmtPath, wchar_t *out, size_t cch);

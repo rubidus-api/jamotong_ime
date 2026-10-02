@@ -194,6 +194,25 @@ bool SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl) {
     return st && sl && sl->cand && (st->reading[0] || st->pending[0]);
 }
 
+// 후보 하나를 붙인다 — 이미 있는 글자와 같으면 붙이지 않는다(문장 후보와 낱말 후보가 같은 때 등).
+static bool AddCand(SeqCandidates *out, const JDict *d, int index, int consumed) {
+    if (out->count >= SEQ_MAX_CANDS) return false;
+    const jdchar *v = NULL; int vn = 0;
+    if (!JDict_CandidateAt(d, index, &v, &vn)) return false;
+    if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) < 0) return false;
+    for (int j = 0; j < out->count; j++) if (!wcscmp(out->items[j], out->items[out->count])) return false;
+    out->consumed[out->count++] = consumed;
+    return true;
+}
+// 읽기 전체의 후보를 *next 부터 upto 번째 전까지 (n = 읽기 길이)
+static void AddWhole(SeqCandidates *out, const SeqLayout *sl, int first, int count, int *next, int upto, int n) {
+    for (; *next < count && *next < upto && out->count < SEQ_MAX_CANDS; (*next)++) AddCand(out, sl->cand, first + *next, n);
+}
+// 추천 단어를 *next 부터 upto 번째 전까지
+static void AddPredict(SeqCandidates *out, const SeqLayout *sl, const int *idx, int np, int *next, int upto, int n) {
+    for (; *next < np && *next < upto && out->count < SEQ_MAX_CANDS; (*next)++) AddCand(out, sl->cand, idx[*next], n);
+}
+
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
     return SeqKb_ConvertEx(st, sl, SEQ_CONV_ALL, out);
 }
@@ -261,40 +280,34 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
             if (fits && sent[0]) { out->consumed[0] = n; out->count = 1; }
         }
     }
-    // 3) 앞부분별 후보: 읽기 전체 → 길의 첫 낱말 → 나머지 긴 것부터
+    // 3) 그다음: 읽기 전체의 후보 앞의 몇 개 → 추천 단어 몇 개(첫 쪽에 보이게) → 읽기 전체의 나머지 → 남은 추천 단어
+    //    → 길의 첫 낱말 → 나머지 앞부분을 긴 것부터.
+    //   추천 단어(2026-10-02)는 읽기로 **시작하는** 더 긴 낱말·성어를 싼 것부터 — 고르면 읽기 전체가 그 낱말이 된다
+    //   (`yijian` → 一箭双雕, 사전에 줄임 키가 있으면 `wsm` → 为什么). 읽기 그대로의 후보가 많아도(병음 한 음절은 수백)
+    //   첫 쪽에 들도록 사이에 끼운다.
+    int pidx[SEQ_PREDICT_CANDS], np = 0, pnext = 0;
+    if ((flags & SEQ_CONV_PREDICT) && n >= 2)
+        np = JDict_Completions(sl->cand, st->reading, pidx, SEQ_PREDICT_CANDS, 20000);
+    int wfirst = 0, wcount = 0, wnext = 0;
+    bool whole = JDict_Candidates(sl->cand, st->reading, &wfirst, &wcount);
+    AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_WHOLE_FIRST, n);
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST, n);
+    AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n);
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n);
     int order[SEQ_MAX_READING + 1], no = 0;
-    order[no++] = n;
     if (firstSegLen > 0 && firstSegLen < n) order[no++] = firstSegLen;
     for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;
     for (int k = 0; k < no && out->count < SEQ_MAX_CANDS; k++) {
         int len = order[k];
-        if (k == 1 && (flags & SEQ_CONV_PREDICT) && n >= 2) {
-            // 추천 단어 (2026-10-03): 읽기 전체의 후보 바로 뒤에, 읽기로 **시작하는** 더 긴 낱말·성어를 싼 것부터.
-            //   고르면 읽기 전체가 그 낱말이 된다 — 나머지를 칠 필요가 없다(`yishi` → 一石二鸟, `wsm` 같은 줄임도 사전에 있으면).
-            int idx[SEQ_PREDICT_CANDS];
-            int np = JDict_Completions(sl->cand, st->reading, idx, SEQ_PREDICT_CANDS, 20000);
-            for (int i = 0; i < np && out->count < SEQ_MAX_CANDS; i++) {
-                const jdchar *v = NULL; int vn = 0;
-                if (!JDict_CandidateAt(sl->cand, idx[i], &v, &vn)) continue;
-                if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) < 0) continue;
-                bool dup = false;
-                for (int j = 0; j < out->count && !dup; j++) dup = !wcscmp(out->items[j], out->items[out->count]);
-                if (dup) continue;
-                out->consumed[out->count] = n;
-                out->count++;
-            }
-        }
         wchar_t prefix[SEQ_MAX_READING + 1];
         lstrcpynW(prefix, st->reading, len + 1);
         int first = 0, count = 0;
         if (!JDict_Candidates(sl->cand, prefix, &first, &count)) continue;
-        int take = len == n ? SEQ_MAX_CANDS : SEQ_PREFIX_CANDS;
+        int take = SEQ_PREFIX_CANDS;
         for (int i = 0; i < count && take > 0 && out->count < SEQ_MAX_CANDS; i++) {
             const jdchar *v = NULL; int vn = 0;
             if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
             if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) {
-                if (out->count > 0 && out->consumed[0] == n && len == n && !wcscmp(out->items[0], out->items[out->count]))
-                    continue;   // 문장 후보와 같은 글자면 두 번 보이지 않는다
                 out->consumed[out->count] = len;
                 out->count++;
                 take--;

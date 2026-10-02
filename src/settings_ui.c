@@ -161,7 +161,7 @@ static int g_CurrentDpi = 96;
 
 // 탭 소속 태그 (컨트롤 GWLP_USERDATA). TAB_ALWAYS=탭전환과 무관하게 항상 표시.
 enum { TAB_LAYOUTS = 0, TAB_LAYOUTOPTS = 1, TAB_SHORTCUTS = 2, TAB_OPTIONS = 3, TAB_GENERAL = 4, TAB_ALWAYS = 99 };
-// Layout Options 탭 (2026-10-03, 오너: "자판별로 옵션 설정이 필요한 경우가 있어요 … 탭을 추가해 주세요").
+// Layout Options 탭 (2026-10-02, 오너: "자판별로 옵션 설정이 필요한 경우가 있어요 … 탭을 추가해 주세요").
 //   선택은 자판에 붙는다(간체·번체 중국어도 서로 다른 자판이다) — 그래서 언어가 아니라 자판 이름으로 고른다.
 #define ID_CMB_LOPT_LAYOUT   1050
 #define ID_CHK_LOPT_SENTENCE 1051
@@ -456,7 +456,7 @@ static void ShowTab(HWND hwnd, int sel) {
 }
 
 // 창 논리 크기 (세로는 리사이즈로 늘어남)
-#define WIN_W 340
+#define WIN_W 460
 #define WIN_H_MIN 436
 static int g_winH = WIN_H_MIN;   // 현재 논리 높이
 
@@ -475,54 +475,54 @@ static void CreateControls(HWND hwnd) {
     ti.pszText = (LPWSTR)L"General";        SendMessageW(tab, TCM_INSERTITEMW, TAB_GENERAL, (LPARAM)&ti);
 
     // ── Tab: Layout Options ── 자판을 고르고 그 자판의 선택을 켜고 끈다
-    MkCtl(hwnd, L"STATIC", L"Layout:", 0, 0, 14, 40, 312, 18, 0, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 14, 60, 312, 240, ID_CMB_LOPT_LAYOUT, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"Layout:", 0, 0, 14, 40, (WIN_W - 28), 18, 0, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 14, 60, (WIN_W - 28), 240, ID_CMB_LOPT_LAYOUT, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Offer the whole sentence first", BS_AUTOCHECKBOX, 0,
-          14, 96, 312, 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
+          14, 96, (WIN_W - 28), 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Suggest words and idioms (completions, initials)", BS_AUTOCHECKBOX, 0,
-          14, 124, 312, 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 156, 312, 120, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
+          14, 124, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 156, (WIN_W - 28), 120, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
-          14, 40, 224, listH, ID_LST_LAYOUTS, TAB_LAYOUTS);
-    MkCtl(hwnd, L"BUTTON", L"On/Off", BS_PUSHBUTTON, 0, 244, 40, 82, 26, ID_BTN_LAYOUT_TOGGLE, TAB_LAYOUTS);
-    MkCtl(hwnd, L"BUTTON", L"\x25B2", BS_PUSHBUTTON, 0, 244, 70, 82, 26, ID_BTN_LAYOUT_UP, TAB_LAYOUTS);
-    MkCtl(hwnd, L"BUTTON", L"\x25BC", BS_PUSHBUTTON, 0, 244, 100, 82, 26, ID_BTN_LAYOUT_DOWN, TAB_LAYOUTS);
-    MkCtl(hwnd, L"BUTTON", L"Add",    BS_PUSHBUTTON, 0, 244, 130, 82, 26, ID_BTN_LAYOUT_ADD, TAB_LAYOUTS);
-    MkCtl(hwnd, L"BUTTON", L"Del",    BS_PUSHBUTTON, 0, 244, 160, 82, 26, ID_BTN_LAYOUT_DEL, TAB_LAYOUTS);
+          14, 40, (WIN_W - 116), listH, ID_LST_LAYOUTS, TAB_LAYOUTS);
+    MkCtl(hwnd, L"BUTTON", L"On/Off", BS_PUSHBUTTON, 0, (WIN_W - 96), 40, 82, 26, ID_BTN_LAYOUT_TOGGLE, TAB_LAYOUTS);
+    MkCtl(hwnd, L"BUTTON", L"\x25B2", BS_PUSHBUTTON, 0, (WIN_W - 96), 70, 82, 26, ID_BTN_LAYOUT_UP, TAB_LAYOUTS);
+    MkCtl(hwnd, L"BUTTON", L"\x25BC", BS_PUSHBUTTON, 0, (WIN_W - 96), 100, 82, 26, ID_BTN_LAYOUT_DOWN, TAB_LAYOUTS);
+    MkCtl(hwnd, L"BUTTON", L"Add",    BS_PUSHBUTTON, 0, (WIN_W - 96), 130, 82, 26, ID_BTN_LAYOUT_ADD, TAB_LAYOUTS);
+    MkCtl(hwnd, L"BUTTON", L"Del",    BS_PUSHBUTTON, 0, (WIN_W - 96), 160, 82, 26, ID_BTN_LAYOUT_DEL, TAB_LAYOUTS);
     MkCtl(hwnd, L"STATIC", L"Double-click a row to turn it On/Off.", 0, 0,
-          14, 44 + listH, 312, 18, ID_LBL_LAYOUT_HINT, TAB_LAYOUTS);
+          14, 44 + listH, (WIN_W - 28), 18, ID_LBL_LAYOUT_HINT, TAB_LAYOUTS);
 
     // ── Tab: Shortcuts (위 = 기능 콤보, 아래 = 그 기능의 단축키 목록) ──
-    MkCtl(hwnd, L"STATIC", L"Function:", 0, 0, 14, 40, 312, 18, 0, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"STATIC", L"Function:", 0, 0, 14, 40, (WIN_W - 28), 18, 0, TAB_SHORTCUTS);
     HWND hCmbFn = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0,
-                        14, 60, 312, 200, ID_CMB_SCFN, TAB_SHORTCUTS);
+                        14, 60, (WIN_W - 28), 200, ID_CMB_SCFN, TAB_SHORTCUTS);
     for (int f = 0; f < SC_FN_COUNT; f++)
         SendMessageW(hCmbFn, CB_ADDSTRING, 0, (LPARAM)g_scFnNames[f]);
     SendMessageW(hCmbFn, CB_SETCURSEL, g_curScFn, 0);
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
-          14, 92, 224, listH - 52, ID_LST_SHORTCUTS, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Add",  BS_PUSHBUTTON, 0, 244, 92, 82, 26, ID_BTN_SHORTCUT_ADD, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Edit", BS_PUSHBUTTON, 0, 244, 122, 82, 26, ID_BTN_SHORTCUT_EDIT, TAB_SHORTCUTS);
-    MkCtl(hwnd, L"BUTTON", L"Del",  BS_PUSHBUTTON, 0, 244, 152, 82, 26, ID_BTN_SHORTCUT_DEL, TAB_SHORTCUTS);
+          14, 92, (WIN_W - 116), listH - 52, ID_LST_SHORTCUTS, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Add",  BS_PUSHBUTTON, 0, (WIN_W - 96), 92, 82, 26, ID_BTN_SHORTCUT_ADD, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Edit", BS_PUSHBUTTON, 0, (WIN_W - 96), 122, 82, 26, ID_BTN_SHORTCUT_EDIT, TAB_SHORTCUTS);
+    MkCtl(hwnd, L"BUTTON", L"Del",  BS_PUSHBUTTON, 0, (WIN_W - 96), 152, 82, 26, ID_BTN_SHORTCUT_DEL, TAB_SHORTCUTS);
     MkCtl(hwnd, L"STATIC", L"Shortcuts for the selected function. Add captures a new key.", 0, 0,
-          14, 44 + listH, 312, 18, ID_LBL_SHORTCUT_HINT, TAB_SHORTCUTS);
+          14, 44 + listH, (WIN_W - 28), 18, ID_LBL_SHORTCUT_HINT, TAB_SHORTCUTS);
 
     // ── Tab: IME Options ──
     MkCtl(hwnd, L"BUTTON", L"Full-width (fullwidth Latin/symbols)", BS_AUTOCHECKBOX, 0,
-          14, 46, 312, 22, ID_CHK_FULLWIDTH, TAB_OPTIONS);
+          14, 46, (WIN_W - 28), 22, ID_CHK_FULLWIDTH, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Backspace deletes one jamo at a time", BS_AUTOCHECKBOX, 0,
-          14, 74, 312, 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
+          14, 74, (WIN_W - 28), 22, ID_CHK_JAMODELETE, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Show composition preview (floating)", BS_AUTOCHECKBOX, 0,
-          14, 102, 312, 22, ID_CHK_PREVIEW, TAB_OPTIONS);
+          14, 102, (WIN_W - 28), 22, ID_CHK_PREVIEW, TAB_OPTIONS);
     MkCtl(hwnd, L"BUTTON", L"Inline composition (in the document)", BS_AUTOCHECKBOX, 0,
-          14, 130, 312, 22, ID_CHK_INLINE, TAB_OPTIONS);
+          14, 130, (WIN_W - 28), 22, ID_CHK_INLINE, TAB_OPTIONS);
     // 라벨은 한 줄 전체를 쓰고 컨트롤은 그 아랫줄 — 좁은 열에서 라벨이 잘리던 문제 방지
-    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 160, 312, 18, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 180, 222, 22, ID_LBL_PVFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 178, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 212, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview font:", 0, 0, 14, 160, (WIN_W - 28), 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 180, (WIN_W - 118), 22, ID_LBL_PVFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, (WIN_W - 96), 178, 82, 26, ID_BTN_PVFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Preview size (px, Auto = caret height):", 0, 0, 14, 212, (WIN_W - 28), 18, 0, TAB_OPTIONS);
     HWND hCmbPv = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
                         14, 232, 120, 200, ID_CMB_PVSIZE, TAB_OPTIONS);
     {   // Auto + 흔한 px 크기 (직접 입력도 가능 — 8~96 클램프)
@@ -537,10 +537,10 @@ static void CreateControls(HWND hwnd) {
         }
     }
     // 한자 후보창 글꼴/크기 — 후보·훈음·페이지 표시 전 요소가 이 하나를 쓴다 (candidate_ui.c)
-    MkCtl(hwnd, L"STATIC", L"Hanja candidate font:", 0, 0, 14, 264, 312, 18, 0, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 284, 222, 22, ID_LBL_CANDFONT, TAB_OPTIONS);
-    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, 244, 282, 82, 26, ID_BTN_CANDFONT_SET, TAB_OPTIONS);
-    MkCtl(hwnd, L"STATIC", L"Hanja candidate size (px):", 0, 0, 14, 316, 312, 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate font:", 0, 0, 14, 264, (WIN_W - 28), 18, 0, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"", SS_CENTERIMAGE | SS_SUNKEN, 0, 14, 284, (WIN_W - 118), 22, ID_LBL_CANDFONT, TAB_OPTIONS);
+    MkCtl(hwnd, L"BUTTON", L"Set...", BS_PUSHBUTTON, 0, (WIN_W - 96), 282, 82, 26, ID_BTN_CANDFONT_SET, TAB_OPTIONS);
+    MkCtl(hwnd, L"STATIC", L"Hanja candidate size (px):", 0, 0, 14, 316, (WIN_W - 28), 18, 0, TAB_OPTIONS);
     HWND hCmbCand = MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWN | WS_VSCROLL, 0,
                           14, 336, 120, 200, ID_CMB_CANDSIZE, TAB_OPTIONS);
     {   // 흔한 px 크기 (직접 입력도 가능 — 12~72 클램프)
@@ -588,12 +588,12 @@ static void LayoutControls(HWND hwnd) {
     HWND c;
     if ((c = GetDlgItem(hwnd, ID_TAB)))           MoveWindow(c, ScaleX(6), ScaleY(6), W - ScaleX(12), H - BB - ScaleY(8), TRUE);
     int listH = H - BB - ScaleY(96); if (listH < ScaleY(60)) listH = ScaleY(60);
-    if ((c = GetDlgItem(hwnd, ID_LST_LAYOUTS)))   MoveWindow(c, ScaleX(14), ScaleY(40), ScaleX(224), listH, TRUE);
+    if ((c = GetDlgItem(hwnd, ID_LST_LAYOUTS)))   MoveWindow(c, ScaleX(14), ScaleY(40), ScaleX((WIN_W - 116)), listH, TRUE);
     int listH2 = listH - ScaleY(52); if (listH2 < ScaleY(40)) listH2 = ScaleY(40);   // 단축키 리스트(기능 콤보 아래)
-    if ((c = GetDlgItem(hwnd, ID_LST_SHORTCUTS))) MoveWindow(c, ScaleX(14), ScaleY(92), ScaleX(224), listH2, TRUE);
+    if ((c = GetDlgItem(hwnd, ID_LST_SHORTCUTS))) MoveWindow(c, ScaleX(14), ScaleY(92), ScaleX((WIN_W - 116)), listH2, TRUE);
     h = ScaleY(40) + listH + ScaleY(4);
-    if ((c = GetDlgItem(hwnd, ID_LBL_LAYOUT_HINT)))   MoveWindow(c, ScaleX(14), h, ScaleX(312), ScaleY(18), TRUE);
-    if ((c = GetDlgItem(hwnd, ID_LBL_SHORTCUT_HINT))) MoveWindow(c, ScaleX(14), h, ScaleX(312), ScaleY(18), TRUE);
+    if ((c = GetDlgItem(hwnd, ID_LBL_LAYOUT_HINT)))   MoveWindow(c, ScaleX(14), h, ScaleX((WIN_W - 28)), ScaleY(18), TRUE);
+    if ((c = GetDlgItem(hwnd, ID_LBL_SHORTCUT_HINT))) MoveWindow(c, ScaleX(14), h, ScaleX((WIN_W - 28)), ScaleY(18), TRUE);
     if ((c = GetDlgItem(hwnd, ID_BTN_APPLY)))     MoveWindow(c, W - ScaleX(198), H - ScaleY(34), ScaleX(106), ScaleY(26), TRUE);
     if ((c = GetDlgItem(hwnd, ID_BTN_CANCEL)))    MoveWindow(c, W - ScaleX(86),  H - ScaleY(34), ScaleX(74),  ScaleY(26), TRUE);
     InvalidateRect(hwnd, NULL, TRUE);

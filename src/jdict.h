@@ -93,7 +93,7 @@ bool JDict_Candidates(const JDict *d, const wchar_t *key, int *first, int *count
 bool JDict_CandidateAt(const JDict *d, int index, const jdchar **val, int *valLen);
 // 그 자리의 비용 (판 3, 작을수록 흔하다). 비용이 없는 사전이거나 범위 밖이면 -1.
 int  JDict_CostAt(const JDict *d, int index);
-// 이어질 낱말 (추천 단어, 2026-10-03): 키가 key 로 **시작하고 더 긴** 항목 중 가장 싼 것 max 개의 자리를 싼 차례로
+// 이어질 낱말 (추천 단어, 2026-10-02): 키가 key 로 **시작하고 더 긴** 항목 중 가장 싼 것 max 개의 자리를 싼 차례로
 //   out 에 담고 그 수를 돌려준다. 키 차례로 이어진 구간을 scanLimit 개까지만 본다(짧은 읽기도 빨리 끝나게).
 //   비용이 없는 사전은 키 차례(그 안에서는 원본 차례) 그대로 앞의 max 개.
 int  JDict_Completions(const JDict *d, const wchar_t *key, int *out, int max, int scanLimit);
