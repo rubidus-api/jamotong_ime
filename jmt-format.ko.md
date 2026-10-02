@@ -19,7 +19,7 @@ README 에 있다.
 
 ```sh
 jamotong --check      자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
-jamotong --build      자판.jmt          # 옆에 자판.jmb 를 만든다
+jamotong --build      자판.jmt          # 옆에 자판.v6.jmb 를 만든다 (숫자는 구운 형식의 판)
 jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을 굽는다
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
 jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N] [--name ..] [--license ..]
@@ -28,6 +28,9 @@ jamotong --import-ngs 세벌식.key -o 세벌식.jmt              # 날개셋 �
 jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴서 한 파일로
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```
+
+구운 파일의 이름에는 형식의 판이 붙는다(`자판.v6.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
+자모통이 읽는 파일을 덮어쓰지 않는다. 두 판 묵은 파일은 지운다.
 
 찾는 차례: 자판 파일 옆 → `%APPDATA%\Jamotong\layouts`(사전은 `...\dicts`) →
 `%PROGRAMDATA%\Jamotong\...` → 설치 폴더. 사전은 폴더 없는 `.jdb` 파일 이름으로만 가리킨다.

@@ -496,7 +496,10 @@ static void TrimCrLf(wchar_t *str) {
 // 임시 파일에 끝까지 쓰고, 쓰기·flush·디스크 반영·close 가 모두 성공했을 때만 대상과 바꾼다.
 // 실패하면 임시 파일을 지우고 원본은 그대로 둔다.
 static FILE *AtomicOpen(const wchar_t *target, wchar_t *tmp, int cch) {
-    if (_snwprintf(tmp, cch, L"%ls.tmp", target) < 0) return NULL;
+    // 임시 이름은 쓰는 쪽마다 다르다 — 업그레이드 뒤 한동안 옛 DLL(열려 있던 앱)과 새 DLL 이 같은 설정을 함께
+    //   쓴다. 이름이 같으면 한쪽이 다른 쪽의 반쯤 쓴 임시 파일을 대상으로 옮길 수 있다.
+    if (_snwprintf(tmp, cch, L"%ls.%lu-%lu.tmp", target, (unsigned long)GetCurrentProcessId(),
+                   (unsigned long)GetCurrentThreadId()) < 0) return NULL;
     tmp[cch - 1] = L'\0';
     return _wfopen(tmp, L"w, ccs=UTF-8");
 }
@@ -512,9 +515,10 @@ static bool AtomicCommit(FILE *fp, const wchar_t *tmp, const wchar_t *target, bo
 }
 
 bool Config_CopyFileAtomic(const wchar_t *src, const wchar_t *dst) {
-    wchar_t tmp[MAX_PATH + 8];
-    if (_snwprintf(tmp, MAX_PATH + 8, L"%ls.tmp", dst) < 0) return false;
-    tmp[MAX_PATH + 7] = L'\0';
+    wchar_t tmp[MAX_PATH + 40];
+    if (_snwprintf(tmp, MAX_PATH + 40, L"%ls.%lu-%lu.tmp", dst, (unsigned long)GetCurrentProcessId(),
+                   (unsigned long)GetCurrentThreadId()) < 0) return false;   // 쓰는 쪽마다 다른 임시 이름
+    tmp[MAX_PATH + 39] = L'\0';
     if (!CopyFileW(src, tmp, FALSE)) { _wremove(tmp); return false; }
     if (!MoveFileExW(tmp, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { _wremove(tmp); return false; }
     return true;
@@ -592,10 +596,81 @@ static void BundleUserLayouts(FILE *fp) {
     FindClose(h);
 }
 
+// ── 모르는 설정은 지키며 저장한다 (2026-10-03, 업그레이드 중 옛·새 DLL 공존) ───────────────────────────────
+// 업그레이드 뒤에도 열려 있던 앱에는 옛 DLL 이 남는다. 그 앱의 설정 창이 저장하면, 옛 판이 모르는 새 판의 설정이
+// 사라졌다. 그래서 저장은 지금 파일을 먼저 읽어, 이 판이 쓰지 않는 키(아는 절 안)와 모르는 절을 그대로 옮겨 적는다.
+// 이 판이 쓰는 키는 언제나 이 판의 값이 이긴다. 내보내기(다른 파일에 묶어 쓰기)에는 쓰지 않는다.
+#define KEEP_MAX 256
+typedef struct { wchar_t *line[KEEP_MAX]; int n; } KeepList;
+static const wchar_t *const kOptionKeys[] = {
+    L"FullWidth", L"JamoDelete", L"ShowPreview", L"InlineComposition", L"UseCompartments", L"UsePreservedKeys",
+    L"UseUIElements", L"UseUiHelper", L"UwpHanjaCycle", L"UwpOwnWindow", L"PreviewFontSize", L"PreviewFont",
+    L"CandFontSize", L"CandFont", NULL };
+static void KeepAdd(KeepList *k, const wchar_t *s) {
+    if (k->n < KEEP_MAX) { k->line[k->n] = _wcsdup(s); if (k->line[k->n]) k->n++; }
+}
+static void KeepFree(KeepList *k) { for (int i = 0; i < k->n; i++) free(k->line[i]); k->n = 0; }
+static bool KeyIs(const wchar_t *key, size_t klen, const wchar_t *w) { return wcslen(w) == klen && !_wcsnicmp(key, w, klen); }
+// 이 판이 그 절에 쓰는 키인가
+static bool OursLayouts(const wchar_t *key, size_t klen) {
+    if (KeyIs(key, klen, L"Count")) return true;
+    size_t i = 0;
+    while (i < klen && key[i] >= L'0' && key[i] <= L'9') i++;
+    if (i == 0 || i >= klen || key[i] != L'_') return false;
+    return KeyIs(key + i + 1, klen - i - 1, L"Type") || KeyIs(key + i + 1, klen - i - 1, L"Name") ||
+           KeyIs(key + i + 1, klen - i - 1, L"Enabled");
+}
+static bool OursShortcuts(const wchar_t *key, size_t klen) {
+    for (int f = 0; f < SC_FN_COUNT; f++) {
+        size_t nl = wcslen(SC_NAMES[f]);
+        if (klen <= nl || _wcsnicmp(key, SC_NAMES[f], nl) != 0) continue;
+        const wchar_t *t = key + nl; size_t tl = klen - nl;
+        if (KeyIs(t, tl, L"Count")) return true;
+        size_t i = 0;
+        while (i < tl && t[i] >= L'0' && t[i] <= L'9') i++;
+        if (i > 0 && (KeyIs(t + i, tl - i, L"_Key") || KeyIs(t + i, tl - i, L"_Mods"))) return true;
+    }
+    return false;
+}
+static bool OursOptions(const wchar_t *key, size_t klen) {
+    for (int i = 0; kOptionKeys[i]; i++) if (KeyIs(key, klen, kOptionKeys[i])) return true;
+    return false;
+}
+// keep[0..2] = [Layouts]·[Shortcuts]·[Options] 안의 모르는 줄, keep[3] = 모르는 절 통째로(머리 줄 포함)
+static void ReadUnknown(const wchar_t *path, KeepList keep[4]) {
+    FILE *f = _wfopen(path, L"r, ccs=UTF-8");
+    if (!f) return;
+    wchar_t line[1024];
+    int sec = -1;    // -1 = 절 밖, 0..2 아는 절, 3 모르는 절
+    while (fgetws(line, 1024, f)) {
+        size_t n = wcslen(line);
+        while (n && (line[n - 1] == L'\n' || line[n - 1] == L'\r')) line[--n] = 0;
+        if (line[0] == L'[') {
+            if (!_wcsicmp(line, L"[Layouts]")) sec = 0;
+            else if (!_wcsicmp(line, L"[Shortcuts]")) sec = 1;
+            else if (!_wcsicmp(line, L"[Options]")) sec = 2;
+            else { sec = 3; KeepAdd(&keep[3], L""); KeepAdd(&keep[3], line); }
+            continue;
+        }
+        if (sec == 3) { KeepAdd(&keep[3], line); continue; }
+        if (sec < 0 || !n || line[0] == L';' || line[0] == L'#') continue;
+        const wchar_t *eq = wcschr(line, L'=');
+        if (!eq) continue;
+        size_t klen = (size_t)(eq - line);
+        bool ours = sec == 0 ? OursLayouts(line, klen) : sec == 1 ? OursShortcuts(line, klen) : OursOptions(line, klen);
+        if (!ours) KeepAdd(&keep[sec], line);
+    }
+    fclose(f);
+}
+static void WriteKept(FILE *fp, const KeepList *k) { for (int i = 0; i < k->n; i++) fwprintf(fp, L"%ls\n", k->line[i]); }
+
 bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bundleLayouts) {
-    wchar_t tmp[MAX_PATH + 8];
-    FILE *fp = AtomicOpen(filepath, tmp, MAX_PATH + 8);   // W1-06: 임시 파일에 다 쓴 뒤 교체
-    if (!fp) return false;
+    KeepList keep[4];
+    memset(keep, 0, sizeof keep);
+    if (!bundleLayouts) ReadUnknown(filepath, keep);   // 옮겨 적을 모르는 설정 (내보내기는 아니다)
+    wchar_t tmp[MAX_PATH + 40];
+    FILE *fp = AtomicOpen(filepath, tmp, MAX_PATH + 40);   // W1-06: 임시 파일에 다 쓴 뒤 교체
+    if (!fp) { for (int i = 0; i < 4; i++) KeepFree(&keep[i]); return false; }
 
     fwprintf(fp, L"[Layouts]\nCount=%d\n", config->layoutCount);
     for (int i = 0; i < config->layoutCount; i++) {
@@ -603,6 +678,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
         fwprintf(fp, L"%d_Name=%ls\n", i, config->layouts[i].name ? config->layouts[i].name : L"");
         fwprintf(fp, L"%d_Enabled=%d\n", i, config->layouts[i].enabled ? 1 : 0);
     }
+    WriteKept(fp, &keep[0]);
     
     // 기능별 단축키: <기능이름>Count / <기능이름><i>_Key / <기능이름><i>_Mods
     fwprintf(fp, L"\n[Shortcuts]\n");
@@ -614,6 +690,7 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
             fwprintf(fp, L"%ls%d_Mods=%u\n", SC_NAMES[f], i, sl->keys[i].mods);
         }
     }
+    WriteKept(fp, &keep[1]);
 
     fwprintf(fp, L"\n[Options]\n");
     fwprintf(fp, L"FullWidth=%d\n", config->options.fullWidth ? 1 : 0);
@@ -630,6 +707,9 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
     fwprintf(fp, L"PreviewFont=%ls\n", config->options.previewFont[0] ? config->options.previewFont : L"Malgun Gothic");
     fwprintf(fp, L"CandFontSize=%d\n", config->options.candFontSize);
     fwprintf(fp, L"CandFont=%ls\n", config->options.candFont[0] ? config->options.candFont : L"Malgun Gothic");
+    WriteKept(fp, &keep[2]);
+    WriteKept(fp, &keep[3]);   // 모르는 절 통째로
+    for (int i = 0; i < 4; i++) KeepFree(&keep[i]);
 
     if (bundleLayouts) BundleUserLayouts(fp);   // Export: 사용자 자판 .jmt 본문 인라인
 
@@ -693,7 +773,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
         if (swscanf(line, L"[LayoutFile:%127l[^]]", lfName) == 1) {
             Config_DecodeLayoutName(lfName);   // Export 의 ']'/'%' percent-encoding 복원
             wchar_t dst[MAX_PATH];
-            wchar_t dstTmp[MAX_PATH + 8];
+            wchar_t dstTmp[MAX_PATH + 40];
             FILE *out = NULL;
             // 파일명 안전성 검사: 신뢰 못 할 config.ini 를 Import 할 때 [LayoutFile:...] 이름은
             //   공격자가 100% 제어한다. basename + .jmt 인 경우에만 복원 — 이 검사가 없으면
@@ -704,7 +784,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
                 _snwprintf(dst, MAX_PATH, L"%ls\\%ls", layoutDir, lfName);
                 dst[MAX_PATH - 1] = L'\0';   // _snwprintf 잘림 시 널 종료 보장
                 if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
-                    out = AtomicOpen(dst, dstTmp, MAX_PATH + 8);   // W1-06: 반쯤 쓴 자판을 남기지 않는다
+                    out = AtomicOpen(dst, dstTmp, MAX_PATH + 40);   // W1-06: 반쯤 쓴 자판을 남기지 않는다
             }
             // 본문은 Export 와 같은 512 버퍼로 읽어 긴 줄이 쪼개지지 않게 한다(마커 격리가
             //   연속 청크에서 깨지는 것을 막음). 각 줄은 선두 공백 마커 — 첫 칸만 벗겨 복원.

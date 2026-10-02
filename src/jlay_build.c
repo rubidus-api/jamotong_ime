@@ -191,6 +191,45 @@ bool JLay_Build(const wchar_t *srcPath, const wchar_t *outPath, KlayDiag *diag) 
     return true;
 }
 
+// 같은 원본의 옛 판 산출물(`x.jmb`, `x.v<k>.jmb`)을 지운다 — 바로 앞 판 하나는 남긴다. 업그레이드 뒤에도 열려 있던
+//   앱의 옛 DLL 이 그것을 읽는다(그 앱이 닫힐 때까지). 그보다 오래된 판은 읽을 DLL 이 남아 있을 리 없다.
+//   구운 파일은 매핑하지 않고 통째로 읽으므로(jlay.c) 쓰는 중에도 지울 수 있다. 실패는 무시한다.
+static void PruneOldBuilds(const wchar_t *src) {
+    size_t n = wcslen(src);
+    if (n < 5 || n + 16 >= MAX_PATH) return;
+    wchar_t pat[MAX_PATH], dir[MAX_PATH];
+    _snwprintf(pat, MAX_PATH, L"%.*ls*.jmb", (int)(n - 4), src);
+    pat[MAX_PATH - 1] = L'\0';
+    lstrcpynW(dir, src, MAX_PATH);
+    wchar_t *slash = wcsrchr(dir, L'\\');
+    if (!slash) return;
+    slash[1] = L'\0';
+    const wchar_t *base = src + (slash + 1 - dir);
+    size_t bn = wcslen(base) - 4;                      // "x" (".jmt" 를 뺀 이름)
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pat, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        // 정확히 "x.jmb" 이거나 "x.v<숫자>.jmb" 인 것만 — "x-other.jmb" 같은 남의 파일은 건드리지 않는다
+        const wchar_t *nm = fd.cFileName;
+        if (_wcsnicmp(nm, base, bn) != 0) continue;
+        const wchar_t *t = nm + bn;
+        bool ours = !_wcsicmp(t, L".jmb");
+        if (!ours && (t[0] == L'.' && (t[1] == L'v' || t[1] == L'V') && t[2] >= L'0' && t[2] <= L'9')) {
+            const wchar_t *q = t + 2;
+            while (*q >= L'0' && *q <= L'9') q++;
+            ours = !_wcsicmp(q, L".jmb");
+        }
+        if (!ours) continue;
+        wchar_t full[MAX_PATH];
+        _snwprintf(full, MAX_PATH, L"%ls%ls", dir, nm);
+        full[MAX_PATH - 1] = L'\0';
+        unsigned fv = JLay_FileFormat(full);
+        if (fv + 1 < (unsigned)JLAY_FORMAT_VERSION) _wremove(full);   // 두 판 이상 묵은 것
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+
 bool JLay_BuildDir(const wchar_t *dir, int *built, int *failed) {
     if (built) *built = 0;
     if (failed) *failed = 0;
@@ -205,10 +244,8 @@ bool JLay_BuildDir(const wchar_t *dir, int *built, int *failed) {
         wchar_t src[MAX_PATH], out[MAX_PATH];
         _snwprintf(src, MAX_PATH, L"%ls\\%ls", dir, fd.cFileName);
         src[MAX_PATH - 1] = L'\0';
-        size_t n = wcslen(src);
-        if (n < 4 || n + 1 >= MAX_PATH) continue;
-        lstrcpynW(out, src, MAX_PATH);
-        wcscpy(out + n - 4, L".jmb");
+        if (!JLay_BuiltPath(src, out, MAX_PATH)) continue;   // x.v<판>.jmb — 판마다 따로 (옛 DLL 의 파일을 안 덮는다)
+        PruneOldBuilds(src);
         if (!JLay_IsStale(out, src)) continue;         // 이미 성한 산출물이 있으면 그대로 둔다
         KlayDiag d;
         if (JLay_Build(src, out, &d)) { if (built) (*built)++; }

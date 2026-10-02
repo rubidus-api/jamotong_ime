@@ -162,7 +162,7 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --export <@ko_3bul|@en_dvorak|@en_qwerty|file.jmt> -o <out.jmt>\n"
         L"  jamotong --expand <file.jmt> -o <out.jmt>\n"
         L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
-        L"  jamotong --build <file.jmt> [-o <out.jmb>]\n"
+        L"  jamotong --build <file.jmt> [-o <out.jmb>]   (default: <file>.v<format>.jmb beside it)\n"
         L"  jamotong --build-dir <folder>\n"
         L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n"
         L"  jamotong --import-klc <file.klc> -o <out.jmt>\n"
@@ -290,11 +290,8 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     if (!wcscmp(cmd, L"--build")) {
         wchar_t out2[MAX_PATH];
         if (!outPath) {   // -o 를 안 주면 원본 옆에 같은 이름으로
-            lstrcpynW(out2, arg, MAX_PATH);
-            size_t n = wcslen(out2);
-            if (n < 5 || _wcsicmp(out2 + n - 4, L".jmt") != 0) { Outf(out, ctx, L"error: --build needs a .jmt file\n"); return 2; }
-            wcscpy(out2 + n - 4, L".jmb");
-            outPath = out2;
+            if (!JLay_BuiltPath(arg, out2, MAX_PATH)) { Outf(out, ctx, L"error: --build needs a .jmt file\n"); return 2; }
+            outPath = out2;   // x.v<판>.jmb (판마다 이름이 다르다)
         }
         KlayDiag *bd = (KlayDiag*)malloc(sizeof(KlayDiag));
         if (!bd) return 1;
@@ -362,10 +359,7 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
             }
             // 입력기는 구운 자판만 읽는다 — 상태만 알려 주고 여기서 굽지는 않는다 (오너 결정 2026-09-23).
             wchar_t built[MAX_PATH];
-            lstrcpynW(built, arg, MAX_PATH);
-            size_t bn = wcslen(built);
-            if (bn > 4 && _wcsicmp(built + bn - 4, L".jmt") == 0) {
-                wcscpy(built + bn - 4, L".jmb");
+            if (JLay_BuiltPath(arg, built, MAX_PATH)) {
                 if (JLay_IsStale(built, arg))
                     Outf(out, ctx, L"%ls: not built yet (or older than the source) - run 'jamotong --build %ls'\n", base, base);
                 else

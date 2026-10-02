@@ -236,7 +236,7 @@ selected by the `Type =` line:
 its dictionary too — so a layout that is offered in the list is one that loads cleanly.
 
 ```sh
-jamotong --build my-layout.jmt          # writes my-layout.jmb beside it
+jamotong --build my-layout.jmt          # writes my-layout.v6.jmb beside it
 jamotong --build-dir "%APPDATA%\Jamotong\layouts"
 jamotong --check my-layout.jmt          # checks the source and says whether the build is current
 ```

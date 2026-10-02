@@ -286,3 +286,23 @@ bool JLay_IsStale(const wchar_t *jmbPath, const wchar_t *jmtPath) {
     free(file);
     return stale;
 }
+
+bool JLay_BuiltPath(const wchar_t *jmtPath, wchar_t *out, size_t cch) {
+    if (!jmtPath || !out || cch == 0) return false;
+    size_t n = wcslen(jmtPath);
+    if (n < 5 || _wcsicmp(jmtPath + n - 4, L".jmt") != 0) return false;
+    int w = _snwprintf(out, cch, L"%.*ls.v%u.jmb", (int)(n - 4), jmtPath, (unsigned)JLAY_FORMAT_VERSION);
+    if (w < 0 || (size_t)w >= cch) { out[0] = L'\0'; return false; }
+    return true;
+}
+
+unsigned JLay_FileFormat(const wchar_t *jmbPath) {
+    FILE *f = _wfopen(jmbPath, L"rb");
+    if (!f) return 0;
+    unsigned char h[JLAY_OFF_VERSION + 4];
+    size_t got = fread(h, 1, sizeof h, f);
+    fclose(f);
+    if (got != sizeof h || memcmp(h, JLAY_MAGIC, 8) != 0) return 0;
+    return JLayRd32(h + JLAY_OFF_VERSION);
+}
+

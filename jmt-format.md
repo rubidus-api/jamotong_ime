@@ -21,7 +21,7 @@ the layout folders, and the manager app
 
 ```sh
 jamotong --check      layout.jmt        # check the source; says whether the build is current
-jamotong --build      layout.jmt        # writes layout.jmb beside it
+jamotong --build      layout.jmt        # writes layout.v6.jmb beside it (the number is the built format)
 jamotong --build-dir  <folder>          # builds what is missing or older than its source
 jamotong --build-dict words.jdt -o words.jdb
 jamotong --import-dict other.txt -o words.jdt [--limit N] [--name ..] [--license ..]
@@ -190,7 +190,9 @@ because `end` closes a block.
 **Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
 still written in the 1-3 grammar below.** Everything else in that section is kept for files that were
 already written; Jamotong reads both, and a file with a `layout` form is read as v4. `jamotong
---export` writes a built-in layout in v4. `jamotong --expand` resolves `Extends`/`Include`, which
+--export` writes a built-in layout in v4. Built files are named by their format (`layout.v6.jmb`), so a newer Jamotong that rebuilds a layout
+never overwrites the file an older copy - still running in an open app after an upgrade - reads;
+the file two formats old is removed. `jamotong --expand` resolves `Extends`/`Include`, which
 only the older grammar has - a v4 file is already flat, so it is written back unchanged.
 
 ---
