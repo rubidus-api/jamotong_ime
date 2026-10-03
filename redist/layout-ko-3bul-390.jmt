@@ -5,6 +5,7 @@ rem   기호를 QWERTY 와 되도록 같게 두었으며, 숫자는 오른손 �
 rem   대조: 공개 배열표를 눈으로 읽고, 널리 쓰이는 설정 파일의 값과 따로 견주어 확인했다.
 
 layout name "세벌식 390" .
+layout abbrev "KO39" .
 layout format 4 .
 layout license "공개 배열. 이 파일의 표기는 자모통의 것이다." .
 engine hangul .

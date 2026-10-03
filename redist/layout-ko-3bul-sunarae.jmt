@@ -7,6 +7,7 @@ rem   ★ 처음에는 겹받침을 같은 민글쇠의 '종성 자리' 가드�
 rem     그러면 그 글쇠의 본디 홑받침(s = ㄴ)이 가려져 사라진다. 시험이 그것을 잡았다.
 
 layout name "세벌식 최종 순아래" .
+layout abbrev "KOSA" .
 layout format 4 .
 layout license "공개 배열(공병우 세벌식 최종)에서 순아래 원리로 옮김. 표기는 자모통의 것이다." .
 engine hangul .

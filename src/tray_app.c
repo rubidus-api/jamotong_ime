@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <wctype.h>    // towupper
 #include "config.h"
 #include "ui_server.h"   // RFC-0015 UI 헬퍼 모드
 #include "klay_cli.h"    // RFC-0011 P3 .jmt 저작 도구 명령
@@ -454,8 +455,8 @@ static void NewFromBuiltin(const wchar_t *name, bool derive) {
             L"# A layout derived from the built-in %ls - write only what changes.\n"
             L"#   Key x = C0     redefine a key (the later line wins)\n"
             L"#   Key x = -      remove an inherited key\n"
-            L"FormatVersion = 2\nType = %ls\nExtends = @%ls\nName = my_%ls\nAbbrev = MY\n",
-            name, type, name, name);
+            L"FormatVersion = 2\nType = %ls\nExtends = @%ls\nName = my_%ls\nAbbrev = %lc%lcMY\n",
+            name, type, name, name, towupper(name[0]), towupper(name[1]));   // 아이콘: 위 = 언어(ko_→KO), 아래 = MY
         text[16383] = L'\0';
     }
     // 편집기는 \r\n 을 줄바꿈으로 그린다

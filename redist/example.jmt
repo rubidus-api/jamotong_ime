@@ -6,6 +6,7 @@ rem 정적 자판·조합 자판 예제는 example-dvorak.jmt · example-artsey.
 note DOC
   적는 법
     layout name "이름" .            자판 이름
+    layout abbrev "KOEX" .          아이콘 1~4글자 — 위 두 글자 언어, 아래 두 글자 자판
     layout format 4 .               문법 판
     engine hangul .                 한글 오토마타를 쓴다 (none = 그냥 글자)
     map cho  do "k" "ㄱ" . end      초성 — 세 벌은 자리를 못 박는다
@@ -18,6 +19,7 @@ note DOC
 DOC
 
 layout name "ex_hangul" .
+layout abbrev "KOEX" .
 layout format 4 .
 engine hangul .
 

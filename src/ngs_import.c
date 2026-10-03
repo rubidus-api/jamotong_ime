@@ -366,6 +366,17 @@ bool NgsImport_Run(const wchar_t *srcPath, const wchar_t *outPath, NgsImportResu
                          L"rem   종성 자리면 종성, 중성 자리면 중성, 아니면 초성. 원래 조건이 그러한지는\n"
                          L"rem   날개셋 파일만으로는 알 수 없으니, 쳐 보고 확인하는 것이 좋다.\n");
     ok = ok && W8(f, L"\nlayout name \"%ls\" .\n", res->name);
+    {   // 아이콘: 위 = 언어(한글 오토마타면 KO, 아니면 EN), 아래 = 이름의 마지막 영숫자 둘 (3-2014 → 14, P2 → P2)
+        wchar_t tail[3] = L"NG";
+        int got = 0;
+        for (const wchar_t *q = res->name + wcslen(res->name); q > res->name && got < 2; ) {
+            wchar_t ch = *--q;
+            if (ch >= L'a' && ch <= L'z') ch = (wchar_t)(ch - 32);
+            if ((ch >= L'A' && ch <= L'Z') || (ch >= L'0' && ch <= L'9')) { tail[1 - got] = ch; got++; }
+        }
+        if (got == 1) { tail[0] = tail[1]; tail[1] = L'\0'; }   // 하나뿐이면 세 글자 (KO3)
+        ok = ok && W8(f, L"layout abbrev \"%ls%ls\" .\n", res->hangul ? L"KO" : L"EN", tail);
+    }
     ok = ok && W8(f, L"layout format 4 .\n");
     ok = ok && W8(f, L"engine %ls .\n\n", res->hangul ? L"hangul" : L"none");
 

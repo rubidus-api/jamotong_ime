@@ -12,6 +12,7 @@ rem     space 를 누른 채: f Backspace · d Space · s Enter · a Delete · r
 rem   단축키(Ctrl+C 등)는 영문 층에서 친다 — 영문 글자는 실제 글쇠로 나가 수식키가 얹힌다.
 
 layout name "한 손 한글" .
+layout abbrev "KO1H" .
 layout format 4 .
 layout license "자모통 RFC-0007 의 배열. 이 파일의 표기는 자모통의 것이다." .
 engine hangul .

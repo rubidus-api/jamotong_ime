@@ -46,6 +46,7 @@ note DOC
 DOC
 
 layout name "세벌식 최종" .
+layout abbrev "KO3F" .                 rem 트레이 아이콘 1~4글자 (없으면 이름 앞 세 글자)
 layout format 4 .
 engine hangul .                        rem hangul | none
 
@@ -195,6 +196,9 @@ RequiresJamotong = 0.40.0     # v3 에서는 필수
 Name             = 내 자판    # 자판 목록에 보이는 이름
 Abbrev           = MINE       # 트레이 아이콘에 그릴 1~4글자
 ```
+
+아이콘은 abbrev 를 2x2 로 그린다. 관례는 위 두 글자가 언어, 아래 두 글자가 자판이다: `KO3F`(한국어, 세벌식 최종),
+`ZHSP`(중국어, 간체 병음), `JARO`(일본어, 로마자).
 
 머리부 키: `FormatVersion`·`Type`·`Engine`·`Id`·`Name`·`Abbrev`·`Version`·`Author`·`License`·
 `Homepage`·`Description`·`Locale`·`RequiresJamotong`. 모르는 머리부 키는 경고, 모르는 **지시문**은

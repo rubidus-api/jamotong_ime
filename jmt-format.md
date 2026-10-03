@@ -47,6 +47,7 @@ note DOC
 DOC
 
 layout name "Sebeolsik Final" .
+layout abbrev "KO3F" .                 rem tray icon, 1-4 characters (omitted = the name's first 3)
 layout format 4 .
 engine hangul .                        rem hangul | none
 
@@ -212,6 +213,9 @@ RequiresJamotong = 0.40.0     # required in v3
 Name             = my layout  # shown in the layout list
 Abbrev           = MINE       # 1-4 characters for the tray icon
 ```
+
+The icon draws the abbrev on a 2x2 grid. By convention the top two characters are the language and the bottom
+two the layout: `KO3F` (Korean, Sebeolsik Final), `ZHSP` (Chinese, simplified pinyin), `JARO` (Japanese, romaji).
 
 Header keys: `FormatVersion`, `Type`, `Engine`, `Id`, `Name`, `Abbrev`, `Version`, `Author`,
 `License`, `Homepage`, `Description`, `Locale`, `RequiresJamotong`. Unknown header keys are a

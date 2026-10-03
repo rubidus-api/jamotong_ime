@@ -3,6 +3,7 @@ rem   근거: 공병우·한글문화원이 자유 이용을 위해 공개한 �
 rem   세 벌이므로 자리를 못 박는다 — 초성·중성·종성 글쇠가 따로 있다.
 
 layout name "세벌식 최종" .
+layout abbrev "KO3F" .
 layout format 4 .
 layout license "공개 배열(공병우 세벌식 최종). 이 파일의 표기는 자모통의 것이다." .
 engine hangul .

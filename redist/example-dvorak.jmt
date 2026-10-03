@@ -3,6 +3,7 @@ rem   글쇠 하나가 글자 하나를 낸다. 한글 오토마타를 쓰지 �
 rem   `jamotong --export @en_dvorak -o dvorak.jmt` 로 내장 드보락 전체를 내보낼 수 있다.
 
 layout name "ex_dvorak" .
+layout abbrev "ENDX" .
 layout format 4 .
 engine none .
 

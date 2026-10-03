@@ -305,6 +305,12 @@ static wchar_t *ReadAllWide(const wchar_t *path) {
 }
 
 // 정적 자판(engine none): `map char` 한 장이 곧 자판이다.
+// 아이콘 글자: layout abbrev 가 있으면 그것, 없으면 이름의 앞 3글자.
+static void SetAbbrev(LayoutConfig *out, const LowCheckResult *c) {
+    if (c->abbrev[0]) lstrcpynW(out->abbrev, c->abbrev, 8);
+    else lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+}
+
 static bool BuildStatic(const LowTree *t, const LowCheckResult *c, LayoutConfig *out, KlayDiag *diag) {
     memset(out, 0, sizeof *out);
     for (int i = 0; i < 256; i++) out->charMap[i] = (wchar_t)i;
@@ -337,7 +343,7 @@ static bool BuildStatic(const LowTree *t, const LowCheckResult *c, LayoutConfig 
     }
     out->type = any ? LAYOUT_TYPE_STATIC_MAP : LAYOUT_TYPE_PASSTHROUGH;
     out->name = _wcsdup(c->name[0] ? c->name : L"layout");
-    lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+    SetAbbrev(out, c);
     return ok && out->name != NULL;
 }
 
@@ -379,7 +385,7 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
         out->type = LAYOUT_TYPE_CHORD;
         out->pChordLayout = cl;
         out->name = _wcsdup(cl->name[0] ? cl->name : L"chord");
-        lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+        SetAbbrev(out, &res);
         if (!out->name) { HeapFree(GetProcessHeap(), 0, cl); memset(out, 0, sizeof *out); ok = false; }
         LowTree_Free(&tree);
         free(src);
@@ -404,7 +410,7 @@ bool LowBuild_LoadFile(const wchar_t *path, LayoutConfig *out, KlayDiag *diag, b
             out->kbdVariant = KBD_SEBEOL;
             out->pHangulLayout = hl;
             out->name = _wcsdup(hl->name[0] ? hl->name : L"custom");
-            lstrcpynW(out->abbrev, out->name ? out->name : L"??", 4);
+            SetAbbrev(out, &res);
             if (!out->name) { HangulLayout_Free(hl); memset(out, 0, sizeof *out); ok = false; }
         }
     }

@@ -190,9 +190,9 @@ static bool CheckForm(const LowForm *f, LowCheckResult *r, KlayDiag *diag, bool 
     // ── 머리부 ────────────────────────────────────────────────────────────────
     if (!wcscmp(head, L"layout")) {
         const wchar_t *what = ItemName(a1);
-        static const wchar_t *const kFields[] = { L"name", L"format", L"author", L"license", L"version", L"description", NULL };
+        static const wchar_t *const kFields[] = { L"name", L"abbrev", L"format", L"author", L"license", L"version", L"description", NULL };
         if (!what || !InList(kFields, what) || n < 3) {
-            CHK_ERR(f, L"E-LOW-SHAPE", L"write: layout name \"...\" . (name|format|author|license|version|description)", NULL);
+            CHK_ERR(f, L"E-LOW-SHAPE", L"write: layout name \"...\" . (name|abbrev|format|author|license|version|description)", NULL);
             return false;
         }
         if (!wcscmp(what, L"format")) {
@@ -201,6 +201,10 @@ static bool CheckForm(const LowForm *f, LowCheckResult *r, KlayDiag *diag, bool 
         } else if (!wcscmp(what, L"name")) {
             if (!IsTokKind(a2, LOW_STR)) { CHK_ERR(f, L"E-LOW-SHAPE", L"layout name takes a string", NULL); }
             else lstrcpynW(r->name, a2->tok.str, 64);
+        } else if (!wcscmp(what, L"abbrev")) {
+            if (!IsTokKind(a2, LOW_STR) || !a2->tok.str[0] || wcslen(a2->tok.str) > 4)
+                CHK_ERR(f, L"E-LOW-SHAPE", L"layout abbrev takes 1 to 4 characters (2x2 icon: language above, layout below)", NULL);
+            else lstrcpynW(r->abbrev, a2->tok.str, 8);
         } else if (!IsTokKind(a2, LOW_STR)) {
             CHK_ERR(f, L"E-LOW-SHAPE", L"this layout field takes a string", NULL);
         }

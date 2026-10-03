@@ -4,6 +4,7 @@ rem   세벌식 최종을 손질해 겹받침과 기호 자리를 옮기고, 숫
 rem   대조: 공개 배열표를 눈으로 읽고, 널리 쓰이는 설정 파일의 값과 따로 견주어 확인했다.
 
 layout name "세벌식 3-2011" .
+layout abbrev "KO11" .
 layout format 4 .
 layout license "공개 배열. 이 파일의 표기는 자모통의 것이다." .
 engine hangul .

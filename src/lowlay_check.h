@@ -23,6 +23,7 @@ typedef struct LowSyms {
 
 typedef struct LowCheckResult {
     wchar_t name[64];        // layout name
+    wchar_t abbrev[8];       // layout abbrev — 언어창/트레이 아이콘의 1~4글자 (위 2 = 언어, 아래 2 = 자판)
     int  format;             // layout format (없으면 0)
     wchar_t engine[16];      // hangul | rules | dict | none
     int  keys, maps, chords, holds, rules, layers, combines;

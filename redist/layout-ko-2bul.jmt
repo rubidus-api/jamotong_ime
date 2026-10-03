@@ -4,6 +4,7 @@ rem   두 벌이므로 **자리를 적지 않는다** — 자음이 초성인지
 rem   오토마타가 정한다(RFC-0018 §4.1 의 아홉 자리).
 
 layout name "두벌식 표준" .
+layout abbrev "KO2S" .
 layout format 4 .
 layout license "공개 표준 배열(KS X 5002). 이 파일의 표기는 자모통의 것이다." .
 engine hangul .
