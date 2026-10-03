@@ -516,7 +516,7 @@ static void CreateControls(HWND hwnd) {
           14, 124, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Chinese punctuation (\xFF0C\x3002\xFF1F\xFF01\x201C\x201D \x2014 \x300C\x300D for traditional)", BS_AUTOCHECKBOX, 0,
           14, 152, (WIN_W - 28), 22, ID_CHK_LOPT_PUNCT, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"BUTTON", L"Fuzzy pinyin (z=zh, c=ch, s=sh, n=l, an=ang, en=eng, in=ing)", BS_AUTOCHECKBOX, 0,
+    MkCtl(hwnd, L"BUTTON", L"Fuzzy pinyin (z=zh, n=l, an=ang, in=ing ...)", BS_AUTOCHECKBOX, 0,
           14, 180, (WIN_W - 28), 22, ID_CHK_LOPT_FUZZY, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"STATIC", L"Keys:", SS_CENTERIMAGE, 0, 14, 212, 44, 24, ID_LBL_LOPT_KEYS, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 62, 212, 220, 200, ID_CMB_LOPT_KEYS, TAB_LAYOUTOPTS);

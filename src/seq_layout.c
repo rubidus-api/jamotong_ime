@@ -582,18 +582,23 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     bool whole = (!sl->zh || (n > 0 && st->reading[0] != SEQ_SEPARATOR && st->reading[n - 1] != SEQ_SEPARATOR))
                  && JDict_Candidates(sl->cand, wkey, &wfirst, &wcount);
     AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_WHOLE_FIRST, n, wmin);
-    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST, n, wmin);
-    AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n, wmin);
-    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n, wmin);
-    if (flags & SEQ_CONV_FUZZY) {   // 모호음: 비슷한 철자의 낱말 (같은 철자의 것 다음에)
+    // 모호음: 비슷한 철자의 범위 (한 음절은 제 철자의 후보만 수백이다 — 뒤에 붙이면 첫 쪽에 못 든다)
+    int fFirst[16], fCount[16], fNext[16], nfr = 0, fuzzyShown = 0;
+    if (flags & SEQ_CONV_FUZZY) {
         wchar_t fk[16][SEQ_MAX_READING + 1];
         int nf = SeqKb_FuzzyKeys(wkey, fk, 16);
-        for (int v = 1; v < nf && out->count < SEQ_MAX_CANDS; v++) {
-            int ff = 0, fc = 0, fn = 0;
-            if (!JDict_Candidates(sl->cand, fk[v], &ff, &fc)) continue;
-            AddWhole(out, sl, ff, fc, &fn, SEQ_WHOLE_FIRST, n, wmin);
+        for (int v = 1; v < nf; v++)
+            if (JDict_Candidates(sl->cand, fk[v], &fFirst[nfr], &fCount[nfr])) { fNext[nfr] = 0; nfr++; }
+        for (int r = 0; r < nfr && fuzzyShown < SEQ_FUZZY_PAGE1; r++) {   // 첫 쪽: 철자마다 하나씩, 둘까지
+            int before = out->count;
+            AddWhole(out, sl, fFirst[r], fCount[r], &fNext[r], 1, n, wmin);
+            fuzzyShown += out->count - before;
         }
     }
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST - fuzzyShown, n, wmin);
+    for (int r = 0; r < nfr; r++) AddWhole(out, sl, fFirst[r], fCount[r], &fNext[r], SEQ_FUZZY_FIRST, n, wmin);
+    AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n, wmin);
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n, wmin);
     int order[SEQ_MAX_READING + 1], no = 0;
     if (firstSegLen > 0 && firstSegLen < n) order[no++] = firstSegLen;
     for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;

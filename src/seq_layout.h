@@ -138,6 +138,8 @@ bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
 #define SEQ_PREDICT_CANDS 9    // 추천 단어 수
 #define SEQ_WHOLE_FIRST   5    // 첫 쪽: 읽기 그대로의 후보 이만큼 다음에
 #define SEQ_PREDICT_FIRST 4    //        추천 단어 이만큼 (문장 후보와 합쳐 한 쪽 아홉)
+#define SEQ_FUZZY_FIRST   3    // 모호음: 비슷한 철자마다 이만큼 (제 철자의 나머지 앞)
+#define SEQ_FUZZY_PAGE1   2    //         그중 첫 쪽에 (추천 단어 자리를 그만큼 줄인다)
 bool      SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandidates *out);
 // 후보 하나를 고른다. snapshot 의 세대가 지금과 다르면(늦게 온 결과) 버린다. 앞부분만 쓰는 후보면
 // 나머지 읽기가 남고 composing 에 실린다 — SeqKb_Reading 이 비어 있지 않으면 이어서 다시 변환한다.
