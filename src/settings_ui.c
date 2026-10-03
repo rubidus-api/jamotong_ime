@@ -456,7 +456,7 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     HWND em = GetDlgItem(hwnd, ID_CHK_LOPT_EMOJI), tn = GetDlgItem(hwnd, ID_CHK_LOPT_TONES);
     EnableWindow(em, zh);
     SendMessageW(em, BM_SETCHECK, (zh && !L->optNoEmoji) ? BST_CHECKED : BST_UNCHECKED, 0);
-    bool hasTones = zh && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->tones;
+    bool hasTones = zh && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->toneFile[0];   // 쓸 때 열기 — 이름으로 본다
     EnableWindow(tn, hasTones);
     SendMessageW(tn, BM_SETCHECK, (hasTones && !L->optNoTones) ? BST_CHECKED : BST_UNCHECKED, 0);
     EnableWindow(GetDlgItem(hwnd, ID_BTN_LOPT_PHRASES), zh);
@@ -475,7 +475,7 @@ static void LoptRefresh(HWND hwnd, bool refill) {
             if (!wcscmp(nm, L->optKeys)) sel = i + 1;
         }
         SendMessageW(kc, CB_SETCURSEL, (WPARAM)sel, 0);
-        EnableWindow(kc, sl && sl->nScheme > 0);
+        EnableWindow(kc, sl && sl->nScheme > 0);   // 표 이름은 자판 파일에서 읽었다 (열지 않아도 안다)
     }
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
         ? (zh ? L"Applies to this layout only. Keys picks full pinyin or a double-pinyin scheme (two keys per syllable). Custom phrases: one per line, letters then the text (dz \x5317\x4EAC\x5E02), shared by the Chinese layouts."

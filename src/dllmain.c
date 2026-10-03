@@ -2,6 +2,7 @@
 #include "jamotong.h"
 #include <stdbool.h>
 #include "config.h"   // Config_GrantAppContainerRead
+#include "seq_layout.h"   // SeqLayout_SetLazyOpen — 사전은 그 자판을 처음 쓸 때 연다 (B22)
 
 LONG g_DllRefCount = 0;
 HINSTANCE g_hInst = NULL;
@@ -17,6 +18,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
         g_hInst = hinstDLL;
         DisableThreadLibraryCalls(hinstDLL);
         InitializeCriticalSection(&g_configLock);
+        SeqLayout_SetLazyOpen(true);   // 켜 둔 자판의 사전을 앱마다 미리 매핑하지 않는다 (팩을 고칠 때 재부팅이 덜 필요하다)
     } else if (fdwReason == DLL_PROCESS_DETACH) {
         // 창 클래스 해제는 여기서 하지 않는다(RFC-0008 W2-05) — 로더 잠금 안에서 User32 를 부르는 것은
         // 금지 목록이다. DllCanUnloadNow 가 S_OK 를 돌려줄 때(COM 이 곧 FreeLibrary 한다) 해제한다.

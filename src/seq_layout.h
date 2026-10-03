@@ -82,6 +82,11 @@ typedef struct SeqLayout {
     // 성조 병음 (0.66.0, 자판 파일 `Tones = 표.jdb`, 후보 사전 꼴: 표기 → nǐ / zhōng guó). 후보 옆에 보인다. 구운 자판 판 9.
     wchar_t  toneFile[64];
     JDict   *tones;
+    // 쓸 때 열기 (0.67.0, 오너 결정 2026-10-03 — B22): 입력기는 자판을 읽을 때 사전이 있는지만 보고, 그 자판으로 처음
+    //   칠 때 연다. 켜 둔 자판의 사전(중국어는 각 12MB)을 앱마다 미리 매핑하지 않으니, 팩을 고쳐도 그 자판을 안 쓴 앱이
+    //   파일을 쥐지 않는다. 도구·시험은 예전처럼 곧바로 연다(SeqLayout_SetLazyOpen 을 부르지 않는 한).
+    wchar_t  basePath[260];      // 사전을 찾을 자판 파일·구운 자판의 경로
+    bool     openFailed;         // 열다가 실패했다 — 글쇠마다 다시 해 보지 않는다
 } SeqLayout;
 
 // 보류 중인 입력. 확정한 글자는 문서가 갖고 있으므로 여기 남기지 않는다.
@@ -110,6 +115,10 @@ bool       SeqLayout_Verify(const SeqLayout *sl, KlayDiag *diag);
 // sl->dictFile 이 가리키는 사전을 찾아 열고 전수 점검한다 (자판 파일이든 구운 자판이든 같은 길).
 //   layoutPath = 자판 파일/구운 자판의 전체 경로(그 옆을 먼저 본다, NULL 허용). diag 는 NULL 허용.
 bool       SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag);
+// 쓸 때 열기를 켠다 (입력기 DLL 이 처음에 한 번). 켜면 SeqLayout_OpenDict 는 파일이 있는지만 보고 열지 않는다.
+void       SeqLayout_SetLazyOpen(bool on);
+// 아직 안 열었으면 지금 연다 (엔진의 입구가 부른다). 쓸 수 있으면 true.
+bool       SeqLayout_EnsureOpen(SeqLayout *sl);
 
 void      SeqKb_Init(SeqState *st);
 // 이 글쇠를 엔진이 먹을 것인가 (TSF 의 OnTestKeyDown 용 — 실제로 상태를 바꾸지 않는다).

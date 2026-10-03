@@ -99,7 +99,7 @@ bool SeqKb_IsVMode(const SeqLayout *sl, const wchar_t *reading) {
 }
 
 bool SeqKb_WouldEat(const SeqState *st, const SeqLayout *sl, wchar_t ch) {
-    if (!sl || !sl->dict || ch < 0x21 || ch > 0x7E) return false;
+    if (!SeqLayout_EnsureOpen((SeqLayout *)sl) || ch < 0x21 || ch > 0x7E) return false;   // 쓸 때 연다 (B22)
     if (sl->zh && ch == SEQ_SEPARATOR) return st->pending[0] || st->reading[0];   // 음절 끊기 (읽기 안에서만)
     if (sl->zh && !st->pending[0] && SeqKb_IsVMode(sl, st->reading) && IsVChar(ch)) return true;   // V 모드의 숫자·식
     if (sl->zh && ch == L'V' && sl->scheme > 0 && !st->pending[0] && !st->reading[0]) return true;  // 쌍병의 V 모드는 Shift+V
@@ -110,7 +110,7 @@ bool SeqKb_WouldEat(const SeqState *st, const SeqLayout *sl, wchar_t ch) {
 
 SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
     SeqResult r; memset(&r, 0, sizeof r);
-    if (!sl || !sl->dict) return r;
+    if (!SeqLayout_EnsureOpen((SeqLayout *)sl)) return r;
     if (ch < 0x21 || ch > 0x7E) {
         // 사이띄개·글쇠 아닌 문자는 엔진이 만지지 않는다 (단추·단축키·낱말 나누기를 응용에 맡긴다).
         // 보류가 있었으면 잃지 않도록 먼저 확정하고, 글쇠 자체는 응용으로 보낸다.
@@ -169,7 +169,7 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
 
 SeqResult SeqKb_Symbol(SeqState *st, const SeqLayout *sl, const wchar_t *sym) {
     SeqResult r; memset(&r, 0, sizeof r);
-    if (!sl || !sl->dict || !sym) return r;
+    if (!SeqLayout_EnsureOpen((SeqLayout *)sl) || !sym) return r;
     for (const wchar_t *p = sym; *p; p++) {
         SeqResult one = SeqKb_Key(st, sl, *p);
         if (one.committed[0]) Emit(&r, one.committed);
@@ -235,7 +235,7 @@ SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl) {
 // 변환 글쇠를 지금 받을 수 있는가. 읽기가 비어 있어도 **보류한 글자**가 있으면 받는다 —
 // 보류를 먼저 읽기로 정착시키기 때문이다(아래 SeqKb_Convert).
 bool SeqKb_CanConvert(const SeqState *st, const SeqLayout *sl) {
-    return st && sl && sl->cand && (st->reading[0] || st->pending[0]);
+    return st && SeqLayout_EnsureOpen((SeqLayout *)sl) && sl->cand && (st->reading[0] || st->pending[0]);
 }
 
 // ── 읽기의 조각 (중국어 병음 방식: 음절 끊기 `'` 와 모음 없는 줄임) ─────────────────────
@@ -443,7 +443,7 @@ int SeqLayout_SelectScheme(SeqLayout *sl, const wchar_t *name) {
     if (!sl) return 0;
     sl->scheme = 0;
     if (name && name[0])
-        for (int i = 0; i < sl->nScheme; i++) if (!wcscmp(sl->schemeName[i], name) && sl->schemeDict[i]) { sl->scheme = i + 1; break; }
+        for (int i = 0; i < sl->nScheme; i++) if (!wcscmp(sl->schemeName[i], name)) { sl->scheme = i + 1; break; }   // 이름으로 (쓸 때 열기 — 표는 아직 안 열렸을 수 있다)
     return sl->scheme;
 }
 
@@ -496,7 +496,7 @@ bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
 }
 
 bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandidates *out) {
-    if (!st || !sl || !sl->cand || !out) return false;
+    if (!st || !SeqLayout_EnsureOpen((SeqLayout *)sl) || !sl->cand || !out) return false;
     // 후보가 없으면 **아무것도 바꾸지 않는다**. 바꿔 놓고 실패하면 그 글쇠(사이띄개)는 응용으로
     // 가는데 보류는 이미 읽기로 옮겨져, 사이띄개가 친 글자보다 먼저 문서에 들어간다.
     SeqState before = *st;
@@ -942,7 +942,40 @@ static bool ResolveDict(const wchar_t *layoutPath, const wchar_t *file, wchar_t 
 
 // 사전을 찾아 열고 전수 점검한다. 자판 파일(.jmt)과 구운 자판(.jmb)이 같은 길을 쓴다 —
 // 사전은 자판 밖에 있으므로, 어느 쪽으로 자판이 들어오든 여기서 한 번 본다 (RFC-0016 P5).
+static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag);
+static bool g_lazyOpen;
+void SeqLayout_SetLazyOpen(bool on) { g_lazyOpen = on; }
+
+// 쓸 때 열기: 자판을 읽을 때는 이름이 안전하고 파일이 있는지만 본다 (없으면 예전처럼 그 자판을 세우지 않는다).
+static bool CheckPresent(const wchar_t *layoutPath, const wchar_t *file, KlayDiag *diag) {
+    wchar_t full[MAX_PATH];
+    if (Config_IsSafeDictFileName(file) && ResolveDict(layoutPath, file, full, MAX_PATH)) return true;
+    wchar_t msg[200];
+    _snwprintf(msg, 200, L"the dictionary '%ls' was not found", file);
+    msg[199] = L'\0';
+    KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg, L"put it beside the layout file or in the dictionary folder");
+    return false;
+}
 bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
+    if (!sl || !sl->dictFile[0]) return false;
+    if (!g_lazyOpen) return OpenDictNow(sl, layoutPath, diag);
+    lstrcpynW(sl->basePath, layoutPath ? layoutPath : L"", 260);
+    if (!CheckPresent(layoutPath, sl->dictFile, diag)) return false;
+    if (sl->candFile[0] && !CheckPresent(layoutPath, sl->candFile, diag)) return false;
+    if (sl->toneFile[0] && !CheckPresent(layoutPath, sl->toneFile, diag)) return false;
+    for (int i = 0; i < sl->nScheme; i++) if (!CheckPresent(layoutPath, sl->schemeFile[i], diag)) return false;
+    return true;
+}
+bool SeqLayout_EnsureOpen(SeqLayout *sl) {
+    if (!sl) return false;
+    if (sl->dict) return true;
+    if (!g_lazyOpen || sl->openFailed) return false;
+    if (OpenDictNow(sl, sl->basePath[0] ? sl->basePath : NULL, NULL)) return true;
+    sl->openFailed = true;   // 상한 사전 — 그 자판은 글쇠를 먹지 않는다(응용이 그대로 받는다)
+    return false;
+}
+
+static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
     if (!sl || !sl->dictFile[0]) return false;
     // 이름 검사는 **여는 곳**에서 한다. 자판 파일뿐 아니라 구운 자판(.jmb)도 남이 준 파일일 수
     // 있어서, 그 안에 `..\..\어딘가.jdb` 가 들어 있으면 폴더 밖을 가리키게 된다.
