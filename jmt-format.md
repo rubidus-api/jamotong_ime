@@ -21,7 +21,7 @@ the layout folders, and the manager app
 
 ```sh
 jamotong --check      layout.jmt        # check the source; says whether the build is current
-jamotong --build      layout.jmt        # writes layout.v6.jmb beside it (the number is the built format)
+jamotong --build      layout.jmt        # writes layout.v7.jmb beside it (the number is the built format)
 jamotong --build-dir  <folder>          # builds what is missing or older than its source
 jamotong --build-dict words.jdt -o words.jdb
 jamotong --import-dict other.txt -o words.jdt [--limit N] [--name ..] [--license ..]
@@ -191,7 +191,7 @@ because `end` closes a block.
 **Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
 still written in the 1-3 grammar below.** Everything else in that section is kept for files that were
 already written; Jamotong reads both, and a file with a `layout` form is read as v4. `jamotong
---export` writes a built-in layout in v4. Built files are named by their format (`layout.v6.jmb`), so a newer Jamotong that rebuilds a layout
+--export` writes a built-in layout in v4. Built files are named by their format (`layout.v7.jmb`), so a newer Jamotong that rebuilds a layout
 never overwrites the file an older copy - still running in an open app after an upgrade - reads;
 the file two formats old is removed. `jamotong --expand` resolves `Extends`/`Include`, which
 only the older grammar has - a v4 file is already flat, so it is written back unchanged.
@@ -280,6 +280,7 @@ Dictionary  = romaji-kana.jdb     # the built dictionary this layout uses
 OnUnmatched = flush               # flush (default) types the pending letters, cancel drops them
 Candidates  = kana-words.jdb      # optional: a reading -> several candidates
 ConvertKey  = space               # required with Candidates: space | tab | hanja | convert | f9
+Chinese     = simplified          # optional: the Chinese pinyin style (simplified | traditional)
 Key jkl; = 0                      # optional chord front end
 Chord jk = symbol "k"             # its result goes into the engine, not to the application
 ```
@@ -288,6 +289,15 @@ With `Candidates` the letters collect in a reading the IME owns instead of going
 document, and the convert key offers the candidates for that reading. Choosing one replaces the
 reading; cancelling keeps it. Backspace takes back one letter of the reading, Esc drops it, and a
 boundary commits it as it is. A choice that arrives after the reading changed is dropped.
+
+`Chinese = simplified | traditional` turns on the pinyin style the Chinese packs use. The candidates
+show while you type; Space takes the highlighted one, `-` and `=` turn pages, `[` and `]` take only the
+first or last character of it, Enter types the letters as they are and Esc clears the reading. `'`
+separates syllables (`xi'an` is 西安): a word that spans separators needs that many characters. A
+reading with no vowel is read as initials (`zg` 中国); a vowel-less piece is not used inside a longer
+reading. `rq`, `sj` and `xq` offer today's date, the time and the weekday. Punctuation turns into the
+Chinese forms (，。？！、“”‘’ — 「」『』 for traditional), except `.` `,` `:` right after a digit.
+The Layout Options tab can turn the punctuation off per layout.
 
 The engine waits for the longest match, so with `n`, `na` and `ni` in the dictionary a lone `n`
 waits. Pending letters are shown next to the caret, not inserted. Backspace takes back one pending

@@ -180,6 +180,8 @@ static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError 
     sl->onUnmatched = GetI32(r);
     GetStr(r, sl->candFile, 64);
     sl->convertVk = GetI32(r);
+    sl->zh = GetI32(r);                   // 판 7
+    if (sl->zh < SEQ_ZH_NONE || sl->zh > SEQ_ZH_TRADITIONAL) r->bad = true;
     unsigned hasChord = Get32(r);
     if (r->bad || !sl->dictFile[0]) { free(sl); return false; }
     if (hasChord) {                       // 앞단 조합 인식기 (§6.3)

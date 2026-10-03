@@ -1,6 +1,7 @@
 #pragma once
 #include "klay.h"
 #include "jdict.h"
+#include <windows.h>   // SYSTEMTIME (날짜·시간 후보)
 
 // ── 순차 변환 자판 (.jmt 3판, RFC-0016 §6.3·§6.4 P5) ───────────────────────────────
 // 라틴 글쇠의 **열**을 다른 글자로 바꾸는 공통 경로다 (로마자→가나처럼).
@@ -27,6 +28,15 @@
 #define SEQ_MAX_OUT     JDICT_MAX_VALUE
 
 enum { SEQ_UNMATCHED_FLUSH = 0, SEQ_UNMATCHED_CANCEL = 1 };
+
+// 중국어 병음 방식 (자판 파일 `Chinese = simplified | traditional`, 2026-10-03). 켜면:
+//   - 치는 동안 후보가 뜨고, 사이띄개는 첫(하이라이트) 후보를 고르고, `-` `=` 는 쪽을 넘기고, 엔터는 친 로마자를 그대로,
+//     Esc 는 읽기를 지운다 (입력기·후보창의 몫 — 엔진은 아래 도구를 준다).
+//   - `'` 는 음절 끊기다 (`xi'an` → 西安): 낱말이 끊기를 넘으면 그만큼 글자가 있어야 한다.
+//   - 모음 없는 낱말(첫 글자 줄임 `zg` → 中国)은 읽기 전체에 모음이 없을 때만 쓴다 (`wangguo` 의 `ng` 가 끼지 않게).
+//   - `rq` `sj` `xq` 는 오늘 날짜·지금 시각·요일, `[` `]` 는 후보의 첫·끝 글자만 (以词定字), 문장부호는 중국어 꼴로.
+enum { SEQ_ZH_NONE = 0, SEQ_ZH_SIMPLIFIED = 1, SEQ_ZH_TRADITIONAL = 2 };
+#define SEQ_SEPARATOR L'\''
 
 // 읽기·후보 (RFC-0016 §6.4). 후보 사전이 없으면 이 자리는 비어 있고 동작도 예전 그대로다.
 #define SEQ_MAX_READING 64     // 우리 소유 preedit 에 쌓을 수 있는 글자 수
@@ -55,6 +65,7 @@ typedef struct SeqLayout {
     wchar_t  candFile[64];
     JDict   *cand;
     int      convertVk;          // 변환 글쇠 (VK_*), 0 = 없음
+    int      zh;                 // SEQ_ZH_* (중국어 병음 방식, 구운 자판 판 7)
 } SeqLayout;
 
 // 보류 중인 입력. 확정한 글자는 문서가 갖고 있으므로 여기 남기지 않는다.
@@ -63,6 +74,8 @@ typedef struct SeqState {
     wchar_t  reading[SEQ_MAX_READING + 1];       // 우리 소유 preedit (후보 사전이 있을 때만 찬다)
     unsigned generation;                         // 읽기가 바뀔 때마다 오른다 (후보 snapshot 의 주인)
     bool     candOpen;                           // 후보를 내놓은 상태인가
+    wchar_t  lastCommit;                         // 마지막으로 확정한 글자 (숫자 뒤의 . , 는 그대로 둔다)
+    bool     dquoteOpen, squoteOpen;             // 중국어 따옴표 짝 (“ ” / ‘ ’ — 번체는 「 」 / 『 』)
 } SeqState;
 
 // 한 번의 입력이 낳은 결과. committed = 지금 문서에 넣을 글자들, composing = 아직 보류(미리보기).
@@ -118,3 +131,19 @@ SeqResult SeqKb_Choose(SeqState *st, const SeqLayout *sl, const SeqCandidates *c
 SeqResult SeqKb_CancelCandidates(SeqState *st);
 // 경계(자판 전환·포커스 상실·비활성화): 보류한 리터럴을 확정한다.
 SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl);
+
+// ── 중국어 병음 방식의 도구 (sl->zh != SEQ_ZH_NONE) ─────────────────────────────────
+// 확정한 글자를 엔진에 알린다 (숫자 뒤 문장부호 규칙). SeqApply 가 문서에 넣을 때마다 부른다.
+void      SeqKb_NoteCommitted(SeqState *st, const wchar_t *text);
+// 친 문장부호를 중국어 꼴로 (，。？！、；：“”‘’（）【】《》……——￥·～). 바꿀 것이 아니면 false.
+//   숫자 바로 뒤의 `.` `,` `:` 는 그대로(3.14, 1,000, 12:30). 따옴표는 여닫이가 번갈아 나온다.
+bool      SeqKb_Punct(SeqState *st, const SeqLayout *sl, wchar_t ch, wchar_t *out, int cap);
+// 이 글자가 바꿀 문장부호인가 (상태를 바꾸지 않는다 — OnTestKeyDown 용).
+bool      SeqKb_IsPunct(const SeqLayout *sl, wchar_t ch);
+// 지금 읽기를 가장 그럴듯한 변환으로 모두 확정한다 (문장부호·글자 아닌 글쇠가 읽기 뒤에 왔을 때).
+SeqResult SeqKb_CommitBest(SeqState *st, const SeqLayout *sl, unsigned flags);
+// 以词定字: 후보 index 의 첫(last=false)·끝(last=true) 글자만 확정하고, 그 후보가 쓰는 읽기는 지운다.
+SeqResult SeqKb_ChoosePart(SeqState *st, const SeqLayout *sl, const SeqCandidates *cands, int index, bool last);
+// 날짜·시간 후보를 out 에 붙인다 (읽기가 rq·sj·xq 일 때). 시험이 시각을 고정하도록 st 가 아닌 인자로 받는다.
+int       SeqKb_DateTimeCands(const SeqLayout *sl, const wchar_t *reading, const SYSTEMTIME *now,
+                              wchar_t items[][SEQ_MAX_OUT + 1], int cap);

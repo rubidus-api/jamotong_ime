@@ -19,7 +19,7 @@ README 에 있다.
 
 ```sh
 jamotong --check      자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
-jamotong --build      자판.jmt          # 옆에 자판.v6.jmb 를 만든다 (숫자는 구운 형식의 판)
+jamotong --build      자판.jmt          # 옆에 자판.v7.jmb 를 만든다 (숫자는 구운 형식의 판)
 jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을 굽는다
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
 jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N] [--name ..] [--license ..]
@@ -29,7 +29,7 @@ jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴�
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```
 
-구운 파일의 이름에는 형식의 판이 붙는다(`자판.v6.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
+구운 파일의 이름에는 형식의 판이 붙는다(`자판.v7.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
 자모통이 읽는 파일을 덮어쓰지 않는다. 두 판 묵은 파일은 지운다.
 
 찾는 차례: 자판 파일 옆 → `%APPDATA%\Jamotong\layouts`(사전은 `...\dicts`) →
@@ -262,6 +262,7 @@ Dictionary  = romaji-kana.jdb     # 이 자판이 쓰는 구운 사전
 OnUnmatched = flush               # flush(기본)=보류한 글자를 친다, cancel=버린다
 Candidates  = kana-words.jdb      # 선택: 읽기 → 후보 여럿
 ConvertKey  = space               # Candidates 와 함께 필수: space | tab | hanja | convert | f9
+Chinese     = simplified          # 선택: 중국어 병음 방식 (simplified | traditional)
 Key jkl; = 0                      # 선택: 앞단 조합
 Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으로 간다
 ```
@@ -269,6 +270,13 @@ Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으�
 `Candidates` 가 있으면 글자가 문서로 바로 가지 않고 입력기가 가진 **읽기**에 쌓이며, 변환 글쇠가 그
 읽기의 후보를 내놓는다. 고르면 읽기를 후보로 바꾸고, 취소하면 읽기가 남는다. 백스페이스는 읽기 한
 글자, Esc 는 읽기 전체, 경계에서는 읽은 그대로 확정한다. 읽기가 바뀐 뒤 늦게 온 선택은 버린다.
+
+`Chinese = simplified | traditional` 은 중국어 팩의 병음 방식을 켠다. 치는 동안 후보가 뜨고, 사이띄개는
+하이라이트된 후보를, `-` `=` 는 쪽 넘김, `[` `]` 는 그 후보의 첫·끝 글자만, 엔터는 친 로마자 그대로,
+Esc 는 읽기를 지운다. `'` 는 음절 끊기다(`xi'an` → 西安): 끊기를 넘는 낱말은 그만큼 글자가 있어야 한다.
+모음이 없는 읽기는 첫 글자 줄임으로 읽고(`zg` → 中国), 모음 없는 조각은 더 긴 읽기 안에서 쓰지 않는다.
+`rq`·`sj`·`xq` 는 오늘 날짜·지금 시각·요일. 문장부호는 중국어 꼴(，。？！、“”‘’ — 번체는 「」『』)로
+바뀌고, 숫자 바로 뒤의 `.` `,` `:` 는 그대로다. Layout Options 탭에서 자판마다 문장부호를 끌 수 있다.
 
 엔진은 최장 일치를 기다린다 — 사전에 `n`·`na`·`ni` 가 있으면 `n` 하나로는 확정하지 않는다. 보류한
 글자는 캐럿 옆에 보이고 문서에는 넣지 않는다. 백스페이스는 보류 한 글자를 되돌리고, Esc 는

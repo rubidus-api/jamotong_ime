@@ -1,6 +1,7 @@
 #include "settings_ui.h"
 #include "jamo_class.h"   // RFC-0008 W2-05
 #include "jlay.h"      // 구운 자판 읽기 (Add 는 관리 앱을 불러 굽는다)
+#include "seq_layout.h"   // 중국어 병음 방식인가 (Layout Options 의 문장부호 칸)
 #include <commctrl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,6 +168,7 @@ enum { TAB_LAYOUTS = 0, TAB_LAYOUTOPTS = 1, TAB_SHORTCUTS = 2, TAB_OPTIONS = 3, 
 #define ID_CHK_LOPT_SENTENCE 1051
 #define ID_CHK_LOPT_SUGGEST  1052
 #define ID_LBL_LOPT_HINT     1053
+#define ID_CHK_LOPT_PUNCT    1054
 static int g_loptSel = 0;   // 고른 자판 (g_TempConfig.layouts 의 번호)
 static int g_curTab = 0;
 
@@ -437,8 +439,13 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     EnableWindow(s, seq); EnableWindow(g, seq);
     SendMessageW(s, BM_SETCHECK, (seq && !L->optNoSentence) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g, BM_SETCHECK, (seq && !L->optNoSuggest) ? BST_CHECKED : BST_UNCHECKED, 0);
+    bool zh = seq && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->zh;
+    HWND pc = GetDlgItem(hwnd, ID_CHK_LOPT_PUNCT);
+    EnableWindow(pc, zh);
+    SendMessageW(pc, BM_SETCHECK, (zh && !L->optNoPunct) ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
-        ? L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word."
+        ? (zh ? L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word. Chinese punctuation turns , . ? ! into \xFF0C\x3002\xFF1F\xFF01 (not right after a digit)."
+              : L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word.")
         : L"This layout has no options of its own. Options appear here for input layouts that convert a reading (Chinese pinyin, Japanese kana).");
 }
 
@@ -481,7 +488,9 @@ static void CreateControls(HWND hwnd) {
           14, 96, (WIN_W - 28), 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Suggest words and idioms (completions, initials)", BS_AUTOCHECKBOX, 0,
           14, 124, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 156, (WIN_W - 28), 120, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Chinese punctuation (\xFF0C\x3002\xFF1F\xFF01\x201C\x201D \x2014 \x300C\x300D for traditional)", BS_AUTOCHECKBOX, 0,
+          14, 152, (WIN_W - 28), 22, ID_CHK_LOPT_PUNCT, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 184, (WIN_W - 28), 140, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
@@ -718,9 +727,11 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                     break;
                 case ID_CHK_LOPT_SENTENCE:
                 case ID_CHK_LOPT_SUGGEST:
+                case ID_CHK_LOPT_PUNCT:
                     if (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) {
                         bool on = SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED;
                         if (LOWORD(wParam) == ID_CHK_LOPT_SENTENCE) g_TempConfig.layouts[g_loptSel].optNoSentence = !on;
+                        else if (LOWORD(wParam) == ID_CHK_LOPT_PUNCT) g_TempConfig.layouts[g_loptSel].optNoPunct = !on;
                         else g_TempConfig.layouts[g_loptSel].optNoSuggest = !on;
                     }
                     break;

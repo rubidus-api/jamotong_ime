@@ -208,7 +208,7 @@ Import가 다른 PC에서 자판을 복원한다. 파일을 지우면 공장 기
 자판은 깨끗하게 읽힌 자판이다.
 
 ```sh
-jamotong --build 내자판.jmt          # 옆에 내자판.v6.jmb 를 만든다
+jamotong --build 내자판.jmt          # 옆에 내자판.v7.jmb 를 만든다
 jamotong --build-dir "%APPDATA%\Jamotong\layouts"
 jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
 ```

@@ -20,7 +20,7 @@ static void TrimEnds(wchar_t *s) {
     while (n && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
 static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Candidates", L"ConvertKey",
-                                                 L"Engine", L"OnUnmatched", NULL };
+                                                 L"Engine", L"OnUnmatched", L"Chinese", NULL };
 
 // 변환 글쇠 이름 → VK (§6.4). 적은 것만 받는다 — 글자 글쇠는 읽기를 만드는 데 쓰이므로 안 된다.
 static int ConvertKeyVk(const wchar_t *name) {
@@ -114,6 +114,16 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
                       L"flush types the pending letters, cancel drops them");
             continue;
         }
+        if (!wcsncmp(p, L"Chinese", 7)) {   // 중국어 병음 방식 (2026-10-03): 치는 동안 후보, 끊기, 문장부호, 날짜…
+            wchar_t v[32] = {0};
+            if (swscanf(p, L"Chinese = %31ls", v) != 1)
+                FAIL(col0, L"E-JMT-VALUE", L"Chinese needs a value", L"Chinese = simplified | traditional");
+            else if (!_wcsicmp(v, L"simplified"))  sl->zh = SEQ_ZH_SIMPLIFIED;
+            else if (!_wcsicmp(v, L"traditional")) sl->zh = SEQ_ZH_TRADITIONAL;
+            else FAIL(col0, L"E-JMT-VALUE", L"Chinese must be simplified or traditional",
+                      L"it picks the punctuation and date forms; the dictionary decides the characters");
+            continue;
+        }
         if (!wcsncmp(p, L"Engine", 6)) continue;        // 통합 로더가 이미 읽었다
         if (!wcsncmp(p, L"Key ", 4) || !wcsncmp(p, L"Chord ", 6) || !wcsncmp(p, L"Hold ", 5)
             || !wcsncmp(p, L"Layer ", 6) || !wcsncmp(p, L"Macro ", 6) || !_wcsicmp(p, L"EndMacro")
@@ -142,6 +152,11 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
                      sl->candFile[0] ? L"a candidate dictionary needs a convert key"
                                      : L"a convert key needs a candidate dictionary",
                      L"write both 'Candidates = words.jdb' and 'ConvertKey = space'");
+        bad = true;
+    }
+    if (!bad && sl->zh && !sl->candFile[0]) {
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-VALUE", L"the Chinese style needs a candidate dictionary",
+                     L"add 'Candidates = words.jdb' and 'ConvertKey = space'");
         bad = true;
     }
     if (!bad && !SeqLayout_OpenDict(sl, layoutPath, diag)) bad = true;

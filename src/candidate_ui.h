@@ -5,6 +5,8 @@
 // 콜백 함수 (index: 선택된 후보 인덱스, str: 선택된 문자열)
 typedef void (*CandidateSelectCallback)(int index, const wchar_t *str, void *ctx);
 typedef void (*CandidateCancelCallback)(void *ctx);
+// 병음 방식의 글쇠 (Enter·Esc·`[`·`]`): 창은 이미 닫혔다. index = 그때 하이라이트된 후보.
+typedef void (*CandidateKeyCallback)(UINT vk, int index, void *ctx);
 
 bool CandidateUI_Initialize(void);
 void CandidateUI_Uninitialize(void);
@@ -23,6 +25,10 @@ void CandidateUI_SetStyle(const wchar_t *face, int sizePx);
 // Microsoft IME 지침: 후보창은 소유된 창이어야 앱 위에 보이고, 소유자는 GetWnd 로 얻는다.
 void CandidateUI_SetViewWindow(HWND hwnd);
 bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int count, int replaceLen, CandidateSelectCallback onSelect, CandidateCancelCallback onCancel, void *ctx);
+// 중국어 병음 방식의 글쇠 (2026-10-03). Show 바로 앞에 부른다 — NULL 이면 예전(한자·가나) 방식이고, 창을 닫으면 풀린다.
+//   사이띄개 = 하이라이트된 후보, `-` `=` = 쪽 넘김, 숫자 = 고르기(Shift 를 누른 숫자는 문장부호라 넘긴다),
+//   Enter·Esc·`[`·`]` = onKey. 글자·백스페이스·문장부호는 HandleKey 가 false 를 돌려 입력기가 읽기를 고치게 한다.
+void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey);
 
 // 키보드 이벤트 가로채기
 // true를 반환하면 UI가 이벤트를 소모한 것

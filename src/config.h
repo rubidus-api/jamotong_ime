@@ -73,6 +73,7 @@ typedef struct {
     //   0 이 기본(켜짐)이라 0 으로 채운 구조체가 예전 동작이다. 지금은 순차 입력 자판(병음·가나)만 쓴다.
     bool optNoSentence;   // Sentence=0: 문장 후보를 내지 않는다
     bool optNoSuggest;    // Suggest=0: 추천 단어(이어질 낱말·줄임)를 내지 않는다
+    bool optNoPunct;      // Punctuation=0: 중국어 자판의 문장부호를 바꾸지 않는다 (，。 대신 , .)
 } LayoutConfig;
 
 // IME 동작 옵션 (설정창 'IME Options' 탭). 단축키류는 JamotongConfig.shortcuts 로 통합.

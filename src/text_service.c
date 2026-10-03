@@ -626,6 +626,42 @@ static SeqCandidates g_seqCands;          // 지금 띄운 묶음 (입력 스레
 static wchar_t *g_seqCandPtrs[SEQ_MAX_CANDS];
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
 
+// 자판별 선택 (Layout Options 탭): 문장 후보·추천 단어
+static unsigned SeqFlags(JamotongTextService *obj) {
+    unsigned flags = SEQ_CONV_ALL;
+    const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+    if (cur && cur->optNoSentence) flags &= ~SEQ_CONV_SENTENCE;
+    if (cur && cur->optNoSuggest)  flags &= ~SEQ_CONV_PREDICT;
+    return flags;
+}
+static void SeqReleaseCandCtx(JamotongTextService *obj) {
+    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+}
+// 중국어 병음 방식: 치는 동안 후보를 띄우고 고친다. 읽기가 비었거나 후보가 없으면 닫는다.
+static void SeqLiveRefresh(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
+    if (!sl || !sl->zh) return;
+    if ((obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0]) && SeqOpenCandidates(obj, pic, sl)) return;
+    if (CandidateUI_IsVisible()) CandidateUI_Hide();
+    SeqReleaseCandCtx(obj);
+}
+// 후보창의 병음 방식 글쇠 (창은 이미 닫혔다): 엔터 = 친 로마자 그대로, Esc = 읽기를 지움, [ ] = 以词定字
+static void OnSeqCandidateKey(UINT vk, int index, void *ctx) {
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    if (!obj) return;
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    ITfContext *pic = obj->candCtx.pic;
+    if (layout && layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout && pic) {
+        const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        SeqResult r; memset(&r, 0, sizeof r);
+        if (vk == VK_RETURN)      r = SeqKb_Flush(&obj->seqKb, sl);
+        else if (vk == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
+        else                      r = SeqKb_ChoosePart(&obj->seqKb, sl, &g_seqCands, index, vk == VK_OEM_6);
+        if (r.eaten) SeqApply(obj, pic, &r);
+        if (SeqKb_Reading(&obj->seqKb)[0] && SeqOpenCandidates(obj, pic, sl)) return;   // 以词定字 뒤 남은 읽기
+    }
+    SeqReleaseCandCtx(obj);
+}
+
 static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
     (void)str;
     JamotongTextService *obj = (JamotongTextService*)ctx;
@@ -655,12 +691,7 @@ static void OnSeqCandidateCancelled(void *ctx) {
 // 읽기를 후보로 바꿔 후보창을 연다 (§6.4). 변환 글쇠와, 앞부분을 고른 뒤 남은 읽기의 이어 변환이 함께 쓴다.
 //   후보가 없으면 false — 엔진 상태는 그대로다.
 static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
-    // 자판별 선택 (Layout Options 탭): 문장 후보·추천 단어
-    unsigned flags = SEQ_CONV_ALL;
-    const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
-    if (cur && cur->optNoSentence) flags &= ~SEQ_CONV_SENTENCE;
-    if (cur && cur->optNoSuggest)  flags &= ~SEQ_CONV_PREDICT;
-    if (!SeqKb_ConvertEx(&obj->seqKb, sl, flags, &g_seqCands)) return false;
+    if (!SeqKb_ConvertEx(&obj->seqKb, sl, SeqFlags(obj), &g_seqCands)) return false;
     // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
     // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
     SeqResult cr; memset(&cr, 0, sizeof cr);
@@ -677,6 +708,7 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
     CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
     if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
     obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
+    CandidateUI_SetPinyinKeys(sl->zh ? OnSeqCandidateKey : NULL);   // 중국어 병음 방식의 글쇠
     if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
         SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
@@ -879,6 +911,7 @@ static void SeqSymbolSink(void *ctx, const wchar_t *sym);
 //   확정 글자는 삽입하고, 아직 보류 중인 입력은 문서가 아니라 캐럿 옆 미리보기 칩으로만 보여준다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r) {
     if (!pic) return;
+    SeqKb_NoteCommitted(&obj->seqKb, r->committed);   // 숫자 뒤의 . , 는 그대로 (중국어 문장부호)
     // 한 번의 입력이 낳는 확정 글자는 편집 세션 한 칸(127자)보다 길 수 있다(보류를 한꺼번에
     // 푸는 경우). 나눠 보내되 한 글자도 잃지 않는다.
     const wchar_t *p = r->committed;
@@ -1228,6 +1261,8 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             // (한글 FSM 의 어절 경계 처리와 같은 규칙, RFC-0008 W0-02).
             if (SeqKb_WouldEat(&obj->seqKb, sl, qc) || (pend && !IsModifierOrLock(wParam))) {
                 if (pfEaten) *pfEaten = TRUE;
+            } else if (sl && sl->zh && !layout->optNoPunct && SeqKb_IsPunct(sl, qc) && !HasCtrlAltWin()) {
+                if (pfEaten) *pfEaten = TRUE;   // 중국어 문장부호 (읽기가 없어도 바꾼다)
             }
         } else if (layout && layout->type == LAYOUT_TYPE_CHORD) {
             const ChordLayout *cl = (const ChordLayout*)layout->pChordLayout;
@@ -1627,6 +1662,32 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 // 후보가 없었다 — 엔진 상태는 그대로다. 이 글쇠는 응용의 것이므로 아래 경계
                 // 경로로 떨어뜨린다(보류·읽기를 먼저 확정하고 원래 글쇠를 다시 보낸다).
             }
+            if (sl->zh && wParam != VK_BACK && wParam != VK_ESCAPE && !HasCtrlAltWin()) {
+                // 중국어 병음 방식: 엔진이 받지 않는 글자 글쇠(문장부호·숫자·대문자…). 읽기가 있으면 가장 그럴듯한
+                //   변환을 먼저 확정하고, 문장부호는 중국어 꼴로 (搜狗·Microsoft 병음과 같은 동작).
+                wchar_t qc = GetQwertyChar(wParam, isShift);
+                bool hasReading = obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0];
+                bool separator = qc == SEQ_SEPARATOR && hasReading;
+                if (qc >= 0x21 && qc <= 0x7E && !separator && !SeqKb_WouldEat(&obj->seqKb, sl, qc)) {
+                    bool punct = !layout->optNoPunct && SeqKb_IsPunct(sl, qc);
+                    if (hasReading || punct) {
+                        SeqResult fr; memset(&fr, 0, sizeof fr);
+                        if (hasReading) fr = SeqKb_CommitBest(&obj->seqKb, sl, SeqFlags(obj));
+                        SeqKb_NoteCommitted(&obj->seqKb, fr.committed);
+                        wchar_t pb[8];
+                        if (!(punct && SeqKb_Punct(&obj->seqKb, sl, qc, pb, 8))) { pb[0] = qc; pb[1] = L'\0'; }
+                        size_t n = wcslen(fr.committed);
+                        if (n + wcslen(pb) < sizeof fr.committed / sizeof fr.committed[0]) wcscat(fr.committed, pb);
+                        fr.composing[0] = L'\0';
+                        fr.eaten = true;
+                        if (CandidateUI_IsVisible()) CandidateUI_Hide();
+                        SeqReleaseCandCtx(obj);
+                        SeqApply(obj, pic, &fr);
+                        if (pfEaten) *pfEaten = TRUE;
+                        goto kd_done;
+                    }
+                }
+            }
             if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
             else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
             else {
@@ -1654,6 +1715,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         }
                         // 자리가 없을 만큼 길면(병적인 표) 예전 길로 — 한 글자도 잃지 않는다
                     }
+                    if (wParam == VK_RETURN && sl->zh) {   // 중국어 병음 방식: 엔터는 친 로마자만 (줄은 바꾸지 않는다)
+                        SeqApply(obj, pic, &fr);
+                        SeqLiveRefresh(obj, pic, sl);
+                        if (pfEaten) *pfEaten = TRUE;
+                        goto kd_done;
+                    }
                     SeqApply(obj, pic, &fr);
                     ScheduleKeyResend(obj, wParam, lParam);
                     if (pfEaten) *pfEaten = TRUE;
@@ -1664,6 +1731,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             }
             if (r.committed[0] || r.eaten) SeqApply(obj, pic, &r);
             if (r.eaten && pfEaten) *pfEaten = TRUE;
+            if (r.eaten) SeqLiveRefresh(obj, pic, sl);   // 중국어 병음 방식: 치는 동안 후보
         }
         goto kd_done;
     }
