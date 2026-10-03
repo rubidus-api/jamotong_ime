@@ -380,20 +380,76 @@ static bool CaptureShortcut(HWND parent, ShortcutKey *out) {
     return false;
 }
 
+// 자판 목록 한 줄의 글 (화면 읽기 도구가 읽는다 — 그리는 것은 DrawLayoutItem)
+static void LayoutItemText(int i, wchar_t *buf, int cap) {
+    swprintf(buf, cap, L"%ls: %ls", g_TempConfig.layouts[i].enabled ? L"On" : L"Off",
+             g_TempConfig.layouts[i].name ? g_TempConfig.layouts[i].name : L"?");
+}
+
+// 자판 목록 한 줄을 그린다 (2026-10-03 오너: 고른 줄이 반전되면 ◼/◻ 글자도 반전되어 켜짐·꺼짐이 헷갈렸다).
+//   왼쪽에 체크 상자를 그리되 상자는 줄의 선택 색과 상관없이 늘 같은 모양이다: 켜짐 = 파란 상자에 흰 ✓, 꺼짐 = 빈 상자.
+//   꺼진 자판은 이름도 흐리게.
+static void DrawLayoutItem(const DRAWITEMSTRUCT *d) {
+    if ((int)d->itemID < 0) return;
+    HDC hdc = d->hDC;
+    RECT rc = d->rcItem;
+    bool sel = (d->itemState & ODS_SELECTED) != 0;
+    int i = (int)d->itemID;
+    bool on = i < g_TempConfig.layoutCount && g_TempConfig.layouts[i].enabled;
+    HBRUSH bk = CreateSolidBrush(sel ? GetSysColor(COLOR_HIGHLIGHT) : g_clrCtl);
+    FillRect(hdc, &rc, bk);
+    DeleteObject(bk);
+    int box = ScaleY(14), pad = ScaleX(4);
+    RECT b = { rc.left + pad, rc.top + (rc.bottom - rc.top - box) / 2, 0, 0 };
+    b.right = b.left + box; b.bottom = b.top + box;
+    if (sel) {   // 선택 색 위에서도 상자 테두리가 보이게 흰 테두리 한 겹
+        RECT o = { b.left - 1, b.top - 1, b.right + 1, b.bottom + 1 };
+        HBRUSH w = CreateSolidBrush(RGB(255, 255, 255)); FrameRect(hdc, &o, w); DeleteObject(w);
+    }
+    const COLORREF accent = g_dark ? RGB(76, 194, 255) : RGB(0, 95, 184);
+    HBRUSH fill = CreateSolidBrush(on ? accent : g_clrCtl);
+    FillRect(hdc, &b, fill);
+    DeleteObject(fill);
+    HBRUSH edge = CreateSolidBrush(on ? accent : (g_dark ? RGB(160, 160, 160) : RGB(110, 110, 110)));
+    FrameRect(hdc, &b, edge);
+    DeleteObject(edge);
+    if (on) {   // ✓
+        HPEN pen = CreatePen(PS_SOLID, ScaleX(2) > 1 ? ScaleX(2) : 2, g_dark ? RGB(0, 0, 0) : RGB(255, 255, 255));
+        HGDIOBJ op = SelectObject(hdc, pen);
+        POINT pt[3] = { { b.left + box * 22 / 100, b.top + box * 52 / 100 },
+                        { b.left + box * 42 / 100, b.top + box * 72 / 100 },
+                        { b.left + box * 78 / 100, b.top + box * 30 / 100 } };
+        Polyline(hdc, pt, 3);
+        SelectObject(hdc, op);
+        DeleteObject(pen);
+    }
+    RECT t = rc;
+    t.left = b.right + ScaleX(8);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, sel ? GetSysColor(COLOR_HIGHLIGHTTEXT) : (on ? g_clrText : RGB(128, 128, 128)));
+    const wchar_t *name = (i < g_TempConfig.layoutCount && g_TempConfig.layouts[i].name) ? g_TempConfig.layouts[i].name : L"?";
+    DrawTextW(hdc, name, -1, &t, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    if (d->itemState & ODS_FOCUS) DrawFocusRect(hdc, &rc);
+}
+
 static void RefreshLists(HWND hwnd) {
     HWND hLstLayouts = GetDlgItem(hwnd, ID_LST_LAYOUTS);
     HWND hLstShortcuts = GetDlgItem(hwnd, ID_LST_SHORTCUTS);
     
+    int top = (int)SendMessageW(hLstLayouts, LB_GETTOPINDEX, 0, 0);   // 다시 채워도 보던 자리를 지킨다
+    SendMessageW(hLstLayouts, WM_SETREDRAW, FALSE, 0);
     SendMessageW(hLstLayouts, LB_RESETCONTENT, 0, 0);
     SendMessageW(hLstShortcuts, LB_RESETCONTENT, 0, 0);
     
+    // 켜짐/꺼짐은 목록이 직접 그리는 체크 상자로 보인다(DrawLayoutItem). 글자는 화면 읽기 도구를 위한 것이다.
     for (int i = 0; i < g_TempConfig.layoutCount; i++) {
         wchar_t buf[96];
-        // 같은 계열의 채움/빈 사각형으로 사용 여부 표시 (◼=켜짐, ◻=꺼짐 — 모양 통일)
-        swprintf(buf, 96, L"%ls  %ls", g_TempConfig.layouts[i].enabled ? L"\x25FC" : L"\x25FB",
-                 g_TempConfig.layouts[i].name ? g_TempConfig.layouts[i].name : L"?");
+        LayoutItemText(i, buf, 96);
         SendMessageW(hLstLayouts, LB_ADDSTRING, 0, (LPARAM)buf);
     }
+    if (top > 0) SendMessageW(hLstLayouts, LB_SETTOPINDEX, (WPARAM)top, 0);
+    SendMessageW(hLstLayouts, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hLstLayouts, NULL, TRUE);
     
     // 단축키 리스트 = 현재 선택된 기능(콤보)의 목록
     ShortcutList *sl = &g_TempConfig.shortcuts[g_curScFn];
@@ -413,8 +469,18 @@ static void ToggleLayoutEnabled(HWND hwnd, int sel) {
         if (on <= 1) { MessageBoxW(hwnd, L"At least one layout must stay On.", L"Info", MB_OK); return; }
     }
     g_TempConfig.layouts[sel].enabled = !g_TempConfig.layouts[sel].enabled;
-    RefreshLists(hwnd);
-    SendMessageW(GetDlgItem(hwnd, ID_LST_LAYOUTS), LB_SETCURSEL, sel, 0);
+    // 그 줄만 고친다 — 목록을 통째로 다시 채우면 더블클릭 중에 스크롤 자리를 잃고 다른 줄이 제대로 안 그려졌다 (2026-10-03).
+    HWND lst = GetDlgItem(hwnd, ID_LST_LAYOUTS);
+    wchar_t buf[96];
+    LayoutItemText(sel, buf, 96);
+    int top = (int)SendMessageW(lst, LB_GETTOPINDEX, 0, 0);
+    SendMessageW(lst, WM_SETREDRAW, FALSE, 0);
+    SendMessageW(lst, LB_DELETESTRING, (WPARAM)sel, 0);
+    SendMessageW(lst, LB_INSERTSTRING, (WPARAM)sel, (LPARAM)buf);
+    SendMessageW(lst, LB_SETCURSEL, (WPARAM)sel, 0);
+    SendMessageW(lst, LB_SETTOPINDEX, (WPARAM)top, 0);
+    SendMessageW(lst, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(lst, NULL, TRUE);
 }
 
 // 컨트롤 생성 + 탭 소속 태그. 좌표는 논리값(ScaleX/Y로 스케일).
@@ -536,8 +602,8 @@ static void CreateControls(HWND hwnd) {
     MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 306, (WIN_W - 28), 76, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
-    MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
-          14, 40, (WIN_W - 116), listH, ID_LST_LAYOUTS, TAB_LAYOUTS);
+    MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT, WS_EX_CLIENTEDGE,
+          14, 40, (WIN_W - 116), listH, ID_LST_LAYOUTS, TAB_LAYOUTS);   // 줄은 DrawLayoutItem 이 그린다 (체크 상자)
     MkCtl(hwnd, L"BUTTON", L"On/Off", BS_PUSHBUTTON, 0, (WIN_W - 96), 40, 82, 26, ID_BTN_LAYOUT_TOGGLE, TAB_LAYOUTS);
     MkCtl(hwnd, L"BUTTON", L"\x25B2", BS_PUSHBUTTON, 0, (WIN_W - 96), 70, 82, 26, ID_BTN_LAYOUT_UP, TAB_LAYOUTS);
     MkCtl(hwnd, L"BUTTON", L"\x25BC", BS_PUSHBUTTON, 0, (WIN_W - 96), 100, 82, 26, ID_BTN_LAYOUT_DOWN, TAB_LAYOUTS);
@@ -718,6 +784,16 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             }
             return 0;
 
+        case WM_MEASUREITEM: {
+            MEASUREITEMSTRUCT *m = (MEASUREITEMSTRUCT *)lParam;
+            if (m && m->CtlID == ID_LST_LAYOUTS) { m->itemHeight = (UINT)ScaleY(22); return TRUE; }
+            break;
+        }
+        case WM_DRAWITEM: {
+            const DRAWITEMSTRUCT *d = (const DRAWITEMSTRUCT *)lParam;
+            if (d && d->CtlID == ID_LST_LAYOUTS) { DrawLayoutItem(d); return TRUE; }
+            break;
+        }
         case WM_ERASEBKGND: {
             HDC hdc = (HDC)wParam; RECT rc; GetClientRect(hwnd, &rc);
             FillRect(hdc, &rc, g_brBg); return 1;   // 창 배경을 테마색으로 칠함
