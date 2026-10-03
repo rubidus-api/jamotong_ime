@@ -285,8 +285,12 @@ static void AddWhole(SeqCandidates *out, const SeqLayout *sl, int first, int cou
     }
 }
 // 추천 단어를 *next 부터 upto 번째 전까지
-static void AddPredict(SeqCandidates *out, const SeqLayout *sl, const int *idx, int np, int *next, int upto, int n) {
-    for (; *next < np && *next < upto && out->count < SEQ_MAX_CANDS; (*next)++) AddCand(out, sl->cand, idx[*next], n);
+static void AddPredict(SeqCandidates *out, const SeqLayout *sl, const int *idx, int np, int *next, int upto, int n, int minChars) {
+    for (; *next < np && out->count < SEQ_MAX_CANDS; (*next)++) {
+        if (minChars > 0 && CandChars(sl->cand, idx[*next]) < minChars) { upto++; continue; }   // 끊기를 못 채운다
+        if (*next >= upto) break;
+        AddCand(out, sl->cand, idx[*next], n);
+    }
 }
 
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
@@ -385,9 +389,9 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     bool whole = (!sl->zh || (n > 0 && st->reading[0] != SEQ_SEPARATOR && st->reading[n - 1] != SEQ_SEPARATOR))
                  && JDict_Candidates(sl->cand, wkey, &wfirst, &wcount);
     AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_WHOLE_FIRST, n, wmin);
-    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST, n);
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST, n, wmin);
     AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n, wmin);
-    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n);
+    AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n, wmin);
     int order[SEQ_MAX_READING + 1], no = 0;
     if (firstSegLen > 0 && firstSegLen < n) order[no++] = firstSegLen;
     for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;

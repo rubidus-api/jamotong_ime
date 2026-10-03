@@ -108,6 +108,7 @@ static void EnsureCandFont(void) {
 static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
     const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
     unsigned cp = 0;
+    if (g_onKey) { swprintf(buf, cap, L"%d. %s", numberInPage, cand); return; }   // 병음 후보창: 부호값·훈음 없이 (2026-10-03)
     if (cand[0] && !cand[1]) cp = (unsigned)cand[0];   // BMP 단일 문자
     else if (cand[0] >= 0xD800 && cand[0] <= 0xDBFF && cand[1] >= 0xDC00 && cand[1] <= 0xDFFF && !cand[2])
         cp = 0x10000u + (((unsigned)cand[0] - 0xD800u) << 10) + ((unsigned)cand[1] - 0xDC00u);

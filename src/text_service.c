@@ -1263,6 +1263,10 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
                 if (pfEaten) *pfEaten = TRUE;
             } else if (sl && sl->zh && !layout->optNoPunct && SeqKb_IsPunct(sl, qc) && !HasCtrlAltWin()) {
                 if (pfEaten) *pfEaten = TRUE;   // 중국어 문장부호 (읽기가 없어도 바꾼다)
+            } else if (sl && sl->zh && !IsModifierOrLock(wParam)) {
+                // 응용이 그대로 받는 글쇠 — OnKeyDown 은 불리지 않으므로 여기서 기억한다: 숫자 뒤의 . , : 는 그대로(3.14),
+                //   사이띄개·엔터 뒤면 다시 중국어 꼴. 같은 값을 다시 적을 뿐이라 여러 번 불려도 같다.
+                obj->seqKb.lastCommit = (qc >= 0x21 && qc <= 0x7E) ? qc : 0;
             }
         } else if (layout && layout->type == LAYOUT_TYPE_CHORD) {
             const ChordLayout *cl = (const ChordLayout*)layout->pChordLayout;
