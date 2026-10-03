@@ -182,6 +182,9 @@ static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError 
     sl->convertVk = GetI32(r);
     sl->zh = GetI32(r);                   // 판 7
     if (sl->zh < SEQ_ZH_NONE || sl->zh > SEQ_ZH_TRADITIONAL) r->bad = true;
+    sl->nScheme = GetI32(r);              // 판 8
+    if (sl->nScheme < 0 || sl->nScheme > SEQ_MAX_SCHEMES) { r->bad = true; sl->nScheme = 0; }
+    for (int i = 0; i < sl->nScheme && !r->bad; i++) { GetStr(r, sl->schemeName[i], 16); GetStr(r, sl->schemeFile[i], 64); }
     unsigned hasChord = Get32(r);
     if (r->bad || !sl->dictFile[0]) { free(sl); return false; }
     if (hasChord) {                       // 앞단 조합 인식기 (§6.3)

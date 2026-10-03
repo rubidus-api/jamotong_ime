@@ -234,7 +234,7 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
 // 설정창 적용(Config_ApplyEdited)은 설정 스레드라 여기 오지 않는다 — 설정창이 포커스를 가져갈 때 ①이 이미 돈다.
 // 순차 변환 결과를 문서에 넣는다 (정의는 아래 조합 타이머 곁) — 경계 확정에서 먼저 쓴다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
-static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl);
+static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl, bool live);
 
 static void UiCandHide(JamotongTextService *obj);
 static void UiCodeHide(JamotongTextService *obj);
@@ -632,6 +632,7 @@ static unsigned SeqFlags(JamotongTextService *obj) {
     const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
     if (cur && cur->optNoSentence) flags &= ~SEQ_CONV_SENTENCE;
     if (cur && cur->optNoSuggest)  flags &= ~SEQ_CONV_PREDICT;
+    if (cur && cur->optFuzzy)      flags |= SEQ_CONV_FUZZY;
     return flags;
 }
 static void SeqReleaseCandCtx(JamotongTextService *obj) {
@@ -640,7 +641,7 @@ static void SeqReleaseCandCtx(JamotongTextService *obj) {
 // 중국어 병음 방식: 치는 동안 후보를 띄우고 고친다. 읽기가 비었거나 후보가 없으면 닫는다.
 static void SeqLiveRefresh(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
     if (!sl || !sl->zh) return;
-    if ((obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0]) && SeqOpenCandidates(obj, pic, sl)) return;
+    if ((obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0]) && SeqOpenCandidates(obj, pic, sl, true)) return;
     if (CandidateUI_IsVisible()) CandidateUI_Hide();
     SeqReleaseCandCtx(obj);
 }
@@ -657,7 +658,7 @@ static void OnSeqCandidateKey(UINT vk, int index, void *ctx) {
         else if (vk == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
         else                      r = SeqKb_ChoosePart(&obj->seqKb, sl, &g_seqCands, index, vk == VK_OEM_6);
         if (r.eaten) SeqApply(obj, pic, &r);
-        if (SeqKb_Reading(&obj->seqKb)[0] && SeqOpenCandidates(obj, pic, sl)) return;   // 以词定字 뒤 남은 읽기
+        if (SeqKb_Reading(&obj->seqKb)[0] && SeqOpenCandidates(obj, pic, sl, sl->zh != 0)) return;   // 以词定字 뒤 남은 읽기
     }
     SeqReleaseCandCtx(obj);
 }
@@ -675,7 +676,7 @@ static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
         //   후보창은 콜백 전에 닫혔다(candidate_ui.c SelectIndex). 문맥 참조는 새 후보창이 이어받는다.
         if (r.eaten && SeqKb_Reading(&obj->seqKb)[0] && obj->candCtx.pic) {
             ITfContext *pic = obj->candCtx.pic;
-            if (SeqOpenCandidates(obj, pic, sl)) return;
+            if (SeqOpenCandidates(obj, pic, sl, sl->zh != 0)) return;
         }
     }
     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
@@ -690,13 +691,18 @@ static void OnSeqCandidateCancelled(void *ctx) {
 
 // 읽기를 후보로 바꿔 후보창을 연다 (§6.4). 변환 글쇠와, 앞부분을 고른 뒤 남은 읽기의 이어 변환이 함께 쓴다.
 //   후보가 없으면 false — 엔진 상태는 그대로다.
-static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
-    if (!SeqKb_ConvertEx(&obj->seqKb, sl, SeqFlags(obj), &g_seqCands)) return false;
+static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl, bool live) {
+    // live = 치는 동안 (중국어 방식): 쌍병의 반쯤 친 음절(보류)은 정착시키지 않고 조합에 그대로 보인다
+    if (!SeqKb_ConvertEx(&obj->seqKb, sl, SeqFlags(obj) | (live ? SEQ_CONV_LIVE : 0), &g_seqCands)) return false;
     // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
     // 아니면 후보를 고르는 동안 `にほn` 처럼 옛 글자가 남는다 (실기 2026-09-24).
     SeqResult cr; memset(&cr, 0, sizeof cr);
     cr.eaten = true;
     lstrcpynW(cr.composing, SeqKb_Reading(&obj->seqKb), (int)(sizeof cr.composing / sizeof cr.composing[0]));
+    if (live) {   // 보류도 보인다
+        size_t n = wcslen(cr.composing);
+        lstrcpynW(cr.composing + n, obj->seqKb.pending, (int)(sizeof cr.composing / sizeof cr.composing[0] - n));
+    }
     SeqApply(obj, pic, &cr);
     for (int i = 0; i < g_seqCands.count; i++) g_seqCandPtrs[i] = g_seqCands.items[i];
     RECT rc; int x = 0, y = 0, caretTop = 0;
@@ -709,6 +715,7 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
     if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
     obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
     CandidateUI_SetPinyinKeys(sl->zh ? OnSeqCandidateKey : NULL);   // 중국어 병음 방식의 글쇠
+    CandidateUI_SetDigitsToInput(SeqKb_IsVMode(sl, SeqKb_Reading(&obj->seqKb)));   // V 모드: 숫자·- 는 식으로
     if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
         SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
@@ -1249,6 +1256,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
             }
         } else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
             const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+            if (sl) SeqLayout_SelectScheme((SeqLayout *)sl, layout->optKeys);   // 쌍병: 자판 선택(Keys)의 글쇠 표
             bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             wchar_t qc = GetQwertyChar(wParam, isShift);
             bool pend = obj->seqKb.pending[0] != L'\0' || SeqKb_Reading(&obj->seqKb)[0] != L'\0';
@@ -1641,6 +1649,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
         // 순차 변환 자판: 친 글자열을 표대로 바꾼다 (로마자→가나류). 보류는 미리보기로만 보인다.
         const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        if (sl) SeqLayout_SelectScheme((SeqLayout *)sl, layout->optKeys);   // 쌍병: 자판 선택(Keys)의 글쇠 표
         if (sl && sl->chord) {
             // §6.3: 앞단 조합이 먼저 결정한다. 그 결과 `symbol` 만 엔진으로 들어가고(싱크),
             // text/key 같은 동작은 예전처럼 실제 입력으로 나간다. 같은 글쇠를 둘이 겹쳐 먹지 않는다.
@@ -1659,7 +1668,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             SeqResult r;
             if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_CanConvert(&obj->seqKb, sl)) {
                 // §6.4: 읽기를 후보로 바꾼다. 후보가 없으면 이 글쇠는 응용의 것이다.
-                if (SeqOpenCandidates(obj, pic, sl)) {
+                if (SeqOpenCandidates(obj, pic, sl, false)) {
                     if (pfEaten) *pfEaten = TRUE;
                     goto kd_done;
                 }

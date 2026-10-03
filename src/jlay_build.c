@@ -118,6 +118,8 @@ static void WriteSeq(Buf *b, const SeqLayout *sl) {
     PutStr(b, sl->candFile);                           // 후보 사전 이름 (없으면 빈 문자열, §6.4)
     Put32(b, (unsigned)sl->convertVk);                 // 변환 글쇠 (0 = 후보 없음)
     Put32(b, (unsigned)sl->zh);                        // 판 7: 중국어 병음 방식 (SEQ_ZH_*)
+    Put32(b, (unsigned)sl->nScheme);                   // 판 8: 쌍병 글쇠 표 (이름, 파일)
+    for (int i = 0; i < sl->nScheme; i++) { PutStr(b, sl->schemeName[i]); PutStr(b, sl->schemeFile[i]); }
     Put32(b, sl->chord ? 1u : 0u);                     // 앞단 조합 인식기가 있는가 (§6.3)
     if (sl->chord) WriteChord(b, (const ChordLayout *)sl->chord);
 }

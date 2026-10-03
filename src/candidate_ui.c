@@ -52,6 +52,7 @@ static int g_winW = 220;     // 페이지 내용에 맞춘 창 너비
 static CandidateSelectCallback g_onSelect = NULL;
 static CandidateCancelCallback g_onCancel = NULL;
 static CandidateKeyCallback g_onKey = NULL;   // 병음 방식이면 있다 (CandidateUI_SetPinyinKeys)
+static bool g_digitsToInput = false;          // V 모드: 숫자·- = 는 입력기로
 static void *g_ctx = NULL;
 
 // 배치 앵커(캐럿 기준 좌표) — 화면 클램프·페이지 리사이즈가 공유한다.
@@ -220,6 +221,7 @@ static LRESULT CALLBACK CandKbHookProc(int nCode, WPARAM wParam, LPARAM lParam) 
             if (g_onKey) {   // 병음 방식: - = [ ] 도 우리 것, Shift 를 누른 숫자·기호는 문장부호라 입력기로
                 if (!shift && (vk == VK_OEM_MINUS || vk == VK_OEM_PLUS || vk == VK_OEM_4 || vk == VK_OEM_6)) nav = true;
                 if (shift && (vk >= '1' && vk <= '9')) nav = false;
+                if (g_digitsToInput && ((vk >= '0' && vk <= '9') || vk == VK_OEM_MINUS || vk == VK_OEM_PLUS)) nav = false;
             }
             if (nav) {
                 if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
@@ -401,6 +403,7 @@ void CandidateUI_Hide(void) {
     g_active = false;
     g_ownDraw = true;
     g_onKey = NULL;   // 병음 방식은 이 창과 함께 끝난다 — 다음 Show 앞에 다시 정한다
+    g_digitsToInput = false;
 }
 
 void CandidateUI_Cancel(void) {
@@ -437,12 +440,14 @@ static void SelectIndex(int realIdx) {
 }
 
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey) { g_onKey = onKey; }
+void CandidateUI_SetDigitsToInput(bool on) { g_digitsToInput = on; }
 
 // 병음 방식의 글쇠. 처리했으면 true, 입력기에 넘길 글쇠면 false.
 static bool HandlePinyinKey(UINT vKey) {
     bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     int totalPages = (g_count + g_perPage - 1) / g_perPage;
     if (vKey == VK_SPACE) { SelectIndex(g_page * g_perPage + g_sel); return true; }
+    if (g_digitsToInput && ((vKey >= '0' && vKey <= '9') || vKey == VK_OEM_MINUS || vKey == VK_OEM_PLUS)) return false;   // V 모드
     if (vKey >= '1' && vKey <= '9') {
         if (shift) return false;                               // ! @ # … 는 문장부호
         SelectIndex(g_page * g_perPage + (vKey - '1'));

@@ -21,7 +21,7 @@ the layout folders, and the manager app
 
 ```sh
 jamotong --check      layout.jmt        # check the source; says whether the build is current
-jamotong --build      layout.jmt        # writes layout.v7.jmb beside it (the number is the built format)
+jamotong --build      layout.jmt        # writes layout.v8.jmb beside it (the number is the built format)
 jamotong --build-dir  <folder>          # builds what is missing or older than its source
 jamotong --build-dict words.jdt -o words.jdb
 jamotong --import-dict other.txt -o words.jdt [--limit N] [--name ..] [--license ..]
@@ -191,7 +191,7 @@ because `end` closes a block.
 **Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
 still written in the 1-3 grammar below.** Everything else in that section is kept for files that were
 already written; Jamotong reads both, and a file with a `layout` form is read as v4. `jamotong
---export` writes a built-in layout in v4. Built files are named by their format (`layout.v7.jmb`), so a newer Jamotong that rebuilds a layout
+--export` writes a built-in layout in v4. Built files are named by their format (`layout.v8.jmb`), so a newer Jamotong that rebuilds a layout
 never overwrites the file an older copy - still running in an open app after an upgrade - reads;
 the file two formats old is removed. `jamotong --expand` resolves `Extends`/`Include`, which
 only the older grammar has - a v4 file is already flat, so it is written back unchanged.
@@ -281,6 +281,7 @@ OnUnmatched = flush               # flush (default) types the pending letters, c
 Candidates  = kana-words.jdb      # optional: a reading -> several candidates
 ConvertKey  = space               # required with Candidates: space | tab | hanja | convert | f9
 Chinese     = simplified          # optional: the Chinese pinyin style (simplified | traditional)
+Scheme      = xiaohe sp-xh.jdb    # optional, up to 4: a double-pinyin key table picked by name in Layout Options
 Key jkl; = 0                      # optional chord front end
 Chord jk = symbol "k"             # its result goes into the engine, not to the application
 ```
@@ -298,6 +299,13 @@ reading with no vowel is read as initials (`zg` 中国); a vowel-less piece is n
 reading. `rq`, `sj` and `xq` offer today's date, the time and the weekday. Punctuation turns into the
 Chinese forms (，。？！、“”‘’ — 「」『』 for traditional), except `.` `,` `:` right after a digit.
 The Layout Options tab can turn the punctuation off per layout.
+
+`Scheme = <name> <table>.jdb` adds a key table that can replace `Dictionary` while typing: a double-pinyin
+scheme maps two keys to one syllable written with a leading `'` (`vs` → `'zhong`), so the reading keeps its
+syllable breaks. Layout Options → Keys picks it by name per layout. With the Chinese style, `v` on an empty
+reading (Shift+V with a scheme) starts the V mode: digits become Chinese numerals (一百二十三, 壹佰贰拾叁),
+`3.14` 三点一四, `2026.10.3` a date and `1+2*3` its result. Layout Options can also turn on fuzzy pinyin, and
+`chinese-phrases.txt` in the user dictionary folder holds custom phrases (`dz 北京市`) offered first.
 
 The engine waits for the longest match, so with `n`, `na` and `ni` in the dictionary a lone `n`
 waits. Pending letters are shown next to the caret, not inserted. Backspace takes back one pending

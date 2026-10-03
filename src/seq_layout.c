@@ -10,10 +10,15 @@
 #include <wchar.h>
 
 // ── 사전에 묻는 두 가지 (엔진이 쓰는 말로) ─────────────────────────────────────────
-static bool HasLonger(const SeqLayout *sl, const wchar_t *s) { return JDict_HasLonger(sl->dict, s); }
+// 친 글쇠를 읽기로 바꾸는 표: 쌍병을 골랐으면 그 표, 아니면 Dictionary.
+static const JDict *KeyDict(const SeqLayout *sl) {
+    if (sl->scheme > 0 && sl->scheme <= sl->nScheme && sl->schemeDict[sl->scheme - 1]) return sl->schemeDict[sl->scheme - 1];
+    return sl->dict;
+}
+static bool HasLonger(const SeqLayout *sl, const wchar_t *s) { return JDict_HasLonger(KeyDict(sl), s); }
 static bool Exact(const SeqLayout *sl, const wchar_t *s, wchar_t *out, int cap) {
     const jdchar *v = NULL; int n = 0;
-    if (!JDict_Exact(sl->dict, s, &v, &n)) return false;
+    if (!JDict_Exact(KeyDict(sl), s, &v, &n)) return false;
     return JDict_CopyValue(v, n, out, cap) >= 0;
 }
 
@@ -36,7 +41,7 @@ static void FlushBuf(SeqState *st, const SeqLayout *sl, wchar_t *buf, SeqResult 
             return;
         }
         const jdchar *v = NULL; int vn = 0, kn = 0;
-        if (JDict_LongestPrefix(sl->dict, buf, &kn, &v, &vn)) {
+        if (JDict_LongestPrefix(KeyDict(sl), buf, &kn, &v, &vn)) {
             wchar_t out[SEQ_MAX_OUT + 1];
             if (JDict_CopyValue(v, vn, out, SEQ_MAX_OUT + 1) >= 0) Deliver(st, sl, r, out);
             buf += kn;
@@ -59,6 +64,8 @@ const wchar_t *SeqKb_Reading(const SeqState *st) { return st ? st->reading : L""
 // 사전이 낸 글자를 어디에 둘까: 후보 사전이 있으면 우리 소유 읽기, 없으면 바로 확정 (§6.4)
 static void Deliver(SeqState *st, const SeqLayout *sl, SeqResult *r, const wchar_t *s) {
     if (!s || !s[0]) return;
+    if (sl->zh && s[0] == SEQ_SEPARATOR && !st->reading[0]) s++;   // 쌍병 표는 음절 앞에 끊기를 붙인다 — 맨 앞의 것은 버린다
+    if (!s[0]) return;
     if (!sl->cand) { Emit(r, s); return; }
     size_t have = wcslen(st->reading), add = wcslen(s);
     if (have + add > SEQ_MAX_READING) {   // 읽기가 꽉 차면 앞부분을 확정해 자리를 낸다
@@ -81,12 +88,24 @@ static void SeqComposing(const SeqState *st, SeqResult *r) {
               (int)(sizeof(r->composing) / sizeof(r->composing[0]) - n));
 }
 
+// V 모드 (중국어 방식): 빈 읽기에서 v 로 시작하고 뒤에 숫자·식의 글자만 온 읽기
+static bool IsVChar(wchar_t c) {
+    return (c >= L'0' && c <= L'9') || c == L'.' || c == L'+' || c == L'-' || c == L'*' || c == L'/' || c == L'(' || c == L')';
+}
+bool SeqKb_IsVMode(const SeqLayout *sl, const wchar_t *reading) {
+    if (!sl || !sl->zh || !reading || reading[0] != L'v') return false;
+    for (const wchar_t *q = reading + 1; *q; q++) if (!IsVChar(*q)) return false;
+    return true;
+}
+
 bool SeqKb_WouldEat(const SeqState *st, const SeqLayout *sl, wchar_t ch) {
     if (!sl || !sl->dict || ch < 0x21 || ch > 0x7E) return false;
     if (sl->zh && ch == SEQ_SEPARATOR) return st->pending[0] || st->reading[0];   // 음절 끊기 (읽기 안에서만)
+    if (sl->zh && !st->pending[0] && SeqKb_IsVMode(sl, st->reading) && IsVChar(ch)) return true;   // V 모드의 숫자·식
+    if (sl->zh && ch == L'V' && sl->scheme > 0 && !st->pending[0] && !st->reading[0]) return true;  // 쌍병의 V 모드는 Shift+V
     if (st->pending[0]) return true;
     wchar_t one[2] = { ch, 0 };
-    return JDict_HasLonger(sl->dict, one) || JDict_Exact(sl->dict, one, NULL, NULL);
+    return JDict_HasLonger(KeyDict(sl), one) || JDict_Exact(KeyDict(sl), one, NULL, NULL);
 }
 
 SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
@@ -110,6 +129,14 @@ SeqResult SeqKb_Key(SeqState *st, const SeqLayout *sl, wchar_t ch) {
             st->reading[m] = SEQ_SEPARATOR; st->reading[m + 1] = L'\0';
             st->generation++;
         }
+        r.eaten = true;
+        SeqComposing(st, &r);
+        return r;
+    }
+    if (sl->zh && !st->pending[0]
+        && ((SeqKb_IsVMode(sl, st->reading) && IsVChar(ch)) || (ch == L'V' && sl->scheme > 0 && !st->reading[0]))) {
+        size_t m = wcslen(st->reading);   // V 모드: 숫자·식은 읽기에 그대로 (쌍병의 Shift+V 는 v 로 시작)
+        if (m < SEQ_MAX_READING) { st->reading[m] = (ch == L'V') ? L'v' : ch; st->reading[m + 1] = L'\0'; st->generation++; }
         r.eaten = true;
         SeqComposing(st, &r);
         return r;
@@ -266,6 +293,160 @@ static bool ReadingBare(const SeqLayout *sl, const wchar_t *reading) {   // 읽�
     return true;
 }
 
+// 조각을 낱말 하나로 볼 때 쓸 후보(가장 싼 것). 모호음이면 비슷한 철자도 본다. 없으면 -1.
+static int SegPick(const SeqLayout *sl, const wchar_t *raw, int len, bool bare, unsigned flags) {
+    int first = 0, count = 0, minChars = 0, best = -1, bestCost = 0x7FFFFFFF;
+    if (SegRange(sl, raw, len, bare, &first, &count, &minChars)) {
+        best = FirstFitting(sl, first, count, minChars);
+        if (best >= 0) { bestCost = JDict_CostAt(sl->cand, best); if (bestCost < 0) bestCost = 0x7FFF0000; }
+    }
+    if (!(flags & SEQ_CONV_FUZZY) || !sl->zh || len <= 0 || raw[0] == SEQ_SEPARATOR || raw[len - 1] == SEQ_SEPARATOR) return best;
+    wchar_t key[SEQ_MAX_READING + 1]; bool vowel = false;
+    int k = StripKey(raw, len, key, SEQ_MAX_READING + 1, &vowel);
+    if (!vowel && !bare) return best;
+    wchar_t fk[16][SEQ_MAX_READING + 1];
+    int nf = SeqKb_FuzzyKeys(key, fk, 16);
+    for (int v = 1; v < nf; v++) {
+        if (!JDict_Candidates(sl->cand, fk[v], &first, &count)) continue;
+        int idx = FirstFitting(sl, first, count, k ? k + 1 : 0);
+        if (idx < 0) continue;
+        int c = JDict_CostAt(sl->cand, idx) + 50;   // 친 철자 그대로의 것이 조금 앞선다
+        if (best < 0 || c < bestCost) { best = idx; bestCost = c; }
+    }
+    return best;
+}
+
+// ── 모호음: z/zh c/ch s/sh n/l (성모), an/ang en/eng in/ing (운모) ──────────────────────
+//   음절을 가르지 않고 키 안의 자리마다 바꿔 본다 — 틀린 꼴은 사전에 없으니 걸러진다. 바꾼 자리가 적은 것부터, cap 개까지.
+int SeqKb_FuzzyKeys(const wchar_t *key, wchar_t out[][SEQ_MAX_READING + 1], int cap) {
+    if (cap <= 0) return 0;
+    lstrcpynW(out[0], key, SEQ_MAX_READING + 1);
+    int n = 1;
+    // 바꿀 수 있는 자리: (위치, 지울 길이, 넣을 글자)
+    struct { int at, del; const wchar_t *ins; } ch[24];
+    int nc = 0;
+    int len = (int)wcslen(key);
+    for (int i = 0; i < len && nc < 24; i++) {
+        wchar_t c = key[i], nx = i + 1 < len ? key[i + 1] : 0;
+        if (c == L'z' || c == L'c' || c == L's') {          // 성모로만 쓰이는 글자
+            if (nx == L'h') { ch[nc].at = i + 1; ch[nc].del = 1; ch[nc].ins = L""; nc++; }        // zh → z
+            else if (IsVowel(nx)) { ch[nc].at = i + 1; ch[nc].del = 0; ch[nc].ins = L"h"; nc++; } // z → zh
+        } else if ((c == L'n' || c == L'l') && IsVowel(nx)) {   // 뒤가 모음이면 성모 자리다
+            ch[nc].at = i; ch[nc].del = 1; ch[nc].ins = c == L'n' ? L"l" : L"n"; nc++;
+        }
+        // 운모 an/en/in ↔ ang/eng/ing: 모음 다음의 n 이 음절 끝일 법한 자리 (뒤가 끝이거나 자음)
+        if (c == L'n' && i > 0 && (key[i - 1] == L'a' || key[i - 1] == L'e' || key[i - 1] == L'i')) {
+            if (nx == L'g' && (i + 2 >= len || !IsVowel(key[i + 2]))) { ch[nc].at = i + 1; ch[nc].del = 1; ch[nc].ins = L""; nc++; }   // ang → an
+            else if (nx == 0 || (!IsVowel(nx) && nx != L'g')) { ch[nc].at = i + 1; ch[nc].del = 0; ch[nc].ins = L"g"; nc++; }     // an → ang
+        }
+    }
+    // 한 자리 바꾼 것, 그다음 두 자리 (cap 까지)
+    for (int depth = 1; depth <= 2 && n < cap; depth++) {
+        for (int a = 0; a < nc && n < cap; a++) {
+            for (int b = depth == 1 ? a : a + 1; b < (depth == 1 ? a + 1 : nc) && n < cap; b++) {
+                wchar_t buf[SEQ_MAX_READING + 1]; int o = 0;
+                for (int i = 0; i <= len && o < SEQ_MAX_READING; i++) {
+                    for (int z = 0; z < 2; z++) {
+                        int e = z == 0 ? a : b;
+                        if (z == 1 && depth == 1) break;
+                        if (ch[e].at == i) for (const wchar_t *q = ch[e].ins; *q && o < SEQ_MAX_READING; q++) buf[o++] = *q;
+                    }
+                    if (i == len) break;
+                    bool skip = false;
+                    for (int z = 0; z < 2; z++) {
+                        int e = z == 0 ? a : b;
+                        if (z == 1 && depth == 1) break;
+                        if (ch[e].del && i >= ch[e].at && i < ch[e].at + ch[e].del) skip = true;
+                    }
+                    if (!skip) buf[o++] = key[i];
+                }
+                buf[o] = L'\0';
+                bool dup = false;
+                for (int k = 0; k < n; k++) if (!wcscmp(out[k], buf)) dup = true;
+                if (!dup) lstrcpynW(out[n++], buf, SEQ_MAX_READING + 1);
+            }
+        }
+    }
+    return n;
+}
+
+// ── 사용자 구: 사용자 사전 폴더의 chinese-phrases.txt (키 + 공백·탭 + 구, # 주석, UTF-8) ─────────────
+#define SEQ_PHRASES_MAX 4000
+typedef struct SeqPhrases {
+    FILETIME stamp;
+    int      n;
+    wchar_t  key[SEQ_PHRASES_MAX][24];
+    wchar_t *val[SEQ_PHRASES_MAX];
+} SeqPhrases;
+static void PhrasesClear(SeqPhrases *p) { for (int i = 0; i < p->n; i++) free(p->val[i]); p->n = 0; }
+static void PhrasesLoad(SeqPhrases *p, const wchar_t *path) {
+    PhrasesClear(p);
+    FILE *f = _wfopen(path, L"rb");
+    if (!f) return;
+    char line[1024];
+    while (fgets(line, sizeof line, f) && p->n < SEQ_PHRASES_MAX) {
+        char *q = line;
+        if ((unsigned char)q[0] == 0xEF && (unsigned char)q[1] == 0xBB && (unsigned char)q[2] == 0xBF) q += 3;   // BOM
+        size_t L = strlen(q);
+        while (L && (q[L - 1] == '\n' || q[L - 1] == '\r')) q[--L] = 0;
+        if (!q[0] || q[0] == '#') continue;
+        char *sep = q;
+        while (*sep && *sep != ' ' && *sep != '\t') sep++;
+        if (!*sep || sep == q || sep - q >= 24) continue;
+        *sep++ = 0;
+        while (*sep == ' ' || *sep == '\t') sep++;
+        if (!*sep) continue;
+        bool ok = true;
+        for (char *k = q; *k; k++) if (!(*k >= 'a' && *k <= 'z')) ok = false;   // 키는 소문자 로마자
+        if (!ok) continue;
+        wchar_t w[SEQ_MAX_OUT + 1];
+        int wn = MultiByteToWideChar(CP_UTF8, 0, sep, -1, w, SEQ_MAX_OUT + 1);
+        if (wn <= 1) continue;
+        for (int i = 0; q[i]; i++) p->key[p->n][i] = (wchar_t)q[i], p->key[p->n][i + 1] = 0;
+        p->val[p->n] = _wcsdup(w);
+        if (p->val[p->n]) p->n++;
+    }
+    fclose(f);
+}
+static wchar_t g_phrasesPath[MAX_PATH];   // 시험이 정한 자리 (비면 사용자 사전 폴더)
+void SeqKb_SetPhrasesPath(const wchar_t *path) { if (path) lstrcpynW(g_phrasesPath, path, MAX_PATH); else g_phrasesPath[0] = 0; }
+static int PhrasesFor(SeqLayout *sl, const wchar_t *key, wchar_t items[][SEQ_MAX_OUT + 1], int cap) {
+    if (!sl->phrases) {
+        sl->phrases = (SeqPhrases *)calloc(1, sizeof(SeqPhrases));
+        if (!sl->phrases) return 0;
+    }
+    SeqPhrases *p = sl->phrases;
+    wchar_t dir[MAX_PATH], path[MAX_PATH];
+    bool have = false;
+    if (g_phrasesPath[0]) { lstrcpynW(path, g_phrasesPath, MAX_PATH); have = true; }
+    else if (Config_UserDictDir(dir, MAX_PATH)) {
+        _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, SEQ_PHRASES_FILE);
+        path[MAX_PATH - 1] = 0;
+        have = true;
+    }
+    if (have) {   // 파일이 바뀌었으면 다시 읽는다 (설정의 "Edit custom phrases" 로 고친 뒤)
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) {
+            if (fad.ftLastWriteTime.dwLowDateTime != p->stamp.dwLowDateTime || fad.ftLastWriteTime.dwHighDateTime != p->stamp.dwHighDateTime) {
+                PhrasesLoad(p, path);
+                p->stamp = fad.ftLastWriteTime;
+            }
+        } else if (p->n) { PhrasesClear(p); memset(&p->stamp, 0, sizeof p->stamp); }
+    }
+    int got = 0;
+    for (int i = 0; i < p->n && got < cap; i++)
+        if (!wcscmp(p->key[i], key)) lstrcpynW(items[got++], p->val[i], SEQ_MAX_OUT + 1);
+    return got;
+}
+
+int SeqLayout_SelectScheme(SeqLayout *sl, const wchar_t *name) {
+    if (!sl) return 0;
+    sl->scheme = 0;
+    if (name && name[0])
+        for (int i = 0; i < sl->nScheme; i++) if (!wcscmp(sl->schemeName[i], name) && sl->schemeDict[i]) { sl->scheme = i + 1; break; }
+    return sl->scheme;
+}
+
 // 후보 하나를 붙인다 — 이미 있는 글자와 같으면 붙이지 않는다(문장 후보와 낱말 후보가 같은 때 등).
 static bool AddCand(SeqCandidates *out, const JDict *d, int index, int consumed) {
     if (out->count >= SEQ_MAX_CANDS) return false;
@@ -302,9 +483,10 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     // 후보가 없으면 **아무것도 바꾸지 않는다**. 바꿔 놓고 실패하면 그 글쇠(사이띄개)는 응용으로
     // 가는데 보류는 이미 읽기로 옮겨져, 사이띄개가 친 글자보다 먼저 문서에 들어간다.
     SeqState before = *st;
+    if ((flags & SEQ_CONV_LIVE) && !st->reading[0]) return false;   // 치는 동안: 보류만 있으면 아직 후보가 없다
     // 보류한 글자를 먼저 읽기로 정착시킨다. `nihon` 의 끝 `n` 처럼 **더 자랄 수 있는 항목**은
     // 변환 글쇠를 누른 순간 경계로 보고 확정해야 한다 — 아니면 `にほん` 이 영영 서지 않는다.
-    if (st->pending[0]) {
+    if (st->pending[0] && !(flags & SEQ_CONV_LIVE)) {   // 치는 동안에는 쌍병의 반쯤 친 음절을 그대로 둔다
         wchar_t buf[SEQ_MAX_IN + 2];
         lstrcpynW(buf, st->pending, SEQ_MAX_IN + 2);
         SeqResult tmp; memset(&tmp, 0, sizeof tmp);
@@ -322,6 +504,13 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     out->generation = st->generation;
     const int n = (int)wcslen(st->reading);
     const bool bare = ReadingBare(sl, st->reading);   // 첫 글자 줄임만 친 읽기 (zg, wsm)
+    if (sl->zh && SeqKb_IsVMode(sl, st->reading)) {     // V 모드: 숫자·식만 — 사전은 보지 않는다
+        out->count = SeqKb_VModeCands(sl, st->reading, out->items, SEQ_MAX_CANDS);
+        for (int i = 0; i < out->count; i++) out->consumed[i] = n;
+        if (out->count == 0) { *st = before; return false; }
+        st->candOpen = true;
+        return true;
+    }
     // 0) 날짜·시간 (중국어 방식의 rq·sj·xq) — 맨 앞
     if (sl->zh) {
         SYSTEMTIME now; GetLocalTime(&now);
@@ -331,6 +520,12 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
             lstrcpynW(out->items[out->count], dt[i], SEQ_MAX_OUT + 1);
             out->consumed[out->count++] = n;
         }
+    }
+    if (sl->zh) {   // 사용자 구 — 읽기(끊기를 뺀 것)와 꼭 같은 키, 맨 앞 쪽에
+        wchar_t key[SEQ_MAX_READING + 1];
+        StripKey(st->reading, n, key, SEQ_MAX_READING + 1, NULL);
+        out->count += PhrasesFor((SeqLayout *)sl, key, out->items + out->count, SEQ_MAX_CANDS - out->count);
+        for (int i = 0; i < out->count; i++) out->consumed[i] = n;
     }
     enum { SEG_PENALTY = 100, NOCOST_SEG = 1000, INF = 0x3FFFFFFF };
     int best[SEQ_MAX_READING + 1], back[SEQ_MAX_READING + 1], pick[SEQ_MAX_READING + 1];
@@ -343,9 +538,7 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
         }
         for (int i = 0; i < j; i++) {
             if (best[i] >= INF) continue;
-            int first = 0, count = 0, minChars = 0;
-            if (!SegRange(sl, st->reading + i, j - i, bare, &first, &count, &minChars)) continue;
-            int idx = FirstFitting(sl, first, count, minChars);
+            int idx = SegPick(sl, st->reading + i, j - i, bare, flags);
             if (idx < 0) continue;
             int c = JDict_CostAt(sl->cand, idx);
             if (c < 0) c = NOCOST_SEG;
@@ -392,6 +585,15 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST, n, wmin);
     AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n, wmin);
     AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n, wmin);
+    if (flags & SEQ_CONV_FUZZY) {   // 모호음: 비슷한 철자의 낱말 (같은 철자의 것 다음에)
+        wchar_t fk[16][SEQ_MAX_READING + 1];
+        int nf = SeqKb_FuzzyKeys(wkey, fk, 16);
+        for (int v = 1; v < nf && out->count < SEQ_MAX_CANDS; v++) {
+            int ff = 0, fc = 0, fn = 0;
+            if (!JDict_Candidates(sl->cand, fk[v], &ff, &fc)) continue;
+            AddWhole(out, sl, ff, fc, &fn, SEQ_WHOLE_FIRST, n, wmin);
+        }
+    }
     int order[SEQ_MAX_READING + 1], no = 0;
     if (firstSegLen > 0 && firstSegLen < n) order[no++] = firstSegLen;
     for (int len = n - 1; len >= 1; len--) if (len != firstSegLen) order[no++] = len;
@@ -558,6 +760,123 @@ int SeqKb_DateTimeCands(const SeqLayout *sl, const wchar_t *reading, const SYSTE
     return n;
 }
 
+// ── V 모드: 한자 수·금액·날짜·계산 ─────────────────────────────────────────────────────
+bool SeqKb_ZhNumber(unsigned long long v, bool upper, bool trad, wchar_t *out, int cap) {
+    static const wchar_t *lowD = L"\x96F6\x4E00\x4E8C\x4E09\x56DB\x4E94\x516D\x4E03\x516B\x4E5D";   // 零一二三四五六七八九
+    static const wchar_t *upD  = L"\x96F6\x58F9\x8D30\x53C1\x8086\x4F0D\x9646\x67D2\x634C\x7396";   // 零壹贰叁肆伍陆柒捌玖
+    static const wchar_t *upDT = L"\x96F6\x58F9\x8CB3\x53C3\x8086\x4F0D\x9678\x67D2\x634C\x7396";   // 번체 貳參陸
+    const wchar_t *D = upper ? (trad ? upDT : upD) : lowD;
+    const wchar_t unit[4] = { 0, upper ? L'\x62FE' : L'\x5341', upper ? L'\x4F70' : L'\x767E', upper ? L'\x4EDF' : L'\x5343' };   // 拾佰仟 / 十百千
+    const wchar_t big[4] = { 0, trad ? L'\x842C' : L'\x4E07', trad ? L'\x5104' : L'\x4EBF', trad ? L'\x5146' : L'\x5146' };   // 万亿兆 (번체 萬億)
+    if (v >= 10000000000000000ULL || cap < 2) return false;
+    if (v == 0) { out[0] = D[0]; out[1] = 0; return true; }
+    wchar_t buf[96]; int o = 0;
+    int groups[4], ng = 0;
+    for (unsigned long long t = v; t; t /= 10000) groups[ng++] = (int)(t % 10000);
+    bool zeroPending = false;
+    for (int g = ng - 1; g >= 0; g--) {
+        int x = groups[g];
+        if (x == 0) { zeroPending = true; continue; }
+        if (zeroPending || (o > 0 && x < 1000)) { buf[o++] = D[0]; }
+        zeroPending = false;
+        int d[4] = { x / 1000, x / 100 % 10, x / 10 % 10, x % 10 };
+        bool z = false;
+        for (int k = 0; k < 4; k++) {
+            int pos = 3 - k;
+            if (d[k] == 0) { if (o > 0 && buf[o - 1] != D[0]) z = true; continue; }
+            if (z) { buf[o++] = D[0]; z = false; }
+            if (!(d[k] == 1 && pos == 1 && o == 0 && !upper)) buf[o++] = D[d[k]];   // 十二 (一十二 이 아니라) — 소写 맨 앞만
+            if (pos) buf[o++] = unit[pos];
+        }
+        if (g) buf[o++] = big[g];
+    }
+    if (o >= 1 && buf[o - 1] == D[0]) o--;
+    buf[o] = 0;
+    if (o + 1 > cap) return false;
+    wcscpy(out, buf);
+    return true;
+}
+// 아주 작은 식 계산기: + - * / ( ) 와 소수. 실패하면 false.
+typedef struct { const wchar_t *p; bool bad; } Calc;
+static double CalcExpr(Calc *c);
+static double CalcAtom(Calc *c) {
+    if (*c->p == L'(') { c->p++; double v = CalcExpr(c); if (*c->p == L')') c->p++; else c->bad = true; return v; }
+    if (*c->p == L'-') { c->p++; return -CalcAtom(c); }
+    if (!((*c->p >= L'0' && *c->p <= L'9') || *c->p == L'.')) { c->bad = true; return 0; }
+    double v = 0, frac = 0, scale = 1; bool dot = false; int digits = 0;
+    for (; (*c->p >= L'0' && *c->p <= L'9') || *c->p == L'.'; c->p++) {
+        if (*c->p == L'.') { if (dot) { c->bad = true; return 0; } dot = true; continue; }
+        digits++;
+        if (!dot) v = v * 10 + (*c->p - L'0'); else { scale /= 10; frac += (*c->p - L'0') * scale; }
+    }
+    if (!digits) c->bad = true;
+    return v + frac;
+}
+static double CalcTerm(Calc *c) {
+    double v = CalcAtom(c);
+    while (!c->bad && (*c->p == L'*' || *c->p == L'/')) {
+        wchar_t op = *c->p++; double r = CalcAtom(c);
+        if (op == L'*') v *= r; else { if (r == 0) { c->bad = true; return 0; } v /= r; }
+    }
+    return v;
+}
+static double CalcExpr(Calc *c) {
+    double v = CalcTerm(c);
+    while (!c->bad && (*c->p == L'+' || *c->p == L'-')) { wchar_t op = *c->p++; double r = CalcTerm(c); v = op == L'+' ? v + r : v - r; }
+    return v;
+}
+static void FormatNum(double v, wchar_t *out, int cap) {   // 열 자리 남짓, 꼬리 0 은 뗀다
+    _snwprintf(out, cap, L"%.10g", v);
+    out[cap - 1] = 0;
+}
+int SeqKb_VModeCands(const SeqLayout *sl, const wchar_t *reading, wchar_t items[][SEQ_MAX_OUT + 1], int cap) {
+    if (!SeqKb_IsVMode(sl, reading) || !reading[1] || cap <= 0) return 0;
+    const wchar_t *e = reading + 1;
+    const bool trad = sl->zh == SEQ_ZH_TRADITIONAL;
+    int n = 0, len = (int)wcslen(e), dots = 0, ops = 0;
+    for (const wchar_t *q = e; *q; q++) { if (*q == L'.') dots++; else if (!(*q >= L'0' && *q <= L'9')) ops++; }
+    #define PUT(...) do { if (n < cap) { _snwprintf(items[n], SEQ_MAX_OUT + 1, __VA_ARGS__); items[n][SEQ_MAX_OUT] = 0; n++; } } while (0)
+    if (ops == 0 && dots == 0 && len <= 16) {                     // 정수: 소写 · 大写 · 금액 · 한 자리씩
+        unsigned long long v = wcstoull(e, NULL, 10);
+        wchar_t lo[96], up[96];
+        if (SeqKb_ZhNumber(v, false, trad, lo, 96)) PUT(L"%ls", lo);
+        if (SeqKb_ZhNumber(v, true, trad, up, 96)) { PUT(L"%ls", up); PUT(L"%ls\x5143\x6574", up); }   // 元整
+        wchar_t each[64]; int o = 0;
+        for (const wchar_t *q = e; *q && o < 63; q++) each[o++] = *q == L'0' ? L'\x3007' : L"\x3007\x4E00\x4E8C\x4E09\x56DB\x4E94\x516D\x4E03\x516B\x4E5D"[*q - L'0'];
+        each[o] = 0;
+        if (len > 1) PUT(L"%ls", each);
+    } else if (ops == 0 && dots == 1 && e[0] != L'.' && e[len - 1] != L'.') {   // 소수: 三点一四 · 叁点壹肆
+        const wchar_t *dot = wcschr(e, L'.');
+        unsigned long long ip = wcstoull(e, NULL, 10);
+        for (int up = 0; up < 2; up++) {
+            wchar_t a[96], b[64]; int o = 0;
+            if (!SeqKb_ZhNumber(ip, up, trad, a, 96)) break;
+            const wchar_t *D = up ? (trad ? L"\x96F6\x58F9\x8CB3\x53C3\x8086\x4F0D\x9678\x67D2\x634C\x7396" : L"\x96F6\x58F9\x8D30\x53C1\x8086\x4F0D\x9646\x67D2\x634C\x7396")
+                                  : L"\x96F6\x4E00\x4E8C\x4E09\x56DB\x4E94\x516D\x4E03\x516B\x4E5D";
+            for (const wchar_t *q = dot + 1; *q && o < 63; q++) b[o++] = D[*q - L'0'];
+            b[o] = 0;
+            PUT(L"%ls%lc%ls", a, trad ? L'\x9EDE' : L'\x70B9', b);   // 点 / 點
+        }
+    } else if (ops == 0 && dots == 2) {                           // 날짜: 2026.10.3 → 2026年10月3日
+        int y = 0, m = 0, d = 0;
+        if (swscanf(e, L"%d.%d.%d", &y, &m, &d) == 3 && y > 0 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+            PUT(L"%d\x5E74%d\x6708%d\x65E5", y, m, d);
+            PUT(L"%04d-%02d-%02d", y, m, d);
+        }
+    }
+    if (ops > 0) {                                                // 계산: 결과, 식=결과
+        Calc c = { e, false };
+        double v = CalcExpr(&c);
+        if (!c.bad && *c.p == 0) {
+            wchar_t r[48]; FormatNum(v, r, 48);
+            PUT(L"%ls", r);
+            PUT(L"%ls=%ls", e, r);
+        }
+    }
+    #undef PUT
+    return n;
+}
+
 SeqResult SeqKb_CancelCandidates(SeqState *st) {
     SeqResult r; memset(&r, 0, sizeof r);
     if (!st || !st->candOpen) return r;
@@ -668,6 +987,27 @@ bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         if (sl->cand) JDict_Close(sl->cand);
         sl->cand = cd;
     }
+    for (int i = 0; i < sl->nScheme; i++) {   // 쌍병 글쇠 표 — Dictionary 와 같은 종류(순차)여야 한다
+        if (!Config_IsSafeDictFileName(sl->schemeFile[i]) || !ResolveDict(layoutPath, sl->schemeFile[i], full, MAX_PATH)) {
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the key table '%ls' was not found", sl->schemeFile[i]);
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg, L"put it beside the layout file or in the dictionary folder");
+            return false;
+        }
+        JDictError serr = JDICT_OK;
+        JDict *sd = JDict_Open(full, &serr);
+        if (!sd || JDict_Kind(sd) != JDICT_KIND_SEQUENCE || !JDict_Verify(sd, &serr)) {
+            if (sd) JDict_Close(sd);
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the key table '%ls' cannot be used", sl->schemeFile[i]);
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg, L"build it as 'Type = sequence' with 'jamotong --build-dict'");
+            return false;
+        }
+        if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
+        sl->schemeDict[i] = sd;
+    }
     return SeqLayout_Verify(sl, diag);   // 내용까지 본다 — 성한 사전만 자판을 세운다
 }
 
@@ -704,5 +1044,7 @@ void SeqLayout_Free(SeqLayout *sl) {
     if (sl->dict) JDict_Close(sl->dict);
     if (sl->cand) JDict_Close(sl->cand);
     if (sl->chord) ChordLayout_Free((ChordLayout *)sl->chord);
+    for (int i = 0; i < sl->nScheme; i++) if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
+    if (sl->phrases) { PhrasesClear(sl->phrases); free(sl->phrases); }
     free(sl);
 }

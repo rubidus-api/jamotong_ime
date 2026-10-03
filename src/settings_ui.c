@@ -3,6 +3,7 @@
 #include "jlay.h"      // 구운 자판 읽기 (Add 는 관리 앱을 불러 굽는다)
 #include "seq_layout.h"   // 중국어 병음 방식인가 (Layout Options 의 문장부호 칸)
 #include <commctrl.h>
+#include <shellapi.h>   // ShellExecuteW — 사용자 구 파일을 메모장으로
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -169,6 +170,10 @@ enum { TAB_LAYOUTS = 0, TAB_LAYOUTOPTS = 1, TAB_SHORTCUTS = 2, TAB_OPTIONS = 3, 
 #define ID_CHK_LOPT_SUGGEST  1052
 #define ID_LBL_LOPT_HINT     1053
 #define ID_CHK_LOPT_PUNCT    1054
+#define ID_CHK_LOPT_FUZZY    1055
+#define ID_CMB_LOPT_KEYS     1056
+#define ID_BTN_LOPT_PHRASES  1057
+#define ID_LBL_LOPT_KEYS     1058
 static int g_loptSel = 0;   // 고른 자판 (g_TempConfig.layouts 의 번호)
 static int g_curTab = 0;
 
@@ -443,8 +448,29 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     HWND pc = GetDlgItem(hwnd, ID_CHK_LOPT_PUNCT);
     EnableWindow(pc, zh);
     SendMessageW(pc, BM_SETCHECK, (zh && !L->optNoPunct) ? BST_CHECKED : BST_UNCHECKED, 0);
+    HWND fz = GetDlgItem(hwnd, ID_CHK_LOPT_FUZZY);
+    EnableWindow(fz, zh);
+    SendMessageW(fz, BM_SETCHECK, (zh && L->optFuzzy) ? BST_CHECKED : BST_UNCHECKED, 0);
+    EnableWindow(GetDlgItem(hwnd, ID_BTN_LOPT_PHRASES), zh);
+    {   // 글쇠: 온 병음 + 이 자판이 가진 쌍병 표
+        HWND kc = GetDlgItem(hwnd, ID_CMB_LOPT_KEYS);
+        SendMessageW(kc, CB_RESETCONTENT, 0, 0);
+        SendMessageW(kc, CB_ADDSTRING, 0, (LPARAM)L"Full pinyin");
+        const SeqLayout *sl = zh ? (const SeqLayout *)L->pSeqLayout : NULL;
+        int sel = 0;
+        for (int i = 0; sl && i < sl->nScheme; i++) {
+            const wchar_t *nm = sl->schemeName[i];
+            const wchar_t *shown = !wcscmp(nm, L"xiaohe") ? L"Xiaohe (\x5C0F\x9E64\x53CC\x62FC)"
+                                 : !wcscmp(nm, L"ziranma") ? L"Ziranma (\x81EA\x7136\x7801)"
+                                 : !wcscmp(nm, L"microsoft") ? L"Microsoft (\x5FAE\x8F6F\x53CC\x62FC)" : nm;
+            SendMessageW(kc, CB_ADDSTRING, 0, (LPARAM)shown);
+            if (!wcscmp(nm, L->optKeys)) sel = i + 1;
+        }
+        SendMessageW(kc, CB_SETCURSEL, (WPARAM)sel, 0);
+        EnableWindow(kc, sl && sl->nScheme > 0);
+    }
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
-        ? (zh ? L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word. Chinese punctuation turns , . ? ! into \xFF0C\x3002\xFF1F\xFF01 (not right after a digit)."
+        ? (zh ? L"Applies to this layout only. Keys picks full pinyin or a double-pinyin scheme (two keys per syllable). Custom phrases: one per line, letters then the text (dz \x5317\x4EAC\x5E02), shared by the Chinese layouts."
               : L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word.")
         : L"This layout has no options of its own. Options appear here for input layouts that convert a reading (Chinese pinyin, Japanese kana).");
 }
@@ -490,7 +516,12 @@ static void CreateControls(HWND hwnd) {
           14, 124, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Chinese punctuation (\xFF0C\x3002\xFF1F\xFF01\x201C\x201D \x2014 \x300C\x300D for traditional)", BS_AUTOCHECKBOX, 0,
           14, 152, (WIN_W - 28), 22, ID_CHK_LOPT_PUNCT, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 184, (WIN_W - 28), 140, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Fuzzy pinyin (z=zh, c=ch, s=sh, n=l, an=ang, en=eng, in=ing)", BS_AUTOCHECKBOX, 0,
+          14, 180, (WIN_W - 28), 22, ID_CHK_LOPT_FUZZY, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"Keys:", SS_CENTERIMAGE, 0, 14, 212, 44, 24, ID_LBL_LOPT_KEYS, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 62, 212, 220, 200, ID_CMB_LOPT_KEYS, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Edit custom phrases...", BS_PUSHBUTTON, 0, 14, 246, 180, 26, ID_BTN_LOPT_PHRASES, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 280, (WIN_W - 28), 100, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
@@ -725,13 +756,42 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                         if (sel >= 0) { g_loptSel = sel; LoptRefresh(hwnd, false); }
                     }
                     break;
+                case ID_CMB_LOPT_KEYS:
+                    if (HIWORD(wParam) == CBN_SELCHANGE && g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) {
+                        int k = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                        LayoutConfig *L = &g_TempConfig.layouts[g_loptSel];
+                        const SeqLayout *sl = (const SeqLayout *)L->pSeqLayout;
+                        if (k <= 0 || !sl || k > sl->nScheme) L->optKeys[0] = L'\0';
+                        else lstrcpynW(L->optKeys, sl->schemeName[k - 1], 16);
+                    }
+                    break;
+                case ID_BTN_LOPT_PHRASES: {   // 사용자 구 파일을 메모장으로 (없으면 보기 줄을 넣어 만든다)
+                    wchar_t dir[MAX_PATH], path[MAX_PATH];
+                    if (!Config_UserDictDir(dir, MAX_PATH)) break;
+                    _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, SEQ_PHRASES_FILE);
+                    path[MAX_PATH - 1] = L'\0';
+                    if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
+                        FILE *f = _wfopen(path, L"wb");
+                        if (f) {
+                            fputs("\xEF\xBB\xBF# Jamotong custom phrases for the Chinese layouts - one per line:\r\n"
+                                  "# letters, then a space or tab, then the text. They come first in the candidates.\r\n"
+                                  "# dz \xE5\x8C\x97\xE4\xBA\xAC\xE5\xB8\x82\r\n"
+                                  "# yx me@example.com\r\n", f);
+                            fclose(f);
+                        }
+                    }
+                    ShellExecuteW(hwnd, L"open", L"notepad.exe", path, NULL, SW_SHOWNORMAL);
+                    break;
+                }
                 case ID_CHK_LOPT_SENTENCE:
                 case ID_CHK_LOPT_SUGGEST:
+                case ID_CHK_LOPT_FUZZY:
                 case ID_CHK_LOPT_PUNCT:
                     if (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) {
                         bool on = SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED;
                         if (LOWORD(wParam) == ID_CHK_LOPT_SENTENCE) g_TempConfig.layouts[g_loptSel].optNoSentence = !on;
                         else if (LOWORD(wParam) == ID_CHK_LOPT_PUNCT) g_TempConfig.layouts[g_loptSel].optNoPunct = !on;
+                        else if (LOWORD(wParam) == ID_CHK_LOPT_FUZZY) g_TempConfig.layouts[g_loptSel].optFuzzy = on;
                         else g_TempConfig.layouts[g_loptSel].optNoSuggest = !on;
                     }
                     break;

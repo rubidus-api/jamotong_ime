@@ -74,6 +74,8 @@ typedef struct {
     bool optNoSentence;   // Sentence=0: 문장 후보를 내지 않는다
     bool optNoSuggest;    // Suggest=0: 추천 단어(이어질 낱말·줄임)를 내지 않는다
     bool optNoPunct;      // Punctuation=0: 중국어 자판의 문장부호를 바꾸지 않는다 (，。 대신 , .)
+    bool optFuzzy;        // Fuzzy=1: 모호음 (z/zh c/ch s/sh n/l an/ang en/eng in/ing)
+    wchar_t optKeys[16];  // Keys=xiaohe|ziranma|microsoft: 쌍병 글쇠 표 (빈 것 = 온 병음)
 } LayoutConfig;
 
 // IME 동작 옵션 (설정창 'IME Options' 탭). 단축키류는 JamotongConfig.shortcuts 로 통합.

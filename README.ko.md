@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.64.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-0.64.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-0.64.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-chinese-simplified-0.64.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-chinese-traditional-0.64.0.msi)
+**한국어** | [English](README.md) — **Jamotong v0.65.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-simplified-0.65.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-traditional-0.65.0.msi)
 
 # Jamotong (자모통)
 
@@ -9,24 +9,24 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.64.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-0.64.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
-| 자모통 zip (설치기 없음) | [jamotong-0.64.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-0.64.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.65.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 | 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
 | 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 5MB) |
-| 중국어 간체 팩 (설치 패키지) | [jamotong-chinese-simplified-0.64.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-chinese-simplified-0.64.0.msi) — 간체 병음 입력, 약 50만 항목(약 5MB). 자모통을 먼저 설치 |
-| 중국어 번체 팩 (설치 패키지) | [jamotong-chinese-traditional-0.64.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.64.0/jamotong-chinese-traditional-0.64.0.msi) — 같은 것을 번체로 (약 5MB) |
+| 중국어 간체 팩 (설치 패키지) | [jamotong-chinese-simplified-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-simplified-0.65.0.msi) — 간체 병음 입력, 약 50만 항목(약 5MB). 자모통을 먼저 설치 |
+| 중국어 번체 팩 (설치 패키지) | [jamotong-chinese-traditional-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-traditional-0.65.0.msi) — 같은 것을 번체로 (약 5MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.64.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+- **MSI (권장)**: `jamotong-0.65.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
   한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
   폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
   정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱**에서 "Jamotong" 을
   제거하면 됩니다. 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
-  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.64.0.msi /qn` (폴더를 정하려면
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.65.0.msi /qn` (폴더를 정하려면
   `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
 - **zip**: 설치기 없이 같은 파일만 담았습니다. 손으로 두고 등록할 분을 위한 것입니다([설치](#설치) 참고).
   `install.bat`·`uninstall.bat` 은 0.61.0 부터 없습니다.
@@ -95,7 +95,7 @@ MSI 가 지웁니다.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.64.0.msi` 를 내려받아 두 번
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.65.0.msi` 를 내려받아 두 번
    누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
 
    설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
@@ -208,7 +208,7 @@ Import가 다른 PC에서 자판을 복원한다. 파일을 지우면 공장 기
 자판은 깨끗하게 읽힌 자판이다.
 
 ```sh
-jamotong --build 내자판.jmt          # 옆에 내자판.v7.jmb 를 만든다
+jamotong --build 내자판.jmt          # 옆에 내자판.v8.jmb 를 만든다
 jamotong --build-dir "%APPDATA%\Jamotong\layouts"
 jamotong --check 내자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
 ```
@@ -762,7 +762,10 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 이다. 앞부분만 쓰는 낱말을 고르면 나머지가 남고 그 후보가 곧바로 뜬다. `'` 는 음절 끊기(`xi'an` → 西安), `ü` 는 `v`
 (`lv` → 绿), `rq`·`sj`·`xq` 는 날짜·시각·요일. 문장부호는 중국어 꼴(，。？！、“”‘’ — 번체는 「」『』)로 바뀌고 숫자 바로
 뒤의 `.` `,` `:` 는 그대로다(3.14). 번체 자판은 대만 표기(裡·為·眾)를 쓰고, 번체가 여럿인 글자는 모두 낸다(发 → 發·髮).
-설정 → **Layout Options** 에서 자판마다 문장 후보·추천 단어·중국어 문장부호를 켜고 끈다. 읽기는 mozillazg 의
+설정 → **Layout Options** 에서 자판마다 문장 후보·추천 단어·중국어 문장부호·모호음(z=zh, n=l, an=ang …)을 켜고 끄고,
+**글쇠**를 고른다: 온 병음 또는 쌍병 — 小鹤·自然码·微软, 한 음절을 두 글쇠로. `v` 뒤의 숫자(쌍병은 Shift+V)는 **V 모드**다:
+`v123` → 一百二十三 / 壹佰贰拾叁, `v3.14` → 三点一四, `v2026.10.3` → 날짜, `v1+2*3` → 7. "Edit custom phrases..." 는
+`chinese-phrases.txt` 를 연다: 한 줄에 글쇠와 구(`dz 北京市海淀区`), 맨 앞 후보로 뜬다. 읽기는 mozillazg 의
 pinyin-data·phrase-pinyin-data, 차례는 jieba 의 낱말 빈도(셋 다 MIT), 번체 표기는 OpenCC(Apache-2.0)에서 왔고 라이선스
 원문은 자모통 옆 `licenses\chinese-*` 에 설치된다. 아직 중국어 화자의 확인은 받지 않았다.
 

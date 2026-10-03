@@ -19,7 +19,7 @@ README 에 있다.
 
 ```sh
 jamotong --check      자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
-jamotong --build      자판.jmt          # 옆에 자판.v7.jmb 를 만든다 (숫자는 구운 형식의 판)
+jamotong --build      자판.jmt          # 옆에 자판.v8.jmb 를 만든다 (숫자는 구운 형식의 판)
 jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을 굽는다
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
 jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N] [--name ..] [--license ..]
@@ -29,7 +29,7 @@ jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴�
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```
 
-구운 파일의 이름에는 형식의 판이 붙는다(`자판.v7.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
+구운 파일의 이름에는 형식의 판이 붙는다(`자판.v8.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
 자모통이 읽는 파일을 덮어쓰지 않는다. 두 판 묵은 파일은 지운다.
 
 찾는 차례: 자판 파일 옆 → `%APPDATA%\Jamotong\layouts`(사전은 `...\dicts`) →
@@ -263,6 +263,7 @@ OnUnmatched = flush               # flush(기본)=보류한 글자를 친다, ca
 Candidates  = kana-words.jdb      # 선택: 읽기 → 후보 여럿
 ConvertKey  = space               # Candidates 와 함께 필수: space | tab | hanja | convert | f9
 Chinese     = simplified          # 선택: 중국어 병음 방식 (simplified | traditional)
+Scheme      = xiaohe sp-xh.jdb    # 선택, 넷까지: Layout Options 에서 이름으로 고르는 쌍병 글쇠 표
 Key jkl; = 0                      # 선택: 앞단 조합
 Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으로 간다
 ```
@@ -277,6 +278,12 @@ Esc 는 읽기를 지운다. `'` 는 음절 끊기다(`xi'an` → 西安): 끊�
 모음이 없는 읽기는 첫 글자 줄임으로 읽고(`zg` → 中国), 모음 없는 조각은 더 긴 읽기 안에서 쓰지 않는다.
 `rq`·`sj`·`xq` 는 오늘 날짜·지금 시각·요일. 문장부호는 중국어 꼴(，。？！、“”‘’ — 번체는 「」『』)로
 바뀌고, 숫자 바로 뒤의 `.` `,` `:` 는 그대로다. Layout Options 탭에서 자판마다 문장부호를 끌 수 있다.
+
+`Scheme = <이름> <표>.jdb` 는 치는 동안 `Dictionary` 대신 쓸 글쇠 표를 더한다: 쌍병은 두 글쇠를 앞에 `'` 를 붙인
+음절 하나로 바꿔(`vs` → `'zhong`) 읽기가 음절 경계를 지닌다. Layout Options → Keys 가 자판마다 이름으로 고른다. 중국어
+방식에서 빈 읽기의 `v`(쌍병은 Shift+V)는 V 모드다: 숫자는 한자 수(一百二十三, 壹佰贰拾叁), `3.14` 는 三点一四,
+`2026.10.3` 은 날짜, `1+2*3` 은 그 값. Layout Options 에서 모호음도 켤 수 있고, 사용자 사전 폴더의 `chinese-phrases.txt`
+에 적은 사용자 구(`dz 北京市`)가 맨 앞에 뜬다.
 
 엔진은 최장 일치를 기다린다 — 사전에 `n`·`na`·`ni` 가 있으면 `n` 하나로는 확정하지 않는다. 보류한
 글자는 캐럿 옆에 보이고 문서에는 넣지 않는다. 백스페이스는 보류 한 글자를 되돌리고, Esc 는

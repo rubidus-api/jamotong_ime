@@ -726,6 +726,8 @@ bool Config_SaveToFile(JamotongConfig *config, const wchar_t *filepath, bool bun
         fwprintf(fp, L"%ls.Sentence=%d\n", L->name, L->optNoSentence ? 0 : 1);
         fwprintf(fp, L"%ls.Suggest=%d\n", L->name, L->optNoSuggest ? 0 : 1);
         fwprintf(fp, L"%ls.Punctuation=%d\n", L->name, L->optNoPunct ? 0 : 1);   // 중국어 병음 방식에서만 쓰인다
+        fwprintf(fp, L"%ls.Fuzzy=%d\n", L->name, L->optFuzzy ? 1 : 0);
+        fwprintf(fp, L"%ls.Keys=%ls\n", L->name, L->optKeys[0] ? L->optKeys : L"pinyin");
     }
     WriteKept(fp, &keep[3]);
     WriteKept(fp, &keep[4]);   // 모르는 절 통째로
@@ -771,7 +773,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     wchar_t line[256];
     wchar_t fontBuf[32];
     int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options, 4 = LayoutOptions
-    struct { wchar_t name[64]; int sentence, suggest, punct; } lopt[CONFIG_STAGED_MAX];   // -1 = 파일에 없음
+    struct { wchar_t name[64]; int sentence, suggest, punct, fuzzy; wchar_t keys[16]; } lopt[CONFIG_STAGED_MAX];   // -1 = 파일에 없음
     int nlopt = 0;
 
     // 번들 자판 복원용: 디렉터리는 한 번만 해석(섹션마다 env 읽기+CreateDirectory 반복 방지),
@@ -845,13 +847,21 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
                     while (k < nlopt && wcscmp(lopt[k].name, line) != 0) k++;
                     if (k == nlopt && nlopt < CONFIG_STAGED_MAX) {
                         lstrcpynW(lopt[k].name, line, 64);
-                        lopt[k].sentence = lopt[k].suggest = lopt[k].punct = -1;
+                        lopt[k].sentence = lopt[k].suggest = lopt[k].punct = lopt[k].fuzzy = -1;
+                        lopt[k].keys[0] = L'\0';
                         nlopt++;
                     }
                     if (k < nlopt) {
                         if (!_wcsicmp(dot + 1, L"Sentence")) lopt[k].sentence = val;
                         else if (!_wcsicmp(dot + 1, L"Suggest")) lopt[k].suggest = val;
                         else if (!_wcsicmp(dot + 1, L"Punctuation")) lopt[k].punct = val;
+                        else if (!_wcsicmp(dot + 1, L"Fuzzy")) lopt[k].fuzzy = val;
+                        else if (!_wcsicmp(dot + 1, L"Keys")) {   // 이름: 소문자만 (pinyin = 온 병음)
+                            wchar_t kv[16]; int o = 0;
+                            for (const wchar_t *q = eq + 1; *q && o < 15; q++) if (*q >= L'a' && *q <= L'z') kv[o++] = *q;
+                            kv[o] = L'\0';
+                            lstrcpynW(lopt[k].keys, wcscmp(kv, L"pinyin") ? kv : L"", 16);
+                        }
                     }
                 }
             }
@@ -987,6 +997,8 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
                 if (lopt[k].sentence >= 0) merged.layouts[i].optNoSentence = !lopt[k].sentence;
                 if (lopt[k].suggest >= 0)  merged.layouts[i].optNoSuggest  = !lopt[k].suggest;
                 if (lopt[k].punct >= 0)    merged.layouts[i].optNoPunct    = !lopt[k].punct;
+                if (lopt[k].fuzzy >= 0)    merged.layouts[i].optFuzzy      = lopt[k].fuzzy != 0;
+                lstrcpynW(merged.layouts[i].optKeys, lopt[k].keys, 16);
             }
 
     merged.currentLayoutIndex = 0;   // 첫 '켜진' 자판에서 시작 (없으면 0)

@@ -20,7 +20,7 @@ static void TrimEnds(wchar_t *s) {
     while (n && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
 static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Candidates", L"ConvertKey",
-                                                 L"Engine", L"OnUnmatched", L"Chinese", NULL };
+                                                 L"Engine", L"OnUnmatched", L"Chinese", L"Scheme", NULL };
 
 // 변환 글쇠 이름 → VK (§6.4). 적은 것만 받는다 — 글자 글쇠는 읽기를 만드는 데 쓰이므로 안 된다.
 static int ConvertKeyVk(const wchar_t *name) {
@@ -122,6 +122,28 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
             else if (!_wcsicmp(v, L"traditional")) sl->zh = SEQ_ZH_TRADITIONAL;
             else FAIL(col0, L"E-JMT-VALUE", L"Chinese must be simplified or traditional",
                       L"it picks the punctuation and date forms; the dictionary decides the characters");
+            continue;
+        }
+        if (!wcsncmp(p, L"Scheme", 6)) {   // 쌍병 글쇠 표 (2026-10-03): Scheme = 이름 파일.jdb — 자판 선택(Keys)이 이름으로 고른다
+            wchar_t nm[16] = {0}, file[64] = {0};
+            if (swscanf(p, L"Scheme = %15ls %63ls", nm, file) != 2) {
+                FAIL(col0, L"E-JMT-VALUE", L"Scheme needs a name and a key table", L"Scheme = xiaohe chinese-simplified-xiaohe.jdb");
+                continue;
+            }
+            bool okName = true;
+            for (const wchar_t *q = nm; *q; q++) if (!(*q >= L'a' && *q <= L'z')) okName = false;
+            if (!okName) { FAIL(col0, L"E-JMT-VALUE", L"a scheme name is lowercase letters", L"xiaohe, ziranma, microsoft"); continue; }
+            if (sl->nScheme >= SEQ_MAX_SCHEMES) { FAIL(col0, L"E-JMT-VALUE", L"too many schemes", L"up to 4 Scheme lines"); continue; }
+            if (!Config_IsSafeDictFileName(file)) {
+                FAIL(col0, L"E-JMT-DICT", L"the key table must be a plain file name ending in .jdb", NULL);
+                continue;
+            }
+            for (int i = 0; i < sl->nScheme; i++)
+                if (!wcscmp(sl->schemeName[i], nm)) { FAIL(col0, L"E-JMT-VALUE", L"this scheme name is used twice", NULL); okName = false; }
+            if (!okName) continue;
+            lstrcpynW(sl->schemeName[sl->nScheme], nm, 16);
+            lstrcpynW(sl->schemeFile[sl->nScheme], file, 64);
+            sl->nScheme++;
             continue;
         }
         if (!wcsncmp(p, L"Engine", 6)) continue;        // 통합 로더가 이미 읽었다

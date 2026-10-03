@@ -36,6 +36,11 @@ enum { SEQ_UNMATCHED_FLUSH = 0, SEQ_UNMATCHED_CANCEL = 1 };
 //   - 모음 없는 낱말(첫 글자 줄임 `zg` → 中国)은 읽기 전체에 모음이 없을 때만 쓴다 (`wangguo` 의 `ng` 가 끼지 않게).
 //   - `rq` `sj` `xq` 는 오늘 날짜·지금 시각·요일, `[` `]` 는 후보의 첫·끝 글자만 (以词定字), 문장부호는 중국어 꼴로.
 enum { SEQ_ZH_NONE = 0, SEQ_ZH_SIMPLIFIED = 1, SEQ_ZH_TRADITIONAL = 2 };
+// 0.65.0 (2026-10-03): 쌍병(双拼) — 자판 파일의 `Scheme = 이름 파일.jdb` 줄(최대 SEQ_MAX_SCHEMES)이 글쇠 표를 더하고, 자판 선택
+//   (Layout Options 의 Keys)이 고른다. V 모드 — 빈 읽기에서 v(쌍병은 Shift+V) 뒤의 숫자·식을 한자 수·계산으로.
+//   모호음 — z/zh c/ch s/sh n/l an/ang en/eng in/ing 을 같게 찾는다(선택). 사용자 구 — 사용자 사전 폴더의 chinese-phrases.txt.
+#define SEQ_MAX_SCHEMES 4
+#define SEQ_PHRASES_FILE L"chinese-phrases.txt"
 #define SEQ_SEPARATOR L'\''
 
 // 읽기·후보 (RFC-0016 §6.4). 후보 사전이 없으면 이 자리는 비어 있고 동작도 예전 그대로다.
@@ -66,6 +71,14 @@ typedef struct SeqLayout {
     JDict   *cand;
     int      convertVk;          // 변환 글쇠 (VK_*), 0 = 없음
     int      zh;                 // SEQ_ZH_* (중국어 병음 방식, 구운 자판 판 7)
+    // 쌍병 글쇠 표 (구운 자판 판 8). scheme = 0 이면 Dictionary, k 면 schemeDict[k-1] 이 친 글쇠를 읽기로 바꾼다.
+    int      nScheme;
+    wchar_t  schemeName[SEQ_MAX_SCHEMES][16];
+    wchar_t  schemeFile[SEQ_MAX_SCHEMES][64];
+    JDict   *schemeDict[SEQ_MAX_SCHEMES];
+    int      scheme;             // 지금 고른 표 (입력기가 자판 선택에서 정한다 — SeqLayout_SelectScheme)
+    // 사용자 구 (중국어 방식): 사용자 사전 폴더의 SEQ_PHRASES_FILE. 파일이 바뀌면 다시 읽는다.
+    struct SeqPhrases *phrases;
 } SeqLayout;
 
 // 보류 중인 입력. 확정한 글자는 문서가 갖고 있으므로 여기 남기지 않는다.
@@ -120,6 +133,8 @@ bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
 #define SEQ_CONV_SENTENCE 1u   // 낱말 둘 이상으로 가른 문장을 첫 후보로
 #define SEQ_CONV_PREDICT  2u   // 추천 단어: 읽기로 시작하는 더 긴 낱말·성어 (고르면 읽기 전체를 그것으로)
 #define SEQ_CONV_ALL      (SEQ_CONV_SENTENCE | SEQ_CONV_PREDICT)
+#define SEQ_CONV_LIVE     4u   // 치는 동안 (중국어 방식): 보류(쌍병의 반쯤 친 음절)를 정착시키지 않는다
+#define SEQ_CONV_FUZZY    8u   // 모호음 (자판 선택)
 #define SEQ_PREDICT_CANDS 9    // 추천 단어 수
 #define SEQ_WHOLE_FIRST   5    // 첫 쪽: 읽기 그대로의 후보 이만큼 다음에
 #define SEQ_PREDICT_FIRST 4    //        추천 단어 이만큼 (문장 후보와 합쳐 한 쪽 아홉)
@@ -147,3 +162,15 @@ SeqResult SeqKb_ChoosePart(SeqState *st, const SeqLayout *sl, const SeqCandidate
 // 날짜·시간 후보를 out 에 붙인다 (읽기가 rq·sj·xq 일 때). 시험이 시각을 고정하도록 st 가 아닌 인자로 받는다.
 int       SeqKb_DateTimeCands(const SeqLayout *sl, const wchar_t *reading, const SYSTEMTIME *now,
                               wchar_t items[][SEQ_MAX_OUT + 1], int cap);
+// V 모드 후보 (읽기가 v 로 시작하고 뒤가 숫자·식일 때): 한자 수(소·대), 금액, 날짜, 계산. 아니면 0.
+int       SeqKb_VModeCands(const SeqLayout *sl, const wchar_t *reading, wchar_t items[][SEQ_MAX_OUT + 1], int cap);
+// 정수를 한자 수로 (upper = 대写 壹贰叁, 번체면 貳參). 0 <= v < 10^16. 자리가 모자라면 false.
+bool      SeqKb_ZhNumber(unsigned long long v, bool upper, bool trad, wchar_t *out, int cap);
+// 이 읽기가 V 모드인가 (중국어 방식, v 로 시작하고 뒤가 숫자·식의 글자뿐)
+bool      SeqKb_IsVMode(const SeqLayout *sl, const wchar_t *reading);
+// 쌍병 표를 이름으로 고른다 ("" 나 모르는 이름이면 온 병음). 고른 번호(0 = 온 병음)를 돌려준다.
+int       SeqLayout_SelectScheme(SeqLayout *sl, const wchar_t *name);
+// 사용자 구 파일 자리를 정한다 (시험용 — NULL 이면 사용자 사전 폴더의 SEQ_PHRASES_FILE).
+void      SeqKb_SetPhrasesPath(const wchar_t *path);
+// 모호음 변형 키들 (첫째는 key 자신). 시험용으로도 쓴다.
+int       SeqKb_FuzzyKeys(const wchar_t *key, wchar_t out[][SEQ_MAX_READING + 1], int cap);

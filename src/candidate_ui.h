@@ -29,6 +29,8 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
 //   사이띄개 = 하이라이트된 후보, `-` `=` = 쪽 넘김, 숫자 = 고르기(Shift 를 누른 숫자는 문장부호라 넘긴다),
 //   Enter·Esc·`[`·`]` = onKey. 글자·백스페이스·문장부호는 HandleKey 가 false 를 돌려 입력기가 읽기를 고치게 한다.
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey);
+// V 모드 (0.65.0): 숫자와 - = 를 고르기·쪽 넘김이 아니라 입력으로 보낸다 (사이띄개·화살표·엔터·Esc 는 그대로). Show 앞에, 창을 닫으면 풀린다.
+void CandidateUI_SetDigitsToInput(bool on);
 
 // 키보드 이벤트 가로채기
 // true를 반환하면 UI가 이벤트를 소모한 것
