@@ -478,7 +478,7 @@ static void LoptRefresh(HWND hwnd, bool refill) {
         EnableWindow(kc, sl && sl->nScheme > 0);   // 표 이름은 자판 파일에서 읽었다 (열지 않아도 안다)
     }
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
-        ? (zh ? L"Applies to this layout only. Keys picks full pinyin or a double-pinyin scheme (two keys per syllable). Custom phrases: one per line, letters then the text (dz \x5317\x4EAC\x5E02), shared by the Chinese layouts."
+        ? (zh ? L"For this layout only. Keys: full pinyin or double pinyin (two keys per syllable). Custom phrases: one per line, letters then text (dz \x5317\x4EAC\x5E02)."
               : L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word.")
         : L"This layout has no options of its own. Options appear here for input layouts that convert a reading (Chinese pinyin, Japanese kana).");
 }
