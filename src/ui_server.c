@@ -8,6 +8,7 @@
 #include <windowsx.h>   // GET_Y_LPARAM
 #include "popup_style.h"
 #include "ui_ipc.h"
+#include "disk_version.h"
 #include <sddl.h>    // ConvertStringSecurityDescriptorToSecurityDescriptorW
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,11 @@
 #define WM_UISRV_SHOW   (WM_APP + 21)
 #define WM_UISRV_UPDATE (WM_APP + 22)
 #define WM_UISRV_HIDE   (WM_APP + 23)
+
+// 0.69.1: 업그레이드는 이 프로세스를 닫지 않는다 — 새 판이 깔렸으면 후보를 그리고 있지 않을 때 물러난다.
+//   뮤텍스가 풀리면 데스크톱의 입력기가 다음에 켜질 때 새 jamotong.exe 를 띄운다(EnsureUiHelperRunning).
+#define STALE_TIMER_ID  1
+#define STALE_CHECK_MS  60000
 
 #define ROW_H_MIN  18
 #define PAD_X      10
@@ -98,6 +104,10 @@ static void PlaceWindow(void) {
 }
 
 static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_TIMER && wp == STALE_TIMER_ID) {
+        if (g_count == 0 && DiskVersion_IsStale(NULL)) PostQuitMessage(0);
+        return 0;
+    }
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -304,6 +314,7 @@ int UiServer_Run(HINSTANCE hInst) {
 
     HANDLE th = CreateThread(NULL, 0, PipeThread, NULL, 0, NULL);
     if (th) CloseHandle(th);
+    SetTimer(g_hwnd, STALE_TIMER_ID, STALE_CHECK_MS, NULL);
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {

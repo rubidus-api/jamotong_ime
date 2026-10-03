@@ -31,6 +31,7 @@
 #include "jlay_build.h"   // 뜰 때 자판 굽기 (RFC-0016 P5b-2)
 #include "settings_ui.h"
 #include "version.h"
+#include "disk_version.h"
 
 HINSTANCE g_hInst;
 CRITICAL_SECTION g_configLock;   // config.c가 참조
@@ -501,14 +502,16 @@ static void InstallToMyLayouts(void) {
 }
 
 static void ShowAbout(void) {
-    wchar_t msg[512];
-    _snwprintf(msg, 512,
+    wchar_t msg[832], note[320];
+    DiskVersion_StaleNote(NULL, L"this window", note, 320);   // 0.69.1: 업그레이드 전부터 열려 있던 관리 앱
+    _snwprintf(msg, 832,
         L"Jamotong Manager\nVersion %ls\n\n"
         L"Pure C23 + WinAPI Korean IME (TSF).\n"
         L"Author: %ls\n%ls\n\n"
         L"This app manages layouts and settings, edits/validates .jmt files, "
-        L"and tests input without TSF.",
-        JAMOTONG_VERSION, JAMOTONG_AUTHOR, JAMOTONG_HOMEPAGE);
+        L"and tests input without TSF.%ls",
+        JAMOTONG_VERSION, JAMOTONG_AUTHOR, JAMOTONG_HOMEPAGE, note);
+    msg[831] = L'\0';
     MessageBoxW(g_hMain, msg, L"About Jamotong", MB_ICONINFORMATION);
 }
 

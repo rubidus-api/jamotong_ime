@@ -3,6 +3,7 @@
 #include "jamotong.h"
 #include "settings_ui.h"
 #include "version.h"
+#include "disk_version.h"   // 0.69.1: 업그레이드 전부터 떠 있던 프로세스면 About 에 알린다
 #include "icon_font.h"   // 아이콘용 5x8 비트맵 글리프 (Spleen, BSD-2 — 헤더 상단 고지 참조)
 #include <stddef.h>
 
@@ -191,12 +192,15 @@ static void ExecMenuCmd(JamotongLangBarItem *obj, UINT wID) {
         LangBar_Update(obj);
         Compart_Publish(obj->pService);   // RFC-0012 Phase 1
     } else if (wID == 3) {
-        MessageBoxW(NULL,
-            L"Jamotong IME  " JAMOTONG_VERSION L"\n\n"
+        extern HINSTANCE g_hInst;   // dllmain.c
+        wchar_t note[320], msg[512];
+        DiskVersion_StaleNote(g_hInst, L"this program", note, 320);
+        _snwprintf(msg, 512, L"Jamotong IME  " JAMOTONG_VERSION L"\n\n"
             L"Pure-C Korean/Hangul IME (Text Services Framework).\n"
             L"Left-click the tray icon to cycle layouts;\n"
-            L"right-click for this menu.",
-            L"About Jamotong IME", MB_OK | MB_TOPMOST | MB_SETFOREGROUND | MB_ICONINFORMATION);
+            L"right-click for this menu.%ls", note);
+        msg[511] = L'\0';
+        MessageBoxW(NULL, msg, L"About Jamotong IME", MB_OK | MB_TOPMOST | MB_SETFOREGROUND | MB_ICONINFORMATION);
     } else if (wID == 4) {
         // 무간섭(직접 입력) 모드 토글 — 원격 데스크톱 등. 상태는 레지스트리로 프로세스 간 공유.
         Jamotong_SetPassthrough(obj->pService, !obj->pService->passthrough);
