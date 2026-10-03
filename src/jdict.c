@@ -28,17 +28,27 @@ static unsigned Rd32(const unsigned char *p) {   // 리틀엔디안 — 파일�
     return (unsigned)p[0] | ((unsigned)p[1] << 8) | ((unsigned)p[2] << 16) | ((unsigned)p[3] << 24);
 }
 static unsigned Rd16(const unsigned char *p) { return (unsigned)p[0] | ((unsigned)p[1] << 8); }
+static bool g_lightOpen;   // 가벼운 열기 (입력기 DLL, RFC-0020 F3)
+void JDict_SetLightOpen(bool on) { g_lightOpen = on; }
 
 static const unsigned char *RecAt(const JDict *d, int i) { return d->base + d->offIndex + (size_t)i * JD_REC_BYTES; }
+// 항목 하나의 범위는 **읽을 때마다** 확인한다 (RFC-0020 F3): 입력기는 열 때 색인을 전수로 훑지 않으므로(가벼운 열기),
+//   상한 항목은 빈 키·빈 값으로 보인다 — 엉뚱한 후보가 될 뿐 파일 밖을 읽지 않는다. 몇 번의 비교라 값싸다.
 static const char *KeyAt(const JDict *d, int i, int *len) {
     const unsigned char *r = RecAt(d, i);
-    *len = (int)Rd16(r + 8);
-    return (const char *)(d->base + d->offKeys + Rd32(r));
+    unsigned ko = Rd32(r), kl = Rd16(r + 8);
+    if (kl == 0 || kl > d->maxKeyLen || ko > d->keyBytes || ko + kl > d->keyBytes) { *len = 0; return (const char *)(d->base + d->offKeys); }
+    *len = (int)kl;
+    return (const char *)(d->base + d->offKeys + ko);
 }
 static const jdchar *ValAt(const JDict *d, int i, int *len) {
     const unsigned char *r = RecAt(d, i);
-    *len = (int)Rd16(r + 10);
-    return (const jdchar *)(const void *)(d->base + d->offVals + Rd32(r + 4));
+    unsigned vo = Rd32(r + 4), vl = Rd16(r + 10);
+    if (vl == 0 || vl > JDICT_MAX_VALUE || vo > d->valBytes || vo + vl * 2u > d->valBytes || (vo & 1u) != 0) {
+        *len = 0; return (const jdchar *)(const void *)(d->base + d->offVals);
+    }
+    *len = (int)vl;
+    return (const jdchar *)(const void *)(d->base + d->offVals + vo);
 }
 
 // 찾는 키를 UTF-8 로 (순차 사전의 키는 ASCII 이지만, 다른 종류를 대비해 한 곳에서 변환한다)
@@ -104,8 +114,9 @@ static bool CheckLayout(JDict *d) {
     if ((d->valBytes & 1u) != 0) return false;
     unsigned offMeta = d->offVals + d->valBytes;
     if (offMeta > d->size) return false;
-    // 색인 전수 범위 검사 (작다: 10만 항목 = 1.2MB, 어차피 탐색에서 읽는다)
-    for (unsigned i = 0; i < d->count; i++) {
+    // 색인 전수 범위 검사 — 도구·시험은 한다. 입력기(가벼운 열기, RFC-0020 F3)는 건너뛴다: 50만 항목이면 색인만 6MB 이고
+    //   그걸 앱마다 다 읽어 들였다. 항목의 범위는 KeyAt/ValAt 이 읽을 때마다 본다.
+    for (unsigned i = 0; !g_lightOpen && i < d->count; i++) {
         const unsigned char *r = d->base + d->offIndex + (size_t)i * JD_REC_BYTES;
         unsigned ko = Rd32(r), vo = Rd32(r + 4), kl = Rd16(r + 8), vl = Rd16(r + 10);
         if (kl == 0 || kl > maxKey || vl == 0 || vl > JDICT_MAX_VALUE) return false;

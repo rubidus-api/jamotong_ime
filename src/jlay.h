@@ -36,6 +36,10 @@ typedef enum JLayError {
 // 구운 자판을 읽어 LayoutConfig 를 채운다. 리소스(name·자판 구조체·사전)는 live config 소유이며
 // Config_FreeLayoutResources 가 해제한다. 실패하면 false 이고 *err 에 이유.
 //   내용 crc 와 순차 자판의 사전 전수 점검까지 여기서 한다 — 성한 자판만 목록에 오른다.
+// 머리만 읽는다 (RFC-0020 F1): 검사합까지 보고 종류·이름·약자만 채운다 — 본문은 읽지 않는다.
+bool JLay_LoadHeader(const wchar_t *path, LayoutConfig *out, JLayError *err);
+// 머리만 읽은 자판(deferredPath)의 본문을 읽어 붙인다 — Config_SetBodyLoader 에 건다 (RFC-0020 F1).
+bool JLay_LoadDeferredBody(LayoutConfig *L);
 bool JLay_Load(const wchar_t *path, LayoutConfig *out, JLayError *err);
 const wchar_t *JLay_ErrorText(JLayError e);
 

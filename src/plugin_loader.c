@@ -21,6 +21,10 @@ static bool AutoEnableHint(const wchar_t *name) {
 //   오너 결정 2026-09-23: 입력기는 **구운 자판만** 읽는다. `.jmt` 를 굽는 일은 도구가 한다
 //   (설치 스크립트가 폴더를 훑고, 관리 앱이 뜰 때 다시 굽는다). 구운 파일은 열면서 검사합과
 //   (순차 자판이면) 사전까지 본다 — 성한 자판만 목록에 오른다.
+// 본문을 나중에 읽기 (RFC-0020 F1, 입력기 DLL 만): 한글·조합·정적 자판은 머리만 읽어 목록에 올리고, 지금 자판이 될 때 본문을
+//   읽는다. 순차 자판은 본문이 작고(사전은 쓸 때 연다) 설정 창이 그 정보를 쓰므로 그대로 읽는다.
+static bool g_deferBodies;
+void PluginLoader_SetDeferBodies(bool on) { g_deferBodies = on; }
 static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
     wchar_t searchPath[MAX_PATH];
     swprintf(searchPath, MAX_PATH, L"%s\\*.jmb", dir);
@@ -33,7 +37,19 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
         LayoutConfig lc;
         memset(&lc, 0, sizeof(lc));
         JLayError lerr = JLAY_OK;
-        if (!JLay_Load(fullPath, &lc, &lerr)) {
+        bool okLoad = false;
+        if (g_deferBodies) {
+            okLoad = JLay_LoadHeader(fullPath, &lc, &lerr);
+            if (okLoad && lc.type == LAYOUT_TYPE_SEQUENCE) {   // 순차 자판은 본문까지 (작다)
+                Config_FreeLayoutResources(&lc);
+                okLoad = JLay_Load(fullPath, &lc, &lerr);
+            } else if (okLoad) {
+                lc.deferredPath = _wcsdup(fullPath);
+                lc.bodyDeferred = lc.deferredPath != NULL;
+                if (!lc.deferredPath) { Config_FreeLayoutResources(&lc); okLoad = false; lerr = JLAY_E_MEMORY; }
+            }
+        } else okLoad = JLay_Load(fullPath, &lc, &lerr);
+        if (!okLoad) {
             // 조용히 사라지지 않게 남긴다. 이 파일은 관리 앱도 링크하므로(JamoDiag 는 DLL 에만
             // 있다) 디버거로 바로 보이는 OutputDebugString 을 쓴다.
             wchar_t line[MAX_PATH + 120];
@@ -55,6 +71,7 @@ static void LoadJmtDir(JamotongConfig *config, const wchar_t *dir) {
 
 void PluginLoader_LoadAll(JamotongConfig *config) {
     if (!g_hInst) return;
+    if (g_deferBodies) Config_SetBodyLoader(JLay_LoadDeferredBody);
 
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(g_hInst, path, MAX_PATH);

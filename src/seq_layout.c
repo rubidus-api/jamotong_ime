@@ -1048,7 +1048,7 @@ static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         JDictError terr = JDICT_OK;
         JDict *td = NULL;
         if (Config_IsSafeDictFileName(sl->toneFile) && ResolveDict(layoutPath, sl->toneFile, full, MAX_PATH)) td = JDict_Open(full, &terr);
-        if (!td || JDict_Kind(td) != JDICT_KIND_CANDIDATES || !JDict_Verify(td, &terr)) {
+        if (!td || JDict_Kind(td) != JDICT_KIND_CANDIDATES || (!g_lazyOpen && !JDict_Verify(td, &terr))) {
             if (td) JDict_Close(td);
             wchar_t msg[200];
             _snwprintf(msg, 200, L"the tones dictionary '%ls' cannot be used", sl->toneFile);
@@ -1069,7 +1069,7 @@ static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         }
         JDictError serr = JDICT_OK;
         JDict *sd = JDict_Open(full, &serr);
-        if (!sd || JDict_Kind(sd) != JDICT_KIND_SEQUENCE || !JDict_Verify(sd, &serr)) {
+        if (!sd || JDict_Kind(sd) != JDICT_KIND_SEQUENCE || (!g_lazyOpen && !JDict_Verify(sd, &serr))) {
             if (sd) JDict_Close(sd);
             wchar_t msg[200];
             _snwprintf(msg, 200, L"the key table '%ls' cannot be used", sl->schemeFile[i]);
@@ -1080,7 +1080,10 @@ static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
         sl->schemeDict[i] = sd;
     }
-    return SeqLayout_Verify(sl, diag);   // 내용까지 본다 — 성한 사전만 자판을 세운다
+    // 내용까지 본다 — 성한 사전만 자판을 세운다. 입력기(쓸 때 열기)는 전수 점검을 하지 않는다(RFC-0020 F3): CRC·순서를 보려고
+    //   사전 전체(중국어 12MB)를 앱마다 메모리로 끌어올렸다. 항목의 범위는 읽을 때마다 본다. 전수 점검은 도구가 한다.
+    if (g_lazyOpen) return true;
+    return SeqLayout_Verify(sl, diag);
 }
 
 

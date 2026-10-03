@@ -155,11 +155,28 @@ void Config_RotateLayout(JamotongConfig *config) {
     LeaveCriticalSection(&g_configLock);
 }
 
+static bool (*g_bodyLoader)(LayoutConfig *L);
+void Config_SetBodyLoader(bool (*loader)(LayoutConfig *L)) { g_bodyLoader = loader; }
+bool Config_EnsureLayoutBody(LayoutConfig *L) {
+    if (!L || !L->bodyDeferred) return true;
+    EnterCriticalSection(&g_configLock);   // 설정 적용(다른 스레드)과 겹치지 않게
+    bool ok = true;
+    if (L->bodyDeferred) {
+        ok = g_bodyLoader && g_bodyLoader(L);
+        if (!ok) L->type = LAYOUT_TYPE_PASSTHROUGH;   // 상한 본문 — 글쇠는 응용으로
+        L->bodyDeferred = false;
+    }
+    LeaveCriticalSection(&g_configLock);
+    return ok;
+}
+
 LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config) {
     if (config->layoutCount <= 0) return NULL;
     if (config->currentLayoutIndex < 0 || config->currentLayoutIndex >= config->layoutCount)
         config->currentLayoutIndex = 0;   // 손상된 인덱스 방어 (OOB 방지)
-    return &config->layouts[config->currentLayoutIndex];
+    LayoutConfig *L = &config->layouts[config->currentLayoutIndex];
+    if (L->bodyDeferred) Config_EnsureLayoutBody(L);   // 지금 자판이 될 때 본문을 읽는다 (RFC-0020 F1) — 부르는 쪽은 모두 live 다
+    return L;
 }
 
 // ── 자판 목록 배열 (RFC-0006 D3) ─────────────────────────────────────────────────────
@@ -220,6 +237,7 @@ static void Layout_FreeResources(LayoutConfig *L) {
     if (L->pChordLayout) { ChordLayout_Free((ChordLayout*)L->pChordLayout); L->pChordLayout = NULL; }
     if (L->pSeqLayout) { SeqLayout_Free((SeqLayout*)L->pSeqLayout); L->pSeqLayout = NULL; }
     if (L->name) { free((void*)L->name); L->name = NULL; }
+    if (L->deferredPath) { free(L->deferredPath); L->deferredPath = NULL; }
 }
 static bool Config_HasLayout(const JamotongConfig *cfg, const LayoutConfig *L) {
     if (!L->name) return false;
@@ -239,9 +257,29 @@ void Config_ApplyEdited(JamotongConfig *live, const JamotongConfig *edited) {
     EnterCriticalSection(&g_configLock);   // 입력 스레드의 현재-레이아웃 사용과 직렬화 → 플러그인 free 안전
     for (int i = 0; i < live->layoutCount; i++)
         if (!Config_HasLayout(edited, &live->layouts[i])) Layout_FreeResources(&live->layouts[i]);
+    // 설정 창이 열린 뒤에 본문을 읽은 자판(RFC-0020 F1): 편집본은 그 전에 뜬 사본이라 본문이 없다 — 이어받는다.
+    LayoutConfig *loaded = NULL; int nLoaded = 0;
+    for (int i = 0; i < live->layoutCount; i++)
+        if (live->layouts[i].deferredPath && !live->layouts[i].bodyDeferred && Config_HasLayout(edited, &live->layouts[i])) nLoaded++;
+    if (nLoaded && (loaded = (LayoutConfig *)malloc((size_t)nLoaded * sizeof(LayoutConfig))) != NULL) {
+        nLoaded = 0;
+        for (int i = 0; i < live->layoutCount; i++)
+            if (live->layouts[i].deferredPath && !live->layouts[i].bodyDeferred && Config_HasLayout(edited, &live->layouts[i]))
+                loaded[nLoaded++] = live->layouts[i];
+    } else nLoaded = 0;
     if (!Config_CopyShallow(live, edited)) {   // 메모리가 없으면 옛 목록을 쓸 수 없다(자원을 이미 떼어 냈다) —
         live->layoutCount = 0;                 //   빈 목록으로 두면 다음 로드가 기본값을 다시 채운다
     }
+    for (int k = 0; k < nLoaded; k++)
+        for (int i = 0; i < live->layoutCount; i++) {
+            LayoutConfig *L = &live->layouts[i];
+            if (L->name != loaded[k].name || !L->bodyDeferred) continue;
+            L->type = loaded[k].type; L->kbdVariant = loaded[k].kbdVariant;
+            memcpy(L->charMap, loaded[k].charMap, sizeof L->charMap);
+            L->pHangulLayout = loaded[k].pHangulLayout; L->pChordLayout = loaded[k].pChordLayout; L->pSeqLayout = loaded[k].pSeqLayout;
+            L->bodyDeferred = false;
+        }
+    free(loaded);
     // enabled 자판이 하나도 없으면 첫 자판을 켠다 — 회전이 영구히 먹통이 되는 0-enabled 상태 방어
     // (삭제 경로 등으로 만들어질 수 있었음, RFC-0004 P0-3).
     if (live->layoutCount > 0) {

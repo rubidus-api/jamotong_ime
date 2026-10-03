@@ -62,6 +62,9 @@ typedef struct JDict JDict;
 int JDict_MaxKeyBytes(int kind);
 
 // 사전을 열어 매핑한다. 실패하면 NULL 이고 *err 에 이유. path 는 이미 해석된 전체 경로.
+// 가벼운 열기 (RFC-0020 F3, 입력기 DLL 이 처음에 한 번): 열 때 색인을 전수로 훑지 않는다. 항목의 범위는 읽을 때마다
+//   본다(메모리 안전은 같다). 전수 점검(JDict_Verify)은 도구·시험이 한다.
+void JDict_SetLightOpen(bool on);
 JDict *JDict_Open(const wchar_t *path, JDictError *err);
 void   JDict_Close(JDict *d);
 

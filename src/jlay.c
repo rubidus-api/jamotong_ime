@@ -99,9 +99,10 @@ static bool ReadChord(Rd *r, LayoutConfig *out) {
 }
 
 static ChordLayout *ReadChordTable(Rd *r) {
-    // 해제는 ChordLayout_Free(HeapFree) 가 한다. 다 읽은 뒤에는 텍스트 로더처럼 실제 조합 수만큼만
-    // 남기고 줄인다 — chords[2048] 전체는 2MB 가 넘고, 그걸 모든 호스트 프로세스가 진다.
-    ChordLayout *cl = (ChordLayout *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ChordLayout));
+    // 해제는 ChordLayout_Free(HeapFree) 가 한다. 조합 앞의 부분(약 10KB)만 먼저 잡고, 조합 수를 읽은 뒤 그만큼 늘린다
+    //   (RFC-0020 F2) — chords[2048] 전체는 2MB 가 넘어, 예전에는 그만큼을 잡았다가 줄였다(앱마다 순간 2MB).
+    const size_t head = offsetof(ChordLayout, chords);
+    ChordLayout *cl = (ChordLayout *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, head);
     if (!cl) return NULL;
     GetStr(r, cl->name, 64);
     cl->v3 = GetI32(r);
@@ -138,6 +139,11 @@ static ChordLayout *ReadChordTable(Rd *r) {
     for (int i = 0; i < textLen; i++) cl->macroText[i] = (wchar_t)Get16(r);
     int chords = GetI32(r);
     if (r->bad || chords < 0 || chords > CL_MAX_CHORDS) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
+    {
+        ChordLayout *grown = (ChordLayout *)HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, cl, head + (size_t)chords * sizeof(ChordEntry));
+        if (!grown) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
+        cl = grown;
+    }
     cl->chordCount = chords;
     for (int i = 0; i < chords; i++) {
         ChordEntry *e = &cl->chords[i];
@@ -165,12 +171,7 @@ static ChordLayout *ReadChordTable(Rd *r) {
         if (e->act == CA_MACRO && (e->p1 < 0 || e->p1 >= macros)) r->bad = true;
     }
     if (r->bad) { HeapFree(GetProcessHeap(), 0, cl); return NULL; }
-    {   // 텍스트 로더와 같은 축소 (RFC-0011 P0)
-        size_t need = offsetof(ChordLayout, chords) + (size_t)cl->chordCount * sizeof(ChordEntry);
-        ChordLayout *shrunk = (ChordLayout *)HeapAlloc(GetProcessHeap(), 0, need);
-        if (shrunk) { memcpy(shrunk, cl, need); HeapFree(GetProcessHeap(), 0, cl); cl = shrunk; }
-    }
-    return cl;
+    return cl;   // 처음부터 조합 수만큼이다 — 줄일 것이 없다
 }
 static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError *err) {
     SeqLayout *sl = (SeqLayout *)calloc(1, sizeof(SeqLayout));
@@ -273,6 +274,48 @@ bool JLay_Load(const wchar_t *path, LayoutConfig *out, JLayError *err) {
     out->name = _wcsdup(name[0] ? name : L"layout");
     if (!out->name) { Config_FreeLayoutResources(out); memset(out, 0, sizeof *out); *err = JLAY_E_MEMORY; return false; }
     lstrcpynW(out->abbrev, abbrev, 8);
+    return true;
+}
+
+bool JLay_LoadHeader(const wchar_t *path, LayoutConfig *out, JLayError *err) {
+    JLayError dummy;
+    if (!err) err = &dummy;
+    *err = JLAY_OK;
+    memset(out, 0, sizeof *out);
+    size_t len = 0;
+    unsigned char *file = ReadWhole(path, &len);   // 구운 자판은 작다 (가장 큰 것이 수백 KB) — 검사합은 그대로 본다
+    if (!file) { *err = JLAY_E_OPEN; return false; }
+    if (len < JLAY_HEADER || memcmp(file, JLAY_MAGIC, 8) != 0) { free(file); *err = JLAY_E_MAGIC; return false; }
+    if (JLayRd32(file + JLAY_OFF_VERSION) != JLAY_FORMAT_VERSION) { free(file); *err = JLAY_E_VERSION; return false; }
+    unsigned body = JLayRd32(file + JLAY_OFF_BODY), total = JLayRd32(file + JLAY_OFF_SIZE);
+    if (total != (unsigned)len || (size_t)body + JLAY_HEADER != len) { free(file); *err = JLAY_E_LAYOUT; return false; }
+    if (JDict_Crc32(file + JLAY_HEADER, body) != JLayRd32(file + JLAY_OFF_CRC)) { free(file); *err = JLAY_E_CRC; return false; }
+    unsigned kind = JLayRd32(file + JLAY_OFF_KIND);
+    if (kind != LAYOUT_TYPE_PASSTHROUGH && kind != LAYOUT_TYPE_STATIC_MAP && kind != LAYOUT_TYPE_HANGUL_CUSTOM &&
+        kind != LAYOUT_TYPE_CHORD && kind != LAYOUT_TYPE_SEQUENCE) { free(file); *err = JLAY_E_KIND; return false; }
+    Rd r = { file + JLAY_HEADER, body, 0, false };
+    wchar_t name[64] = L"", abbrev[8] = L"";
+    GetStr(&r, name, 64);
+    GetStr(&r, abbrev, 8);
+    out->kbdVariant = GetI32(&r);
+    free(file);
+    if (r.bad) { *err = JLAY_E_LAYOUT; return false; }
+    out->type = (LayoutType)kind;
+    out->name = _wcsdup(name[0] ? name : L"layout");
+    if (!out->name) { *err = JLAY_E_MEMORY; return false; }
+    lstrcpynW(out->abbrev, abbrev, 8);
+    return true;
+}
+
+bool JLay_LoadDeferredBody(LayoutConfig *L) {
+    if (!L || !L->deferredPath) return false;
+    LayoutConfig t; JLayError e = JLAY_OK;
+    if (!JLay_Load(L->deferredPath, &t, &e)) return false;
+    if (t.type != L->type) { Config_FreeLayoutResources(&t); return false; }   // 그새 파일이 바뀌었다
+    L->kbdVariant = t.kbdVariant;
+    memcpy(L->charMap, t.charMap, sizeof L->charMap);
+    L->pHangulLayout = t.pHangulLayout; L->pChordLayout = t.pChordLayout; L->pSeqLayout = t.pSeqLayout;
+    free((void *)t.name);   // 이름은 목록의 것을 쓴다
     return true;
 }
 

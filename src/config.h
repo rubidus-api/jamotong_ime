@@ -78,6 +78,10 @@ typedef struct {
     bool optNoEmoji;      // Emoji=0: 이모지·기호 후보를 빼고
     bool optNoTones;      // Tones=0: 후보 옆의 성조 병음을 보이지 않는다
     wchar_t optKeys[16];  // Keys=xiaohe|ziranma|microsoft: 쌍병 글쇠 표 (빈 것 = 온 병음)
+    // 본문을 나중에 읽는 자판 (RFC-0020 F1): 입력기 DLL 은 한글·조합·정적 자판의 구운 파일에서 머리(종류·이름·약자)만 읽고,
+    //   그 자판이 지금 자판이 될 때 본문을 읽는다(Config_GetCurrentLayout). 꺼 둔 자판은 앱마다 본문을 지지 않는다.
+    wchar_t *deferredPath;  // 구운 파일 (name 처럼 live 가 소유)
+    bool bodyDeferred;      // 아직 본문을 읽지 않았다
 } LayoutConfig;
 
 // IME 동작 옵션 (설정창 'IME Options' 탭). 단축키류는 JamotongConfig.shortcuts 로 통합.
@@ -130,6 +134,9 @@ UINT Config_CurrentMods(void);
 void Config_RotateLayout(JamotongConfig *config);
 
 // 현재 레이아웃 가져오기
+// 본문을 나중에 읽는 자판의 본문을 읽는 함수 (플러그인 로더가 건다). 실패하면 그 자판은 글쇠를 응용에 넘긴다(통과).
+void Config_SetBodyLoader(bool (*loader)(LayoutConfig *L));
+bool Config_EnsureLayoutBody(LayoutConfig *L);
 LayoutConfig* Config_GetCurrentLayout(JamotongConfig *config);
 
 // 설정 내보내기 및 가져오기 (텍스트 형식)
