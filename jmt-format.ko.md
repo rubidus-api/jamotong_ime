@@ -19,7 +19,7 @@ README 에 있다.
 
 ```sh
 jamotong --check      자판.jmt          # 원본을 검사하고, 구운 것이 최신인지 알려 준다
-jamotong --build      자판.jmt          # 옆에 자판.v8.jmb 를 만든다 (숫자는 구운 형식의 판)
+jamotong --build      자판.jmt          # 옆에 자판.v9.jmb 를 만든다 (숫자는 구운 형식의 판)
 jamotong --build-dir  <폴더>            # 없거나 원본보다 낡은 것을 굽는다
 jamotong --build-dict 낱말.jdt -o 낱말.jdb
 jamotong --import-dict 남의자료.txt -o 낱말.jdt [--limit N] [--name ..] [--license ..]
@@ -29,7 +29,7 @@ jamotong --expand     자판.jmt -o 하나.jmt      # Extends·Include 를 펴�
 jamotong --export     @ko_3bul -o ko.jmt        # 내장 자판을 원본 파일로
 ```
 
-구운 파일의 이름에는 형식의 판이 붙는다(`자판.v8.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
+구운 파일의 이름에는 형식의 판이 붙는다(`자판.v9.jmb`) — 새 자모통이 다시 구워도, 업그레이드 뒤 열려 있던 앱의 옛
 자모통이 읽는 파일을 덮어쓰지 않는다. 두 판 묵은 파일은 지운다.
 
 찾는 차례: 자판 파일 옆 → `%APPDATA%\Jamotong\layouts`(사전은 `...\dicts`) →
@@ -264,6 +264,7 @@ Candidates  = kana-words.jdb      # 선택: 읽기 → 후보 여럿
 ConvertKey  = space               # Candidates 와 함께 필수: space | tab | hanja | convert | f9
 Chinese     = simplified          # 선택: 중국어 병음 방식 (simplified | traditional)
 Scheme      = xiaohe sp-xh.jdb    # 선택, 넷까지: Layout Options 에서 이름으로 고르는 쌍병 글쇠 표
+Tones       = tones.jdb           # 선택: 후보 옆에 보일 "낱말 → 성조 병음" 후보 사전
 Key jkl; = 0                      # 선택: 앞단 조합
 Chord jk = symbol "k"             # 그 결과는 응용이 아니라 엔진으로 간다
 ```

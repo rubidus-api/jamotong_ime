@@ -120,6 +120,7 @@ static void WriteSeq(Buf *b, const SeqLayout *sl) {
     Put32(b, (unsigned)sl->zh);                        // 판 7: 중국어 병음 방식 (SEQ_ZH_*)
     Put32(b, (unsigned)sl->nScheme);                   // 판 8: 쌍병 글쇠 표 (이름, 파일)
     for (int i = 0; i < sl->nScheme; i++) { PutStr(b, sl->schemeName[i]); PutStr(b, sl->schemeFile[i]); }
+    PutStr(b, sl->toneFile);                           // 판 9: 성조 병음 사전 (없으면 빈 문자열)
     Put32(b, sl->chord ? 1u : 0u);                     // 앞단 조합 인식기가 있는가 (§6.3)
     if (sl->chord) WriteChord(b, (const ChordLayout *)sl->chord);
 }

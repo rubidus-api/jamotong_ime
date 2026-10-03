@@ -624,6 +624,8 @@ static SeqCandidates g_seqCands;          // 지금 띄운 묶음 (입력 스레
 // 후보창은 **포인터 배열을 그대로 붙잡아** 그린다(복사하지 않는다) — 창이 살아 있는 동안 같이
 // 살아야 하므로 스택이 아니라 여기 둔다. (실기 2026-09-23: 스택 배열을 넘겨 한 줄만 보였다.)
 static wchar_t *g_seqCandPtrs[SEQ_MAX_CANDS];
+static wchar_t g_seqNotes[SEQ_MAX_CANDS][48];      // 후보 옆의 성조 병음 (0.66.0) — 창과 함께 산다
+static wchar_t *g_seqNotePtrs[SEQ_MAX_CANDS];
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
 
 // 자판별 선택 (Layout Options 탭): 문장 후보·추천 단어
@@ -633,6 +635,7 @@ static unsigned SeqFlags(JamotongTextService *obj) {
     if (cur && cur->optNoSentence) flags &= ~SEQ_CONV_SENTENCE;
     if (cur && cur->optNoSuggest)  flags &= ~SEQ_CONV_PREDICT;
     if (cur && cur->optFuzzy)      flags |= SEQ_CONV_FUZZY;
+    if (cur && cur->optNoEmoji)    flags |= SEQ_CONV_NOEMOJI;
     return flags;
 }
 static void SeqReleaseCandCtx(JamotongTextService *obj) {
@@ -716,6 +719,16 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
     obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
     CandidateUI_SetPinyinKeys(sl->zh ? OnSeqCandidateKey : NULL);   // 중국어 병음 방식의 글쇠
     CandidateUI_SetDigitsToInput(SeqKb_IsVMode(sl, SeqKb_Reading(&obj->seqKb)));   // V 모드: 숫자·- 는 식으로
+    {   // 성조 병음 (자판 선택 Tones, 기본 켬)
+        const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+        bool tones = sl->zh && sl->tones && !(cur && cur->optNoTones);
+        for (int i = 0; i < g_seqCands.count; i++) {
+            g_seqNotes[i][0] = L'\0';
+            if (tones) SeqLayout_ToneOf(sl, g_seqCands.items[i], g_seqNotes[i], 48);
+            g_seqNotePtrs[i] = g_seqNotes[i];
+        }
+        CandidateUI_SetNotes(tones ? g_seqNotePtrs : NULL);
+    }
     if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
         SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)

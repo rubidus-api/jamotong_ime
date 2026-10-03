@@ -1,4 +1,4 @@
-[한국어](README.ko.md) | **English** — **Jamotong v0.65.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-simplified-0.65.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-traditional-0.65.0.msi)
+[한국어](README.ko.md) | **English** — **Jamotong v0.66.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-0.66.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-0.66.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-chinese-simplified-0.66.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-chinese-traditional-0.66.0.msi)
 
 # Jamotong (자모통)
 
@@ -9,25 +9,25 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer package (recommended)** | **[jamotong-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
-| Jamotong zip (no installer) | [jamotong-0.65.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-0.65.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
+| **Jamotong installer package (recommended)** | **[jamotong-0.66.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-0.66.0.msi)** — double-click to install (English or Korean, you choose the folder); remove it from Installed apps |
+| Jamotong zip (no installer) | [jamotong-0.66.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-0.66.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 | Japanese dictionary pack (demo) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — experimental Japanese input, 50,000 entries (~0.5 MB) |
-| Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~5 MB) |
-| Chinese Simplified pack (installer) | [jamotong-chinese-simplified-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-simplified-0.65.0.msi) — pinyin input in simplified characters, ~500,000 entries (~5 MB). Install Jamotong first |
-| Chinese Traditional pack (installer) | [jamotong-chinese-traditional-0.65.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.65.0/jamotong-chinese-traditional-0.65.0.msi) — the same in traditional characters (~5 MB) |
+| Japanese dictionary pack (full) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — the same, 500,000 entries (~7 MB) |
+| Chinese Simplified pack (installer) | [jamotong-chinese-simplified-0.66.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-chinese-simplified-0.66.0.msi) — pinyin input in simplified characters, ~500,000 entries (~7 MB). Install Jamotong first |
+| Chinese Traditional pack (installer) | [jamotong-chinese-traditional-0.66.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.66.0/jamotong-chinese-traditional-0.66.0.msi) — the same in traditional characters (~7 MB) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### Installing
 
-- **The MSI (recommended)**: double-click `jamotong-0.65.0.msi`. The first page asks for the language
+- **The MSI (recommended)**: double-click `jamotong-0.66.0.msi`. The first page asks for the language
   of the installer (English, or Korean — picked for you when Windows is set to Korean), then shows the
   license and the install folder. It asks for administrator rights once — registering an input method
   writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by running the newer MSI;
   remove it from **Settings ▸ Apps ▸ Installed apps**. It never forces a restart: apps that were already
   running keep the previous copy until you sign in again. A silent install works too:
-  `msiexec /i jamotong-0.65.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
+  `msiexec /i jamotong-0.66.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
 - **The zip**: the same files without an installer, for people who place and register them by hand
   (see [Install](#install)). `install.bat` and `uninstall.bat` are gone as of 0.61.0.
 
@@ -112,7 +112,7 @@ Your settings stay per user in `%APPDATA%\Jamotong`. An upgrade reuses the folde
 
 ## Install
 
-1. Download `jamotong-0.65.0.msi` from
+1. Download `jamotong-0.66.0.msi` from
    [Releases](https://github.com/rubidus-api/jamotong_ime/releases) and double-click it. It installs the
    program and registers the 64-bit and 32-bit text services.
 
@@ -237,7 +237,7 @@ selected by the `Type =` line:
 its dictionary too — so a layout that is offered in the list is one that loads cleanly.
 
 ```sh
-jamotong --build my-layout.jmt          # writes my-layout.v8.jmb beside it
+jamotong --build my-layout.jmt          # writes my-layout.v9.jmb beside it
 jamotong --build-dir "%APPDATA%\Jamotong\layouts"
 jamotong --check my-layout.jmt          # checks the source and says whether the build is current
 ```
@@ -845,7 +845,9 @@ punctuation and fuzzy pinyin (z=zh, n=l, an=ang …), and picks the **keys**: fu
 scheme - 小鹤 (Xiaohe), 自然码 (Ziranma) or 微软 (Microsoft), two keys per syllable. `v` then digits (Shift+V
 with double pinyin) is the **V mode**: `v123` → 一百二十三 / 壹佰贰拾叁, `v3.14` → 三点一四, `v2026.10.3` → a
 date, `v1+2*3` → 7. "Edit custom phrases..." opens `chinese-phrases.txt`: one line per phrase, letters then
-the text (`dz 北京市海淀区`), offered first. Readings come from mozillazg's pinyin-data and phrase-pinyin-data, the order from jieba's word
+the text (`dz 北京市海淀区`), offered first. **Emoji and symbols** come after their word (`kaixin` → 开心 ☺ 😄,
+`dianhua` → ☎ 📞; names from Unicode CLDR), and the candidates show **pinyin with tones** (你 nǐ, 中国 zhōng guó);
+both can be switched off. Readings come from mozillazg's pinyin-data and phrase-pinyin-data, the order from jieba's word
 frequencies (all MIT), the traditional forms from OpenCC (Apache-2.0); the licenses are installed in
 `licenses\chinese-*` beside Jamotong. No native speaker has reviewed it yet.
 

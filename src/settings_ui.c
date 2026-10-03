@@ -174,6 +174,8 @@ enum { TAB_LAYOUTS = 0, TAB_LAYOUTOPTS = 1, TAB_SHORTCUTS = 2, TAB_OPTIONS = 3, 
 #define ID_CMB_LOPT_KEYS     1056
 #define ID_BTN_LOPT_PHRASES  1057
 #define ID_LBL_LOPT_KEYS     1058
+#define ID_CHK_LOPT_EMOJI    1059
+#define ID_CHK_LOPT_TONES    1060
 static int g_loptSel = 0;   // 고른 자판 (g_TempConfig.layouts 의 번호)
 static int g_curTab = 0;
 
@@ -451,6 +453,12 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     HWND fz = GetDlgItem(hwnd, ID_CHK_LOPT_FUZZY);
     EnableWindow(fz, zh);
     SendMessageW(fz, BM_SETCHECK, (zh && L->optFuzzy) ? BST_CHECKED : BST_UNCHECKED, 0);
+    HWND em = GetDlgItem(hwnd, ID_CHK_LOPT_EMOJI), tn = GetDlgItem(hwnd, ID_CHK_LOPT_TONES);
+    EnableWindow(em, zh);
+    SendMessageW(em, BM_SETCHECK, (zh && !L->optNoEmoji) ? BST_CHECKED : BST_UNCHECKED, 0);
+    bool hasTones = zh && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->tones;
+    EnableWindow(tn, hasTones);
+    SendMessageW(tn, BM_SETCHECK, (hasTones && !L->optNoTones) ? BST_CHECKED : BST_UNCHECKED, 0);
     EnableWindow(GetDlgItem(hwnd, ID_BTN_LOPT_PHRASES), zh);
     {   // 글쇠: 온 병음 + 이 자판이 가진 쌍병 표
         HWND kc = GetDlgItem(hwnd, ID_CMB_LOPT_KEYS);
@@ -511,17 +519,21 @@ static void CreateControls(HWND hwnd) {
     MkCtl(hwnd, L"STATIC", L"Layout:", 0, 0, 14, 40, (WIN_W - 28), 18, 0, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 14, 60, (WIN_W - 28), 240, ID_CMB_LOPT_LAYOUT, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Offer the whole sentence first", BS_AUTOCHECKBOX, 0,
-          14, 96, (WIN_W - 28), 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
+          14, 94, (WIN_W - 28), 22, ID_CHK_LOPT_SENTENCE, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Suggest words and idioms (completions, initials)", BS_AUTOCHECKBOX, 0,
-          14, 124, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
+          14, 118, (WIN_W - 28), 22, ID_CHK_LOPT_SUGGEST, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Chinese punctuation (\xFF0C\x3002\xFF1F\xFF01\x201C\x201D \x2014 \x300C\x300D for traditional)", BS_AUTOCHECKBOX, 0,
-          14, 152, (WIN_W - 28), 22, ID_CHK_LOPT_PUNCT, TAB_LAYOUTOPTS);
+          14, 142, (WIN_W - 28), 22, ID_CHK_LOPT_PUNCT, TAB_LAYOUTOPTS);
     MkCtl(hwnd, L"BUTTON", L"Fuzzy pinyin (z=zh, n=l, an=ang, in=ing ...)", BS_AUTOCHECKBOX, 0,
-          14, 180, (WIN_W - 28), 22, ID_CHK_LOPT_FUZZY, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"STATIC", L"Keys:", SS_CENTERIMAGE, 0, 14, 212, 44, 24, ID_LBL_LOPT_KEYS, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 62, 212, 220, 200, ID_CMB_LOPT_KEYS, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"BUTTON", L"Edit custom phrases...", BS_PUSHBUTTON, 0, 14, 246, 180, 26, ID_BTN_LOPT_PHRASES, TAB_LAYOUTOPTS);
-    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 280, (WIN_W - 28), 100, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
+          14, 166, (WIN_W - 28), 22, ID_CHK_LOPT_FUZZY, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Emoji and symbols among the candidates", BS_AUTOCHECKBOX, 0,
+          14, 190, (WIN_W - 28), 22, ID_CHK_LOPT_EMOJI, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Show pinyin with tones beside the candidates", BS_AUTOCHECKBOX, 0,
+          14, 214, (WIN_W - 28), 22, ID_CHK_LOPT_TONES, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"Keys:", SS_CENTERIMAGE, 0, 14, 242, 44, 24, ID_LBL_LOPT_KEYS, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"COMBOBOX", NULL, CBS_DROPDOWNLIST | WS_VSCROLL, 0, 62, 242, 220, 200, ID_CMB_LOPT_KEYS, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"BUTTON", L"Edit custom phrases...", BS_PUSHBUTTON, 0, 14, 274, 180, 26, ID_BTN_LOPT_PHRASES, TAB_LAYOUTOPTS);
+    MkCtl(hwnd, L"STATIC", L"", 0, 0, 14, 306, (WIN_W - 28), 76, ID_LBL_LOPT_HINT, TAB_LAYOUTOPTS);
 
     // ── Tab: Layouts ──
     MkCtl(hwnd, L"LISTBOX", NULL, LBS_NOTIFY | WS_VSCROLL, WS_EX_CLIENTEDGE,
@@ -786,12 +798,16 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 case ID_CHK_LOPT_SENTENCE:
                 case ID_CHK_LOPT_SUGGEST:
                 case ID_CHK_LOPT_FUZZY:
+                case ID_CHK_LOPT_EMOJI:
+                case ID_CHK_LOPT_TONES:
                 case ID_CHK_LOPT_PUNCT:
                     if (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) {
                         bool on = SendMessageW((HWND)lParam, BM_GETCHECK, 0, 0) == BST_CHECKED;
                         if (LOWORD(wParam) == ID_CHK_LOPT_SENTENCE) g_TempConfig.layouts[g_loptSel].optNoSentence = !on;
                         else if (LOWORD(wParam) == ID_CHK_LOPT_PUNCT) g_TempConfig.layouts[g_loptSel].optNoPunct = !on;
                         else if (LOWORD(wParam) == ID_CHK_LOPT_FUZZY) g_TempConfig.layouts[g_loptSel].optFuzzy = on;
+                        else if (LOWORD(wParam) == ID_CHK_LOPT_EMOJI) g_TempConfig.layouts[g_loptSel].optNoEmoji = !on;
+                        else if (LOWORD(wParam) == ID_CHK_LOPT_TONES) g_TempConfig.layouts[g_loptSel].optNoTones = !on;
                         else g_TempConfig.layouts[g_loptSel].optNoSuggest = !on;
                     }
                     break;

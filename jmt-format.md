@@ -21,7 +21,7 @@ the layout folders, and the manager app
 
 ```sh
 jamotong --check      layout.jmt        # check the source; says whether the build is current
-jamotong --build      layout.jmt        # writes layout.v8.jmb beside it (the number is the built format)
+jamotong --build      layout.jmt        # writes layout.v9.jmb beside it (the number is the built format)
 jamotong --build-dir  <folder>          # builds what is missing or older than its source
 jamotong --build-dict words.jdt -o words.jdb
 jamotong --import-dict other.txt -o words.jdt [--limit N] [--name ..] [--license ..]
@@ -191,7 +191,7 @@ because `end` closes a block.
 **Sequential input layouts (`Type = input`, the dictionary and sequence engines) are the only kind
 still written in the 1-3 grammar below.** Everything else in that section is kept for files that were
 already written; Jamotong reads both, and a file with a `layout` form is read as v4. `jamotong
---export` writes a built-in layout in v4. Built files are named by their format (`layout.v8.jmb`), so a newer Jamotong that rebuilds a layout
+--export` writes a built-in layout in v4. Built files are named by their format (`layout.v9.jmb`), so a newer Jamotong that rebuilds a layout
 never overwrites the file an older copy - still running in an open app after an upgrade - reads;
 the file two formats old is removed. `jamotong --expand` resolves `Extends`/`Include`, which
 only the older grammar has - a v4 file is already flat, so it is written back unchanged.
@@ -282,6 +282,7 @@ Candidates  = kana-words.jdb      # optional: a reading -> several candidates
 ConvertKey  = space               # required with Candidates: space | tab | hanja | convert | f9
 Chinese     = simplified          # optional: the Chinese pinyin style (simplified | traditional)
 Scheme      = xiaohe sp-xh.jdb    # optional, up to 4: a double-pinyin key table picked by name in Layout Options
+Tones       = tones.jdb           # optional: a candidate dictionary "word -> pinyin with tones" shown beside candidates
 Key jkl; = 0                      # optional chord front end
 Chord jk = symbol "k"             # its result goes into the engine, not to the application
 ```

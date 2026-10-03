@@ -79,6 +79,9 @@ typedef struct SeqLayout {
     int      scheme;             // 지금 고른 표 (입력기가 자판 선택에서 정한다 — SeqLayout_SelectScheme)
     // 사용자 구 (중국어 방식): 사용자 사전 폴더의 SEQ_PHRASES_FILE. 파일이 바뀌면 다시 읽는다.
     struct SeqPhrases *phrases;
+    // 성조 병음 (0.66.0, 자판 파일 `Tones = 표.jdb`, 후보 사전 꼴: 표기 → nǐ / zhōng guó). 후보 옆에 보인다. 구운 자판 판 9.
+    wchar_t  toneFile[64];
+    JDict   *tones;
 } SeqLayout;
 
 // 보류 중인 입력. 확정한 글자는 문서가 갖고 있으므로 여기 남기지 않는다.
@@ -135,6 +138,7 @@ bool      SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out);
 #define SEQ_CONV_ALL      (SEQ_CONV_SENTENCE | SEQ_CONV_PREDICT)
 #define SEQ_CONV_LIVE     4u   // 치는 동안 (중국어 방식): 보류(쌍병의 반쯤 친 음절)를 정착시키지 않는다
 #define SEQ_CONV_FUZZY    8u   // 모호음 (자판 선택)
+#define SEQ_CONV_NOEMOJI 16u   // 이모지·기호 후보를 빼고 (자판 선택)
 #define SEQ_PREDICT_CANDS 9    // 추천 단어 수
 #define SEQ_WHOLE_FIRST   5    // 첫 쪽: 읽기 그대로의 후보 이만큼 다음에
 #define SEQ_PREDICT_FIRST 4    //        추천 단어 이만큼 (문장 후보와 합쳐 한 쪽 아홉)
@@ -172,6 +176,10 @@ bool      SeqKb_ZhNumber(unsigned long long v, bool upper, bool trad, wchar_t *o
 bool      SeqKb_IsVMode(const SeqLayout *sl, const wchar_t *reading);
 // 쌍병 표를 이름으로 고른다 ("" 나 모르는 이름이면 온 병음). 고른 번호(0 = 온 병음)를 돌려준다.
 int       SeqLayout_SelectScheme(SeqLayout *sl, const wchar_t *name);
+// 후보의 성조 병음 (Tones 사전에 있으면). 없으면 false.
+bool      SeqLayout_ToneOf(const SeqLayout *sl, const wchar_t *cand, wchar_t *out, int cap);
+// 이 후보가 이모지·기호인가 (BMP 밖이거나 기호 구역의 글자로 시작)
+bool      SeqKb_IsEmoji(const wchar_t *cand);
 // 사용자 구 파일 자리를 정한다 (시험용 — NULL 이면 사용자 사전 폴더의 SEQ_PHRASES_FILE).
 void      SeqKb_SetPhrasesPath(const wchar_t *path);
 // 모호음 변형 키들 (첫째는 key 자신). 시험용으로도 쓴다.

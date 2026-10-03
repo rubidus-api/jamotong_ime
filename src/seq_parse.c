@@ -20,7 +20,7 @@ static void TrimEnds(wchar_t *s) {
     while (n && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
 static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Candidates", L"ConvertKey",
-                                                 L"Engine", L"OnUnmatched", L"Chinese", L"Scheme", NULL };
+                                                 L"Engine", L"OnUnmatched", L"Chinese", L"Scheme", L"Tones", NULL };
 
 // 변환 글쇠 이름 → VK (§6.4). 적은 것만 받는다 — 글자 글쇠는 읽기를 만드는 데 쓰이므로 안 된다.
 static int ConvertKeyVk(const wchar_t *name) {
@@ -122,6 +122,15 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
             else if (!_wcsicmp(v, L"traditional")) sl->zh = SEQ_ZH_TRADITIONAL;
             else FAIL(col0, L"E-JMT-VALUE", L"Chinese must be simplified or traditional",
                       L"it picks the punctuation and date forms; the dictionary decides the characters");
+            continue;
+        }
+        if (!wcsncmp(p, L"Tones", 5)) {   // 성조 병음 사전 (0.66.0): Tones = 표.jdb
+            wchar_t file[64] = {0};
+            if (swscanf(p, L"Tones = %63ls", file) != 1 || !Config_IsSafeDictFileName(file)) {
+                FAIL(col0, L"E-JMT-DICT", L"Tones needs a plain .jdb file name", L"Tones = chinese-simplified-tones.jdb");
+                continue;
+            }
+            lstrcpynW(sl->toneFile, file, 64);
             continue;
         }
         if (!wcsncmp(p, L"Scheme", 6)) {   // 쌍병 글쇠 표 (2026-10-03): Scheme = 이름 파일.jdb — 자판 선택(Keys)이 이름으로 고른다

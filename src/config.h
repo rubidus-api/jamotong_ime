@@ -75,6 +75,8 @@ typedef struct {
     bool optNoSuggest;    // Suggest=0: 추천 단어(이어질 낱말·줄임)를 내지 않는다
     bool optNoPunct;      // Punctuation=0: 중국어 자판의 문장부호를 바꾸지 않는다 (，。 대신 , .)
     bool optFuzzy;        // Fuzzy=1: 모호음 (z/zh c/ch s/sh n/l an/ang en/eng in/ing)
+    bool optNoEmoji;      // Emoji=0: 이모지·기호 후보를 빼고
+    bool optNoTones;      // Tones=0: 후보 옆의 성조 병음을 보이지 않는다
     wchar_t optKeys[16];  // Keys=xiaohe|ziranma|microsoft: 쌍병 글쇠 표 (빈 것 = 온 병음)
 } LayoutConfig;
 

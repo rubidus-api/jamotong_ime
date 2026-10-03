@@ -31,6 +31,9 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey);
 // V 모드 (0.65.0): 숫자와 - = 를 고르기·쪽 넘김이 아니라 입력으로 보낸다 (사이띄개·화살표·엔터·Esc 는 그대로). Show 앞에, 창을 닫으면 풀린다.
 void CandidateUI_SetDigitsToInput(bool on);
+// 후보 옆에 붙일 작은 글 (0.66.0: 중국어 후보의 성조 병음). candidates 와 같은 길이의 배열, NULL·빈 문자열이면 없음.
+//   복사하지 않는다 — 창이 닫힐 때까지 호출자가 살려 둔다. Show 앞에, 창을 닫으면 풀린다.
+void CandidateUI_SetNotes(wchar_t **notes);
 
 // 키보드 이벤트 가로채기
 // true를 반환하면 UI가 이벤트를 소모한 것

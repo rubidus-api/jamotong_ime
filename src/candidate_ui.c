@@ -53,6 +53,7 @@ static CandidateSelectCallback g_onSelect = NULL;
 static CandidateCancelCallback g_onCancel = NULL;
 static CandidateKeyCallback g_onKey = NULL;   // 병음 방식이면 있다 (CandidateUI_SetPinyinKeys)
 static bool g_digitsToInput = false;          // V 모드: 숫자·- = 는 입력기로
+static wchar_t **g_notes = NULL;              // 후보 옆의 작은 글 (성조 병음)
 static void *g_ctx = NULL;
 
 // 배치 앵커(캐럿 기준 좌표) — 화면 클램프·페이지 리사이즈가 공유한다.
@@ -109,7 +110,11 @@ static void EnsureCandFont(void) {
 static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
     const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
     unsigned cp = 0;
-    if (g_onKey) { swprintf(buf, cap, L"%d. %s", numberInPage, cand); return; }   // 병음 후보창: 부호값·훈음 없이 (2026-10-03)
+    if (g_onKey) {   // 병음 후보창: 부호값·훈음 없이 (2026-10-03), 성조 병음이 있으면 옆에 (0.66.0)
+        if (g_notes && g_notes[i] && g_notes[i][0]) swprintf(buf, cap, L"%d. %s  %s", numberInPage, cand, g_notes[i]);
+        else swprintf(buf, cap, L"%d. %s", numberInPage, cand);
+        return;
+    }
     if (cand[0] && !cand[1]) cp = (unsigned)cand[0];   // BMP 단일 문자
     else if (cand[0] >= 0xD800 && cand[0] <= 0xDBFF && cand[1] >= 0xDC00 && cand[1] <= 0xDFFF && !cand[2])
         cp = 0x10000u + (((unsigned)cand[0] - 0xD800u) << 10) + ((unsigned)cand[1] - 0xDC00u);
@@ -404,6 +409,7 @@ void CandidateUI_Hide(void) {
     g_ownDraw = true;
     g_onKey = NULL;   // 병음 방식은 이 창과 함께 끝난다 — 다음 Show 앞에 다시 정한다
     g_digitsToInput = false;
+    g_notes = NULL;
 }
 
 void CandidateUI_Cancel(void) {
@@ -441,6 +447,7 @@ static void SelectIndex(int realIdx) {
 
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey) { g_onKey = onKey; }
 void CandidateUI_SetDigitsToInput(bool on) { g_digitsToInput = on; }
+void CandidateUI_SetNotes(wchar_t **notes) { g_notes = notes; }
 
 // 병음 방식의 글쇠. 처리했으면 true, 입력기에 넘길 글쇠면 false.
 static bool HandlePinyinKey(UINT vKey) {

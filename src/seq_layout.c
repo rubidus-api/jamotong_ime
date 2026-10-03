@@ -447,12 +447,29 @@ int SeqLayout_SelectScheme(SeqLayout *sl, const wchar_t *name) {
     return sl->scheme;
 }
 
+bool SeqKb_IsEmoji(const wchar_t *c) {
+    if (!c || !c[0]) return false;
+    unsigned u = c[0];
+    if ((u >= 0xD800 && u <= 0xDBFF) || u >= 0x10000) return true;    // BMP 밖 (이모지 대부분 — 서로게이트 쌍이든 한 글자든)
+    return (u >= 0x2190 && u <= 0x2BFF) || (u >= 0x2300 && u <= 0x23FF) || u == 0x00A9 || u == 0x00AE
+        || u == 0x203C || u == 0x2049 || u == 0x2122 || u == 0x2139 || (u >= 0x3297 && u <= 0x3299);   // 화살표·기호·딩뱃
+}
+bool SeqLayout_ToneOf(const SeqLayout *sl, const wchar_t *cand, wchar_t *out, int cap) {
+    if (!sl || !sl->tones || !cand || !cand[0]) return false;
+    int first = 0, count = 0;
+    const jdchar *v = NULL; int vn = 0;
+    if (!JDict_Candidates(sl->tones, cand, &first, &count) || !JDict_CandidateAt(sl->tones, first, &v, &vn)) return false;
+    return JDict_CopyValue(v, vn, out, cap) >= 0;
+}
+static bool g_noEmoji;   // 이번 변환이 이모지를 빼는가 (SeqKb_ConvertEx 가 정한다 — 입력 스레드 하나가 쓴다)
+
 // 후보 하나를 붙인다 — 이미 있는 글자와 같으면 붙이지 않는다(문장 후보와 낱말 후보가 같은 때 등).
 static bool AddCand(SeqCandidates *out, const JDict *d, int index, int consumed) {
     if (out->count >= SEQ_MAX_CANDS) return false;
     const jdchar *v = NULL; int vn = 0;
     if (!JDict_CandidateAt(d, index, &v, &vn)) return false;
     if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) < 0) return false;
+    if (g_noEmoji && SeqKb_IsEmoji(out->items[out->count])) return false;
     for (int j = 0; j < out->count; j++) if (!wcscmp(out->items[j], out->items[out->count])) return false;
     out->consumed[out->count++] = consumed;
     return true;
@@ -502,6 +519,7 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     //   앞부분만 쓰는 후보를 고르면 나머지는 읽기에 남는다(SeqKb_Choose) — 입력기가 이어서 다시 연다.
     memset(out, 0, sizeof *out);
     out->generation = st->generation;
+    g_noEmoji = (flags & SEQ_CONV_NOEMOJI) != 0;
     const int n = (int)wcslen(st->reading);
     const bool bare = ReadingBare(sl, st->reading);   // 첫 글자 줄임만 친 읽기 (zg, wsm)
     if (sl->zh && SeqKb_IsVMode(sl, st->reading)) {     // V 모드: 숫자·식만 — 사전은 보지 않는다
@@ -611,7 +629,8 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
             if (minChars > 0 && CandChars(sl->cand, first + i) < minChars) continue;
             const jdchar *v = NULL; int vn = 0;
             if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn)) break;
-            if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0) {
+            if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) >= 0
+                && !(g_noEmoji && SeqKb_IsEmoji(out->items[out->count]))) {
                 out->consumed[out->count] = len;
                 out->count++;
                 take--;
@@ -992,6 +1011,21 @@ bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         if (sl->cand) JDict_Close(sl->cand);
         sl->cand = cd;
     }
+    if (sl->toneFile[0]) {   // 성조 병음 (후보 사전 꼴) — 없거나 상했으면 자판을 세우지 않는다
+        JDictError terr = JDICT_OK;
+        JDict *td = NULL;
+        if (Config_IsSafeDictFileName(sl->toneFile) && ResolveDict(layoutPath, sl->toneFile, full, MAX_PATH)) td = JDict_Open(full, &terr);
+        if (!td || JDict_Kind(td) != JDICT_KIND_CANDIDATES || !JDict_Verify(td, &terr)) {
+            if (td) JDict_Close(td);
+            wchar_t msg[200];
+            _snwprintf(msg, 200, L"the tones dictionary '%ls' cannot be used", sl->toneFile);
+            msg[199] = L'\0';
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg, L"build it as 'Type = candidates' with 'jamotong --build-dict'");
+            return false;
+        }
+        if (sl->tones) JDict_Close(sl->tones);
+        sl->tones = td;
+    }
     for (int i = 0; i < sl->nScheme; i++) {   // 쌍병 글쇠 표 — Dictionary 와 같은 종류(순차)여야 한다
         if (!Config_IsSafeDictFileName(sl->schemeFile[i]) || !ResolveDict(layoutPath, sl->schemeFile[i], full, MAX_PATH)) {
             wchar_t msg[200];
@@ -1050,6 +1084,7 @@ void SeqLayout_Free(SeqLayout *sl) {
     if (sl->cand) JDict_Close(sl->cand);
     if (sl->chord) ChordLayout_Free((ChordLayout *)sl->chord);
     for (int i = 0; i < sl->nScheme; i++) if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
+    if (sl->tones) JDict_Close(sl->tones);
     if (sl->phrases) { PhrasesClear(sl->phrases); free(sl->phrases); }
     free(sl);
 }
