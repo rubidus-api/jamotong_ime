@@ -34,6 +34,9 @@ void CandidateUI_SetDigitsToInput(bool on);
 // 후보 옆에 붙일 작은 글 (0.66.0: 중국어 후보의 성조 병음). candidates 와 같은 길이의 배열, NULL·빈 문자열이면 없음.
 //   복사하지 않는다 — 창이 닫힐 때까지 호출자가 살려 둔다. Show 앞에, 창을 닫으면 풀린다.
 void CandidateUI_SetNotes(wchar_t **notes);
+// 머리줄에 보일 바꾸는 것 (병음 읽기·한자로 바꿀 한글), 그리고 가로 후보줄 (RFC-0020 P2). Show 앞에, 창을 닫으면 풀린다.
+void CandidateUI_SetTitle(const wchar_t *title);
+void CandidateUI_SetHorizontal(bool on);
 
 // 키보드 이벤트 가로채기
 // true를 반환하면 UI가 이벤트를 소모한 것

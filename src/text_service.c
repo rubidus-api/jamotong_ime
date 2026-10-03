@@ -719,6 +719,14 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
     obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
     CandidateUI_SetPinyinKeys(sl->zh ? OnSeqCandidateKey : NULL);   // 중국어 병음 방식의 글쇠
     CandidateUI_SetDigitsToInput(SeqKb_IsVMode(sl, SeqKb_Reading(&obj->seqKb)));   // V 모드: 숫자·- 는 식으로
+    {   // 머리줄 = 바꾸는 읽기 (보류도), 가로 후보줄 = 자판 선택 (RFC-0020 P2)
+        wchar_t title[SEQ_MAX_READING + SEQ_MAX_IN + 2];
+        lstrcpynW(title, SeqKb_Reading(&obj->seqKb), SEQ_MAX_READING + 1);
+        if (live) wcsncat(title, obj->seqKb.pending, SEQ_MAX_IN);
+        CandidateUI_SetTitle(title);
+        const LayoutConfig *cl0 = Config_GetCurrentLayout(&obj->config);
+        CandidateUI_SetHorizontal(sl->zh && cl0 && cl0->optBar);
+    }
     {   // 성조 병음 (자판 선택 Tones, 기본 켬)
         const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
         bool tones = sl->zh && sl->tones && !(cur && cur->optNoTones);
@@ -1596,6 +1604,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rcSel;
                 obj->candAnchorValid = TRUE;   // light dismiss 기준 (B10) — 살아 있는 캐럿 자리로
                 CandidateUI_SetViewWindow(ContextViewWindow(pic));
+                CandidateUI_SetTitle(searchStr);   // 머리줄: 한자로 바꿀 한글 (RFC-0020 P2)
                 if (!CandidateUI_Show(x, y, caretTop, cands, count, replaceLen, OnHanjaSelected, OnHanjaCancelled, obj)) {
                     JamoDiag("HANJA candidate window failed to show");
                     // A9: UWP 에서 자체 창을 못 만들면 헬퍼 → 순환으로 물러선다.

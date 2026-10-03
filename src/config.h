@@ -77,6 +77,7 @@ typedef struct {
     bool optFuzzy;        // Fuzzy=1: 모호음 (z/zh c/ch s/sh n/l an/ang en/eng in/ing)
     bool optNoEmoji;      // Emoji=0: 이모지·기호 후보를 빼고
     bool optNoTones;      // Tones=0: 후보 옆의 성조 병음을 보이지 않는다
+    bool optBar;          // Bar=1: 가로 후보줄 (중국어, RFC-0020 P2 — 기본 세로)
     wchar_t optKeys[16];  // Keys=xiaohe|ziranma|microsoft: 쌍병 글쇠 표 (빈 것 = 온 병음)
     // 본문을 나중에 읽는 자판 (RFC-0020 F1): 입력기 DLL 은 한글·조합·정적 자판의 구운 파일에서 머리(종류·이름·약자)만 읽고,
     //   그 자판이 지금 자판이 될 때 본문을 읽는다(Config_GetCurrentLayout). 꺼 둔 자판은 앱마다 본문을 지지 않는다.

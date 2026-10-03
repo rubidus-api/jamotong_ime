@@ -54,6 +54,14 @@ static CandidateCancelCallback g_onCancel = NULL;
 static CandidateKeyCallback g_onKey = NULL;   // 병음 방식이면 있다 (CandidateUI_SetPinyinKeys)
 static bool g_digitsToInput = false;          // V 모드: 숫자·- = 는 입력기로
 static wchar_t **g_notes = NULL;              // 후보 옆의 작은 글 (성조 병음)
+// RFC-0020 P2 (0.69.0): 머리줄·가로 후보줄·마우스 올림. 창을 닫으면 풀린다.
+static wchar_t g_title[64];                   // 바꾸고 있는 것 (병음 읽기·한자로 바꿀 한글)
+static bool g_horizontal = false;             // 가로 후보줄 (중국어, 자판 선택)
+static int g_hover = -1;                      // 마우스를 올린 줄 (페이지 안 자리)
+static bool g_tracking = false;               // WM_MOUSELEAVE 를 기다리는 중
+static RECT g_rcPrev, g_rcNext, g_rcClose;    // 쪽 단추·닫기 단추 (클라이언트 좌표)
+static RECT g_cell[9];                        // 가로 후보줄의 칸 (클라이언트 좌표)
+static int g_rowsTop = 0;                     // 세로 줄들이 시작하는 y
 static void *g_ctx = NULL;
 
 // 배치 앵커(캐럿 기준 좌표) — 화면 클램프·페이지 리사이즈가 공유한다.
@@ -64,6 +72,7 @@ static int g_anchorX = 0, g_anchorY = 0, g_anchorTop = 0;
 // 탐색 키를 여기서 직접 처리·차단하면 호스트의 키 라우팅과 무관하게 동작한다.
 static HHOOK g_kbHook = NULL;
 #define CANDMSG_HOOKKEY (WM_APP + 1)   // 훅 → 창으로 넘기는 탐색 키 (훅 콜백은 즉시 반환해야 함)
+
 
 extern HINSTANCE g_hInst;
 
@@ -76,12 +85,17 @@ static UINT    g_dpi      = 96;   // 마지막으로 그린 창의 DPI (DPI 를 
 
 // 전 요소가 공유하는 파생 메트릭: 행 높이/여백은 글꼴 크기에서만 나온다(모두 DPI 배율 — W2-03).
 #define FONT_PX Popup_Scale(g_fontPx, g_dpi)
-#define ROW_H   (FONT_PX + Popup_Scale(8, g_dpi))
+#define ROW_H   (FONT_PX + Popup_Scale(10, g_dpi))
 #define PAD_TOP Popup_Scale(6, g_dpi)
-#define TEXT_X  Popup_Scale(10, g_dpi)
+#define TEXT_X  Popup_Scale(12, g_dpi)
 #define XBTN_SZ Popup_Scale(16, g_dpi)   // 우상단 닫기(X) 버튼 한 변
+#define NOTE_PX FONT_PX   // 머리줄·주석·쪽 표시도 같은 글꼴·같은 크기 — 흐린 색으로만 나눈다 (사용자 요청 2026-07-24, T014)
+#define HDR_H   (NOTE_PX + Popup_Scale(12, g_dpi))   // 머리줄 (바꾸는 것 + 닫기)
+#define FOOT_H  (NOTE_PX + Popup_Scale(12, g_dpi))   // 쪽 표시 ◀ 1/8 ▶
+#define GAP     Popup_Scale(14, g_dpi)              // 칸 사이
 
 static int  PageItemCount(void);      // 전방 선언 (WndProc 마우스 처리에서 사용)
+static void RefreshCandWindow(void);  // 전방 선언 (쪽 단추·휠)
 static void SelectIndex(int realIdx);
 
 void CandidateUI_SetStyle(const wchar_t *face, int sizePx) {
@@ -103,100 +117,227 @@ static void EnsureCandFont(void) {
                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, g_face);
 }
 
-// i번째 후보의 표시 문자열. 단일 문자 후보는 훈음(뜻·음) → 음 순으로 표기하고 항상 코드포인트를
-// 병기한다(사용자 요청 2026-07-24): "N. 家  집 가  U+5BB6" / "N. 特  특  U+7279" /
-// 훈음·음 모두 없음: "N. ★  U+2605". 여러 글자(한자 단어) 후보에는 코드포인트를 붙이지 않는다.
-// BMP 밖 단일 글자(서로게이트 쌍)도 단일 문자로 취급해 U+XXXXX를 표기한다.
-static void FormatCandLine(int i, int numberInPage, wchar_t *buf, int cap) {
-    const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
-    unsigned cp = 0;
-    if (g_onKey) {   // 병음 후보창: 부호값·훈음 없이 (2026-10-03), 성조 병음이 있으면 옆에 (0.66.0)
-        if (g_notes && g_notes[i] && g_notes[i][0]) swprintf(buf, cap, L"%d. %s  %s", numberInPage, cand, g_notes[i]);
-        else swprintf(buf, cap, L"%d. %s", numberInPage, cand);
+// ── 모양 (RFC-0020 P2): 시스템 다크/라이트를 따르고, 고대비면 시스템 색 ─────────────────────────
+typedef struct { COLORREF bg, text, dim, accent, selBg, selText, hoverBg, border; } CandColors;
+static bool SystemDark(void) {
+    DWORD v = 1, sz = sizeof v; HKEY hk;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
+        RegQueryValueExW(hk, L"AppsUseLightTheme", NULL, NULL, (BYTE *)&v, &sz);
+        RegCloseKey(hk);
+    }
+    return v == 0;
+}
+static void PickCandColors(CandColors *c) {
+    if (Popup_HighContrast()) {   // 고대비: 시스템 색 그대로 (W2-03)
+        const PopupColors normal = { 0 };
+        PopupColors pc; Popup_PickColors(true, &normal, &pc);
+        c->bg = pc.bg; c->text = pc.text; c->dim = pc.dim; c->accent = pc.accent; c->selBg = pc.selBg; c->selText = pc.selText;
+        c->hoverBg = pc.bg; c->border = pc.text;
         return;
     }
-    if (cand[0] && !cand[1]) cp = (unsigned)cand[0];   // BMP 단일 문자
-    else if (cand[0] >= 0xD800 && cand[0] <= 0xDBFF && cand[1] >= 0xDC00 && cand[1] <= 0xDFFF && !cand[2])
-        cp = 0x10000u + (((unsigned)cand[0] - 0xD800u) << 10) + ((unsigned)cand[1] - 0xDC00u);
-    if (cp) {
-        if (cp <= 0xFFFF) {
-            const wchar_t *hunum = HunumDict_Find((wchar_t)cp);
-            if (hunum) { swprintf(buf, cap, L"%d. %s  %s  U+%04X", numberInPage, cand, hunum, cp); return; }
-            wchar_t rd = HanjaDict_ReadingOf((wchar_t)cp);   // 훈음 미수록 → 음(kHangul)이라도 표시
-            if (rd) { swprintf(buf, cap, L"%d. %s  %c  U+%04X", numberInPage, cand, rd, cp); return; }
-        }
-        swprintf(buf, cap, L"%d. %s  U+%04X", numberInPage, cand, cp);
+    if (SystemDark()) {
+        c->bg = RGB(43, 43, 43); c->text = RGB(240, 240, 240); c->dim = RGB(160, 160, 160); c->accent = RGB(76, 194, 255);
+        c->selBg = RGB(52, 72, 92); c->selText = RGB(255, 255, 255); c->hoverBg = RGB(58, 58, 58); c->border = RGB(78, 78, 78);
     } else {
-        swprintf(buf, cap, L"%d. %s", numberInPage, cand);   // 한자 단어: 코드포인트 없음
+        c->bg = RGB(250, 250, 250); c->text = RGB(26, 26, 26); c->dim = RGB(112, 112, 112); c->accent = RGB(0, 95, 184);
+        c->selBg = RGB(220, 234, 250); c->selText = RGB(0, 0, 0); c->hoverBg = RGB(238, 238, 238); c->border = RGB(214, 214, 214);
+    }
+}
+// Windows 11 둥근 모서리·테두리 색 (dwmapi 를 동적으로 — 없으면 네모 그대로). 그림자는 창 클래스의 CS_DROPSHADOW.
+static bool g_roundedOk = false;
+static void ApplyRoundedCorners(HWND hwnd, COLORREF border) {
+    typedef HRESULT (WINAPI *DwmSetAttr)(HWND, DWORD, LPCVOID, DWORD);
+    static DwmSetAttr fn = NULL; static bool tried = false;
+    if (!tried) { tried = true; HMODULE m = LoadLibraryW(L"dwmapi.dll"); if (m) fn = (DwmSetAttr)(void *)GetProcAddress(m, "DwmSetWindowAttribute"); }
+    g_roundedOk = false;
+    if (!fn || !hwnd) return;
+    DWORD pref = 3;   /* DWMWCP_ROUNDSMALL */
+    if (SUCCEEDED(fn(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &pref, sizeof pref))) {
+        g_roundedOk = true;
+        fn(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
     }
 }
 
-// 현재 페이지 내용에 맞는 창 너비 계산 (훈음 길이 반영)
+// 후보 옆의 주석 (RFC-0020 P2 — 후보와 나눠 흐린 작은 글로 맞춘 칸에). 없으면 빈 문자열.
+//   병음 후보창: 성조 병음(있으면). 한자 후보창: 단일 문자는 훈음(뜻·음) → 음 순, 그리고 늘 부호값(사용자 요청 2026-07-24)
+//   "집 가  U+5BB6" / "특  U+7279" / "U+2605". 여러 글자(한자 단어)에는 코드포인트를 붙이지 않는다. BMP 밖 단일 글자도 U+XXXXX.
+static void CandNote(int i, wchar_t *buf, int cap) {
+    buf[0] = L'\0';
+    const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
+    if (g_onKey) {
+        if (g_notes && g_notes[i] && g_notes[i][0]) lstrcpynW(buf, g_notes[i], cap);
+        return;
+    }
+    unsigned cp = 0;
+    if (cand[0] && !cand[1]) cp = (unsigned)cand[0];
+    else if (cand[0] >= 0xD800 && cand[0] <= 0xDBFF && cand[1] >= 0xDC00 && cand[1] <= 0xDFFF && !cand[2])
+        cp = 0x10000u + (((unsigned)cand[0] - 0xD800u) << 10) + ((unsigned)cand[1] - 0xDC00u);
+    if (!cp) return;
+    if (cp <= 0xFFFF) {
+        const wchar_t *hunum = HunumDict_Find((wchar_t)cp);
+        if (hunum) { swprintf(buf, cap, L"%s  U+%04X", hunum, cp); return; }
+        wchar_t rd = HanjaDict_ReadingOf((wchar_t)cp);
+        if (rd) { swprintf(buf, cap, L"%c  U+%04X", rd, cp); return; }
+    }
+    swprintf(buf, cap, L"U+%04X", cp);
+}
+static int TextW(HDC hdc, const wchar_t *t) { SIZE sz = {0}; GetTextExtentPoint32W(hdc, t, (int)wcslen(t), &sz); return sz.cx; }
+
+// 한 쪽의 칸 너비들: 번호·후보·주석 (세로) — 가로 후보줄은 칸마다
+typedef struct { int numW, candW, noteW; } PageMetrics;
+static PageMetrics MeasurePage(HDC hdc) {
+    PageMetrics m = { 0, 0, 0 };
+    int start = g_page * g_perPage, end = start + g_perPage;
+    if (end > g_count) end = g_count;
+    HFONT of = (HFONT)SelectObject(hdc, g_candFont);
+    m.numW = TextW(hdc, L"9");
+    for (int i = start; i < end; i++) { int w = TextW(hdc, g_candidates[i] ? g_candidates[i] : L""); if (w > m.candW) m.candW = w; }
+    SelectObject(hdc, g_candFont);
+    for (int i = start; i < end; i++) { wchar_t n[96]; CandNote(i, n, 96); int w = n[0] ? TextW(hdc, n) : 0; if (w > m.noteW) m.noteW = w; }
+    SelectObject(hdc, of);
+    return m;
+}
+
+// 현재 페이지 내용에 맞는 창 너비
 static int MeasurePageWidth(void) {
     EnsureCandFont();
-    int w = Popup_Scale(200, g_dpi);
+    int w = Popup_Scale(180, g_dpi);
     HDC hdc = GetDC(NULL);
     if (hdc) {
-        HFONT of = (HFONT)SelectObject(hdc, g_candFont);
-        int start = g_page * g_perPage, end = start + g_perPage;
-        if (end > g_count) end = g_count;
-        for (int i = start; i < end; i++) {
-            wchar_t buf[256]; SIZE sz;
-            FormatCandLine(i, (i - start) + 1, buf, 256);
-            if (GetTextExtentPoint32W(hdc, buf, (int)wcslen(buf), &sz) && sz.cx + Popup_Scale(24, g_dpi) > w) w = sz.cx + Popup_Scale(24, g_dpi);
+        if (g_horizontal) {   // 가로 후보줄: 머리줄(읽기 + 쪽 표시 + 닫기)과 칸들 중 넓은 쪽
+            int start = g_page * g_perPage, end = start + g_perPage;
+            if (end > g_count) end = g_count;
+            HFONT of = (HFONT)SelectObject(hdc, g_candFont);
+            int row = Popup_Scale(4, g_dpi);   // 그리는 것과 같은 셈 (DrawCandidateUI 의 칸): 여백 8 + 번호 + 4 + 후보 + 8, 칸 사이 2
+            for (int i = start; i < end; i++) {
+                wchar_t num[4]; swprintf(num, 4, L"%d", i - start + 1);
+                row += Popup_Scale(8, g_dpi) + TextW(hdc, num) + Popup_Scale(4, g_dpi) + TextW(hdc, g_candidates[i] ? g_candidates[i] : L"")
+                     + Popup_Scale(8, g_dpi) + Popup_Scale(2, g_dpi);
+            }
+            row += Popup_Scale(4, g_dpi);
+            SelectObject(hdc, g_candFont);
+            int head = TEXT_X + TextW(hdc, g_title) + GAP + TextW(hdc, L"\x25C0 99/99 \x25B6") + GAP + XBTN_SZ + Popup_Scale(8, g_dpi);
+            SelectObject(hdc, of);
+            w = row > head ? row : head;
+        } else {
+            PageMetrics m = MeasurePage(hdc);
+            int body = TEXT_X + m.numW + Popup_Scale(10, g_dpi) + m.candW + (m.noteW ? GAP + m.noteW : 0) + TEXT_X;
+            HFONT of = (HFONT)SelectObject(hdc, g_candFont);
+            int head = TEXT_X + TextW(hdc, g_title) + GAP + XBTN_SZ + Popup_Scale(8, g_dpi);
+            SelectObject(hdc, of);
+            if (body > w) w = body;
+            if (head > w) w = head;
         }
-        SelectObject(hdc, of);
         ReleaseDC(NULL, hdc);
     }
-    int cap480 = (FONT_PX * 30 > Popup_Scale(480, g_dpi)) ? FONT_PX * 30 : Popup_Scale(480, g_dpi);   // 폭 상한(글꼴 크기 비례)
-    return (w > cap480) ? cap480 : w;
+    int cap = g_horizontal ? Popup_Scale(1200, g_dpi)
+                           : ((FONT_PX * 30 > Popup_Scale(480, g_dpi)) ? FONT_PX * 30 : Popup_Scale(480, g_dpi));   // 폭 상한(글꼴 크기 비례)
+    return (w > cap) ? cap : w;
+}
+static int CandWindowHeight(void) {
+    if (g_horizontal) return HDR_H + ROW_H + PAD_TOP;
+    return HDR_H + g_perPage * ROW_H + FOOT_H;
+}
+
+static void FillRoundRect(HDC hdc, const RECT *r, COLORREF c, int radius) {
+    HBRUSH b = CreateSolidBrush(c);
+    HPEN p = CreatePen(PS_SOLID, 1, c);
+    HGDIOBJ ob = SelectObject(hdc, b), op = SelectObject(hdc, p);
+    RoundRect(hdc, r->left, r->top, r->right, r->bottom, radius, radius);
+    SelectObject(hdc, ob); SelectObject(hdc, op);
+    DeleteObject(b); DeleteObject(p);
 }
 
 static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     RECT rc;
     GetClientRect(hwnd, &rc);
-    // 평소 색은 그대로(2026-07-24 모양), 고대비 테마면 시스템 색 (W2-03)
-    const PopupColors normal = { GetSysColor(COLOR_WINDOW), RGB(0, 0, 0), RGB(128, 128, 128),
-                                 RGB(160, 160, 160), RGB(203, 224, 252), RGB(0, 0, 0) };
-    PopupColors col; Popup_PickColors(Popup_HighContrast(), &normal, &col);
+    CandColors col; PickCandColors(&col);
     HBRUSH bgb = CreateSolidBrush(col.bg);
     FillRect(hdc, &rc, bgb);
     DeleteObject(bgb);
+    if (!g_roundedOk) { HBRUSH fb = CreateSolidBrush(col.border); FrameRect(hdc, &rc, fb); DeleteObject(fb); }   // 둥근 모서리가 없으면 테두리를 그린다
 
     EnsureCandFont();
     HFONT hOldFont = (HFONT)SelectObject(hdc, g_candFont);
     SetBkMode(hdc, TRANSPARENT);
-
     int start = g_page * g_perPage;
     int end = start + g_perPage;
     if (end > g_count) end = g_count;
-
-    int y = PAD_TOP;
-    for (int i = start; i < end; i++) {
-        wchar_t buf[256];
-        FormatCandLine(i, (i - start) + 1, buf, 256);
-        if (i - start == g_sel) {   // 선택 하이라이트 (↑↓로 이동, Enter로 확정)
-            RECT hl = { 2, y - 2, rc.right - 2, y + ROW_H - 3 };
-            HBRUSH hb = CreateSolidBrush(col.selBg);
-            FillRect(hdc, &hl, hb);
-            DeleteObject(hb);
-        }
-        SetTextColor(hdc, (i - start == g_sel) ? col.selText : col.text);
-        TextOutW(hdc, TEXT_X, y, buf, (int)wcslen(buf));
-        y += ROW_H;
-    }
-
-    // 페이지 표시 — 후보와 같은 글꼴·크기(색만 회색). "현재/전체" 형식.
-    wchar_t pageBuf[32];
     int totalPages = (g_count + g_perPage - 1) / g_perPage;
-    swprintf(pageBuf, 32, L"[%d/%d]", g_page + 1, totalPages);
+    const int radius = Popup_Scale(8, g_dpi);
+
+    // 머리줄: 바꾸는 것(흐림) · (가로면 쪽 표시) · 닫기
     SetTextColor(hdc, col.dim);
-    TextOutW(hdc, TEXT_X, y + 3, pageBuf, (int)wcslen(pageBuf));
+    RECT ht = { TEXT_X, 0, rc.right - XBTN_SZ - Popup_Scale(10, g_dpi), HDR_H };
+    DrawTextW(hdc, g_title, -1, &ht, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SetRect(&g_rcClose, rc.right - XBTN_SZ - Popup_Scale(8, g_dpi), 0, rc.right, HDR_H);
+    DrawTextW(hdc, L"\x2715", 1, &g_rcClose, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ✕
 
-    // 우상단 닫기(X) 버튼 — 키보드가 막혀도 마우스로 탈출 가능
-    SetTextColor(hdc, col.accent);
-    TextOutW(hdc, rc.right - XBTN_SZ, 2, L"\x2715", 1);   // ✕
+    wchar_t pageBuf[32];
+    swprintf(pageBuf, 32, L"%d/%d", g_page + 1, totalPages);
+    SIZE ps = {0}; GetTextExtentPoint32W(hdc, pageBuf, (int)wcslen(pageBuf), &ps);
+    int arrowW = TextW(hdc, L"\x25C0") + Popup_Scale(10, g_dpi);
+    // 쪽 표시 자리: 세로 = 아래 줄 가운데, 가로 = 머리줄 오른쪽(닫기 왼쪽)
+    int py0, py1, pcx;
+    if (g_horizontal) { py0 = 0; py1 = HDR_H; pcx = g_rcClose.left - Popup_Scale(8, g_dpi) - arrowW - ps.cx / 2; }
+    else { py0 = rc.bottom - FOOT_H; py1 = rc.bottom; pcx = rc.right / 2; }
+    SetRect(&g_rcPrev, pcx - ps.cx / 2 - arrowW, py0, pcx - ps.cx / 2, py1);
+    SetRect(&g_rcNext, pcx + ps.cx / 2, py0, pcx + ps.cx / 2 + arrowW, py1);
+    RECT pr = { pcx - ps.cx / 2, py0, pcx + ps.cx / 2 + 1, py1 };
+    SetTextColor(hdc, col.dim);
+    DrawTextW(hdc, pageBuf, -1, &pr, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+    SetTextColor(hdc, g_page > 0 ? col.accent : col.border);
+    DrawTextW(hdc, L"\x25C0", 1, &g_rcPrev, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ◀
+    SetTextColor(hdc, g_page < totalPages - 1 ? col.accent : col.border);
+    DrawTextW(hdc, L"\x25B6", 1, &g_rcNext, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ▶
 
+    if (g_horizontal) {   // 가로 후보줄: 한 줄에 아홉
+        int x = Popup_Scale(4, g_dpi), y = HDR_H;
+        for (int i = start; i < end; i++) {
+            int k = i - start;
+            wchar_t num[4]; swprintf(num, 4, L"%d", k + 1);
+            SelectObject(hdc, g_candFont);
+            int nw = TextW(hdc, num), cw = TextW(hdc, g_candidates[i] ? g_candidates[i] : L"");
+            SetRect(&g_cell[k], x, y, x + Popup_Scale(8, g_dpi) + nw + Popup_Scale(4, g_dpi) + cw + Popup_Scale(8, g_dpi), y + ROW_H);
+            if (k == g_sel) FillRoundRect(hdc, &g_cell[k], col.selBg, radius);
+            else if (k == g_hover) FillRoundRect(hdc, &g_cell[k], col.hoverBg, radius);
+            int tx = g_cell[k].left + Popup_Scale(8, g_dpi), ty = y + (ROW_H - FONT_PX) / 2 - 1;
+            SetTextColor(hdc, k == g_sel ? col.accent : col.dim);
+            TextOutW(hdc, tx, ty, num, (int)wcslen(num));
+            SetTextColor(hdc, k == g_sel ? col.selText : col.text);
+            TextOutW(hdc, tx + nw + Popup_Scale(4, g_dpi), ty, g_candidates[i] ? g_candidates[i] : L"", (int)wcslen(g_candidates[i] ? g_candidates[i] : L""));
+            x = g_cell[k].right + Popup_Scale(2, g_dpi);
+        }
+    } else {   // 세로: 번호 · 후보 · 주석 (맞춘 칸)
+        PageMetrics m = MeasurePage(hdc);
+        int xNum = TEXT_X, xCand = xNum + m.numW + Popup_Scale(10, g_dpi), xNote = xCand + m.candW + GAP;
+        g_rowsTop = HDR_H;
+        int y = g_rowsTop;
+        for (int i = start; i < end; i++) {
+            int k = i - start;
+            RECT row = { Popup_Scale(4, g_dpi), y + 1, rc.right - Popup_Scale(4, g_dpi), y + ROW_H - 1 };
+            if (k == g_sel) {
+                FillRoundRect(hdc, &row, col.selBg, radius);
+                RECT bar = { row.left + Popup_Scale(1, g_dpi), row.top + ROW_H / 4, row.left + Popup_Scale(4, g_dpi), row.bottom - ROW_H / 4 };
+                FillRoundRect(hdc, &bar, col.accent, Popup_Scale(3, g_dpi));   // 강조색 막대
+            } else if (k == g_hover) FillRoundRect(hdc, &row, col.hoverBg, radius);
+            wchar_t num[4]; swprintf(num, 4, L"%d", k + 1);
+            SelectObject(hdc, g_candFont);
+            int ty = y + (ROW_H - FONT_PX) / 2 - 1;
+            SetTextColor(hdc, k == g_sel ? col.accent : col.dim);
+            TextOutW(hdc, xNum, ty, num, (int)wcslen(num));
+            const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
+            SetTextColor(hdc, k == g_sel ? col.selText : col.text);
+            TextOutW(hdc, xCand, ty, cand, (int)wcslen(cand));
+            wchar_t note[96]; CandNote(i, note, 96);
+            if (note[0]) {
+                SelectObject(hdc, g_candFont);
+                SetTextColor(hdc, col.dim);
+                TextOutW(hdc, xNote, y + (ROW_H - NOTE_PX) / 2, note, (int)wcslen(note));
+            }
+            y += ROW_H;
+        }
+    }
     SelectObject(hdc, hOldFont);
 }
 
@@ -204,7 +345,7 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
 // 그래도 안 되면 작업영역 하단에 맞춘다(가장자리에서 후보창이 잘리던 실기 2026-07-24).
 static void PlaceCandWindow(void) {
     if (!g_hwndCandi) return;
-    int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
+    int h = CandWindowHeight();
     int x = g_anchorX, y = g_anchorY;
     Popup_ClampToMonitor(g_anchorTop, g_winW, h, &x, &y);   // 작업영역 클램프 (세 팝업 공통, W2-03)
     SetWindowPos(g_hwndCandi, HWND_TOPMOST, x, y, g_winW, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -247,6 +388,18 @@ static void RemoveKbHook(void) {
 }
 
 
+// 마우스가 가리키는 후보 (페이지 안 자리), 없으면 -1
+static int HitItem(POINT pt) {
+    int n = PageItemCount();
+    if (g_horizontal) {
+        for (int k = 0; k < n && k < 9; k++) if (PtInRect(&g_cell[k], pt)) return k;
+        return -1;
+    }
+    if (pt.y < g_rowsTop) return -1;
+    int k = (pt.y - g_rowsTop) / ROW_H;
+    return (k >= 0 && k < n) ? k : -1;
+}
+
 static bool g_inHide = false;   // 우리 Hide 가 부수는 중인가 (소유자 파괴로 끌려가는 경우와 구별)
 
 static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -266,16 +419,38 @@ static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             EndPaint(hwnd, &ps);
             return 0;
         }
-        case WM_LBUTTONDOWN: {   // 마우스: X=취소, 항목 줄=선택 (키보드 없이도 탈출/선택 가능)
-            int mx = (short)LOWORD(lParam), my = (short)HIWORD(lParam);
-            RECT rc; GetClientRect(hwnd, &rc);
-            if (mx >= rc.right - XBTN_SZ - 4 && my <= XBTN_SZ + 4) {   // X 버튼
+        case WM_LBUTTONDOWN: {   // 마우스: 닫기=취소, ◀ ▶=쪽, 후보=선택 (키보드 없이도 탈출/선택 가능)
+            POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+            if (PtInRect(&g_rcClose, pt)) {
                 if (g_onCancel) g_onCancel(g_ctx);
                 CandidateUI_Hide();
                 return 0;
             }
-            int row = (my - PAD_TOP) / ROW_H;                           // 항목 줄 클릭 → 선택
-            if (row >= 0 && row < PageItemCount()) SelectIndex(g_page * g_perPage + row);
+            int totalPages = (g_count + g_perPage - 1) / g_perPage;
+            if (PtInRect(&g_rcPrev, pt)) { if (g_page > 0) { g_page--; g_sel = 0; RefreshCandWindow(); } return 0; }
+            if (PtInRect(&g_rcNext, pt)) { if (g_page < totalPages - 1) { g_page++; g_sel = 0; RefreshCandWindow(); } return 0; }
+            int k = HitItem(pt);
+            if (k >= 0) SelectIndex(g_page * g_perPage + k);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {     // 올린 줄을 옅게 (RFC-0020 P2)
+            POINT pt = { (short)LOWORD(lParam), (short)HIWORD(lParam) };
+            int k = HitItem(pt);
+            if (!g_tracking) { TRACKMOUSEEVENT t = { sizeof t, TME_LEAVE, hwnd, 0 }; g_tracking = TrackMouseEvent(&t) != 0; }
+            if (k != g_hover) { g_hover = k; InvalidateRect(hwnd, NULL, FALSE); }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+            g_tracking = false;
+            if (g_hover != -1) { g_hover = -1; InvalidateRect(hwnd, NULL, FALSE); }
+            return 0;
+        case WM_MOUSEWHEEL: {    // 휠이 우리 창에 오면 쪽을 넘긴다. 휠은 보통 포커스 창(응용)으로 가고, 전역 마우스 훅은
+                                 //   쓰지 않는다(B10 — 모든 앱에 실리는 입력기가 데스크톱의 마우스를 가로채면 안 된다).
+                                 //   그래서 쪽 넘김은 ◀ ▶ 단추와 글쇠(PgUp/PgDn, - =)가 몫이다.
+            int totalPages = (g_count + g_perPage - 1) / g_perPage;
+            short delta = (short)HIWORD(wParam);
+            if (delta < 0 && g_page < totalPages - 1) { g_page++; g_sel = 0; RefreshCandWindow(); }
+            else if (delta > 0 && g_page > 0) { g_page--; g_sel = 0; RefreshCandWindow(); }
             return 0;
         }
         case CANDMSG_HOOKKEY:   // 저수준 훅이 차단·전달한 탐색 키 (PuTTY류 키 라우팅 폴백)
@@ -295,6 +470,7 @@ bool CandidateUI_Initialize(void) {
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.lpszClassName = L"JamotongCandidateUI";
+    wc.style = CS_DROPSHADOW;   // 그림자 (RFC-0020 P2)
     return Jamo_EnsureClass(&wc);   // W2-05
 }
 
@@ -322,7 +498,7 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
     g_ownDraw = UiElem_BeginCandidate() ? true : false;   // 호스트가 그린다면 우리 창·훅 생략
     JamoDiag("CAND show ownDraw=%d x=%d y=%d", (int)g_ownDraw, x, y);
     if (g_ownDraw) {
-        int h = (g_perPage + 1) * ROW_H + PAD_TOP * 2 + 4;
+        int h = CandWindowHeight();
         if (!g_hwndCandi) {
             // RFC-0008 W1-08: 소유자 = 이 스레드의 포커스 창의 최상위 창(GetFocus 는 호출 스레드 큐 기준이라
             // 다른 스레드 창과 입력 큐가 묶일 일이 없다). 소유자가 없으면 예전처럼 소유자 없는 팝업.
@@ -332,7 +508,7 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
             HWND owner = focus ? GetAncestor(focus, GA_ROOT)
                                : (g_viewWnd && IsWindow(g_viewWnd) ? GetAncestor(g_viewWnd, GA_ROOT) : NULL);
             g_hwndCandi = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                L"JamotongCandidateUI", L"", WS_POPUP | WS_BORDER,
+                L"JamotongCandidateUI", L"", WS_POPUP,   // 테두리는 DWM(둥근 모서리) 또는 우리가 그린다 (RFC-0020 P2)
                 x, y, g_winW, h, owner, NULL, g_hInst, NULL);
             JamoDiag("CAND create hwnd=%p owner=%p err=%lu", (void*)g_hwndCandi, (void*)owner,
                      (unsigned long)GetLastError());
@@ -350,8 +526,9 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
         if (dpi != g_dpi) {
             g_dpi = dpi;
             if (g_candFont) { DeleteObject(g_candFont); g_candFont = NULL; }
-            g_winW = MeasurePageWidth();
+                g_winW = MeasurePageWidth();
         }
+        { CandColors cc; PickCandColors(&cc); ApplyRoundedCorners(g_hwndCandi, cc.border); }   // Win11 둥근 모서리·테두리
         PlaceCandWindow();   // 모니터 작업영역 클램프(+SHOWWINDOW)
         InvalidateRect(g_hwndCandi, NULL, TRUE);
         InstallKbHook();     // PuTTY류 키 라우팅 폴백 — 자체 창 표시 중에만
@@ -410,6 +587,10 @@ void CandidateUI_Hide(void) {
     g_onKey = NULL;   // 병음 방식은 이 창과 함께 끝난다 — 다음 Show 앞에 다시 정한다
     g_digitsToInput = false;
     g_notes = NULL;
+    g_title[0] = L'\0';
+    g_horizontal = false;
+    g_hover = -1;
+    g_tracking = false;
 }
 
 void CandidateUI_Cancel(void) {
@@ -447,6 +628,8 @@ static void SelectIndex(int realIdx) {
 
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey) { g_onKey = onKey; }
 void CandidateUI_SetDigitsToInput(bool on) { g_digitsToInput = on; }
+void CandidateUI_SetTitle(const wchar_t *title) { lstrcpynW(g_title, title ? title : L"", 64); }
+void CandidateUI_SetHorizontal(bool on) { g_horizontal = on; }
 void CandidateUI_SetNotes(wchar_t **notes) { g_notes = notes; }
 
 // 병음 방식의 글쇠. 처리했으면 true, 입력기에 넘길 글쇠면 false.
@@ -476,6 +659,10 @@ static bool HandlePinyinKey(UINT vKey) {
 bool CandidateUI_HandleKey(UINT vKey) {
     if (!OwnerThreadGuard("HandleKey")) return false;   // 남의 스레드면 이 키는 응용의 것이다 (B5)
     if (!g_hwndCandi) return false;
+    if (g_horizontal) {   // 가로 후보줄: ←→ = 후보 옮기기, ↑↓ = 쪽 (RFC-0020 P2)
+        if (vKey == VK_RIGHT) vKey = VK_DOWN; else if (vKey == VK_LEFT) vKey = VK_UP;
+        else if (vKey == VK_DOWN) vKey = VK_NEXT; else if (vKey == VK_UP) vKey = VK_PRIOR;
+    }
     if (g_onKey) {
         bool nav = vKey == VK_UP || vKey == VK_DOWN || vKey == VK_LEFT || vKey == VK_RIGHT || vKey == VK_PRIOR || vKey == VK_NEXT;
         if (!nav) return HandlePinyinKey(vKey);
