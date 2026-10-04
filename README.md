@@ -29,7 +29,9 @@ All versions and release notes: [Releases](https://github.com/rubidus-api/jamoto
   MSI, off by default — tick them on the features page, or add `ADDLOCAL=ZhSimplified,ZhTraditional,Japanese`
   to a silent install (`ADDLOCAL=ALL` for everything). Add or remove them later with **Installed apps ▸
   Jamotong ▸ Modify ▸ Change**. The separate Chinese pack MSIs of 0.62–0.69 are removed by the upgrade, and a
-  pack you had installed stays installed as its feature.
+  pack you had installed stays installed as its feature. If you used the old Japanese zip pack (0.49), delete its
+  `japanese.jmt` (and `japanese.*.jmb`) from `%APPDATA%\Jamotong\layouts`: a layout of yours with the same name
+  takes the place of the installed one, so the old Japanese would stay.
 - **The zip**: the same files without an installer, for people who place and register them by hand
   (see [Install](#install)). `install.bat` and `uninstall.bat` are gone as of 0.61.0.
 
