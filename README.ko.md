@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.70.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-chinese-simplified-0.70.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-chinese-traditional-0.70.0.msi)
+**한국어** | [English](README.md) — **Jamotong v0.70.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip)
 
 # Jamotong (자모통)
 
