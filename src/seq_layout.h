@@ -79,6 +79,10 @@ typedef struct SeqLayout {
     int      convertVk;          // 변환 글쇠 (VK_*), 0 = 없음
     int      zh;                 // SEQ_ZH_* (중국어 병음 방식, 구운 자판 판 7)
     int      ja;                 // 일본어 방식 (구운 자판 판 10)
+    // 연결 비용 (RFC-0022, 자판 파일 `Connection = 표.jdc`, 구운 자판 판 11): 후보 사전에 품사가 있으면 일본어 문장을
+    //   Mozc 처럼 낱말 비용 + 품사 사이의 연결 비용으로 가른다(래티스). 없으면 0.70.0 의 방식.
+    wchar_t  connFile[64];
+    JConn   *conn;
     // 쌍병 글쇠 표 (구운 자판 판 8). scheme = 0 이면 Dictionary, k 면 schemeDict[k-1] 이 친 글쇠를 읽기로 바꾼다.
     int      nScheme;
     wchar_t  schemeName[SEQ_MAX_SCHEMES][16];

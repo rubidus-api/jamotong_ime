@@ -189,6 +189,7 @@ static bool ReadSeq(Rd *r, const wchar_t *jmbPath, LayoutConfig *out, JLayError 
     GetStr(r, sl->toneFile, 64);          // 판 9
     sl->ja = GetI32(r);                   // 판 10
     if (sl->ja < 0 || sl->ja > 1 || (sl->ja && sl->zh)) r->bad = true;
+    GetStr(r, sl->connFile, 64);          // 판 11
     unsigned hasChord = Get32(r);
     if (r->bad || !sl->dictFile[0]) { free(sl); return false; }
     if (hasChord) {                       // 앞단 조합 인식기 (§6.3)

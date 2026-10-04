@@ -15,7 +15,7 @@
 
 typedef struct { char key[JDICT_MAX_KEY_CANDIDATES + 1]; int klen;
                  wchar_t val[JDICT_MAX_VALUE + 1]; int vlen; int line;
-                 int cost; } Row;   // cost: 후보 사전의 셋째 칸 (판 3), 없으면 -1
+                 int cost; int lid, rid; } Row;   // cost: 후보 사전의 셋째 칸 (판 3), 없으면 -1. lid·rid: 품사 (판 4), 없으면 -1
 
 static void Fail(JDictBuildResult *r, int line, const wchar_t *code, const wchar_t *msg, const wchar_t *help) {
     r->line = line;
@@ -265,9 +265,29 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
         const wchar_t *why = NULL;
         // 후보 사전은 셋째 칸에 비용을 둘 수 있다 (판 3): 읽기<탭>표기<탭>비용, 0..65535, 작을수록 흔하다
         row->cost = -1;
+        row->lid = row->rid = -1;
         char *tab2 = strchr(tab + 1, '\t');
         if (tab2) {
             *tab2 = '\0';
+            // 판 4 (RFC-0022): 비용 뒤에 왼쪽·오른쪽 품사 id 두 칸 (Mozc 의 lid·rid) — 연결 비용으로 문장을 가른다
+            char *tab3 = strchr(tab2 + 1, '\t');
+            if (tab3) {
+                *tab3 = '\0';
+                char *tab4 = strchr(tab3 + 1, '\t');
+                long l = -1, r = -1;
+                if (tab4) {
+                    *tab4 = '\0';
+                    char *e1 = NULL, *e2 = NULL;
+                    l = strtol(tab3 + 1, &e1, 10); r = strtol(tab4 + 1, &e2, 10);
+                    if (e1 == tab3 + 1 || *e1 || e2 == tab4 + 1 || *e2) l = r = -1;
+                }
+                if (kind != JDICT_KIND_CANDIDATES || l < 0 || l > 65535 || r < 0 || r > 65535) {
+                    Fail(res, lineno, L"E-DICT-ROW", L"the fourth and fifth fields are part-of-speech ids: whole numbers 0..65535",
+                         L"candidates: <reading> TAB <output> TAB <cost> [TAB <left id> TAB <right id>]");
+                    ok = false; break;
+                }
+                row->lid = (int)l; row->rid = (int)r;
+            }
             const char *c = tab2 + 1;
             long cv = 0; int digits = 0;
             for (; *c >= '0' && *c <= '9' && cv <= JDICT_MAX_COST; c++, digits++) cv = cv * 10 + (*c - '0');
@@ -315,6 +335,20 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
                 ok = false; break;
             }
     }
+    // 품사도 전부 있거나 전부 없거나, 그리고 비용과 함께만 (판 4)
+    bool pos = false;
+    if (ok && costs && nrows > 0) {
+        pos = rows[0].lid >= 0;
+        for (int i = 1; i < nrows; i++)
+            if ((rows[i].lid >= 0) != pos) {
+                Fail(res, rows[i].line, L"E-DICT-ROW", L"some rows have part-of-speech ids and some do not",
+                     L"give every row both ids, or none");
+                ok = false; break;
+            }
+    } else if (ok && nrows > 0 && rows[0].lid >= 0) {
+        Fail(res, rows[0].line, L"E-DICT-ROW", L"part-of-speech ids need a cost", L"<reading> TAB <output> TAB <cost> TAB <left id> TAB <right id>");
+        ok = false;
+    }
     unsigned keyBytes = 0, valBytes = 0, maxK = 0, maxV = 0;
     if (ok) {
         for (int i = 0; i < nrows; i++) {
@@ -334,7 +368,8 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     unsigned offMeta  = offVals + valBytes;
     unsigned metaLen  = 2u + (unsigned)wcslen(name) * 2u + 2u + (unsigned)wcslen(license) * 2u + 2u + (unsigned)wcslen(version) * 2u;
     unsigned offCosts = offMeta + metaLen;            // 판 3: 꼬리 뒤 (짝수 자리 — 위가 모두 2바이트 단위다)
-    unsigned total    = offCosts + (costs ? (unsigned)nrows * 2u : 0u);
+    unsigned offPos   = offCosts + (costs ? (unsigned)nrows * 2u : 0u);   // 판 4: 비용 뒤에 항목마다 lid·rid
+    unsigned total    = offPos + (pos ? (unsigned)nrows * 4u : 0u);
 
     unsigned char *buf = (unsigned char *)calloc(1, total);
     if (!buf) { free(rows); Fail(res, 0, L"E-DICT-MEMORY", L"out of memory", NULL); return false; }
@@ -343,7 +378,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     // 그 파일이 정말 필요로 하는 판만 적는다 — 32바이트를 넘는 키가 없으면 판 1 이라, 옛 자모통도
     // 이 사전을 그대로 읽는다. 넘는 키가 있으면 판 2 이고 옛 자모통은 분명히 거절한다.
     //   비용을 실으면 판 3 이다.
-    Wr32(buf + 8, costs ? 3u : maxK > (unsigned)JDICT_MAX_KEY ? 2u : 1u);
+    Wr32(buf + 8, pos ? 4u : costs ? 3u : maxK > (unsigned)JDICT_MAX_KEY ? 2u : 1u);
     Wr32(buf + 12, (unsigned)kind);
     Wr32(buf + 16, (unsigned)nrows);
     Wr32(buf + 20, offIndex);
@@ -353,7 +388,7 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     Wr32(buf + 36, valBytes);
     Wr32(buf + 40, maxK);
     Wr32(buf + 44, maxV);
-    Wr32(buf + 48, (kind == JDICT_KIND_SEQUENCE ? JDICT_FLAG_ASCII_KEYS : 0u) | (costs ? JDICT_FLAG_COSTS : 0u));
+    Wr32(buf + 48, (kind == JDICT_KIND_SEQUENCE ? JDICT_FLAG_ASCII_KEYS : 0u) | (costs ? JDICT_FLAG_COSTS : 0u) | (pos ? JDICT_FLAG_POS : 0u));
     Wr32(buf + 56, total);
 
     unsigned ko = 0, vo = 0;
@@ -379,6 +414,11 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     }
     if (costs)
         for (int i = 0; i < nrows; i++) Wr16(buf + offCosts + (unsigned)i * 2u, (unsigned)rows[i].cost);
+    if (pos)
+        for (int i = 0; i < nrows; i++) {
+            Wr16(buf + offPos + (unsigned)i * 4u, (unsigned)rows[i].lid);
+            Wr16(buf + offPos + (unsigned)i * 4u + 2u, (unsigned)rows[i].rid);
+        }
     Wr32(buf + 52, JDict_Crc32(buf + JD_HEADER_BYTES, total - JD_HEADER_BYTES));
 
     FILE *out = _wfopen(outPath, L"wb");
@@ -395,4 +435,45 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
     free(buf);
     free(rows);
     return wrote;
+}
+
+// ── 연결 비용 파일 (.jdc, RFC-0022) ───────────────────────────────────────────────────
+bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDictBuildResult *res) {
+    memset(res, 0, sizeof *res);
+    if (step < 1 || step > 1024) { Fail(res, 0, L"E-CONN-STEP", L"the step must be 1..1024", NULL); return false; }
+    FILE *fp = _wfopen(srcPath, L"rb");
+    if (!fp) { Fail(res, 0, L"E-CONN-OPEN", L"cannot open the connection table", NULL); return false; }
+    long n = -1;
+    if (fscanf(fp, "%ld", &n) != 1 || n < 1 || n > 8192) {
+        fclose(fp);
+        Fail(res, 1, L"E-CONN-SIZE", L"the first line must be the number of ids (1..8192)", L"Mozc's connection_single_column.txt");
+        return false;
+    }
+    size_t cells = (size_t)n * (size_t)n, total = 32 + cells;
+    unsigned char *buf = (unsigned char *)calloc(1, total);
+    if (!buf) { fclose(fp); Fail(res, 0, L"E-CONN-MEMORY", L"out of memory", NULL); return false; }
+    for (size_t i = 0; i < cells; i++) {
+        long v;
+        if (fscanf(fp, "%ld", &v) != 1 || v < 0) {
+            free(buf); fclose(fp);
+            Fail(res, (int)(i + 2), L"E-CONN-ROW", L"the table ends early or holds a value that is not a cost", NULL);
+            return false;
+        }
+        long q = v / step;
+        buf[32 + i] = (unsigned char)(q > 255 ? 255 : q);
+    }
+    fclose(fp);
+    memcpy(buf, "JMTCONN\0", 8);
+    Wr32(buf + 8, 1u);
+    Wr32(buf + 12, (unsigned)n);
+    Wr32(buf + 16, (unsigned)step);
+    Wr32(buf + 20, JDict_Crc32(buf + 32, (unsigned long)cells));
+    Wr32(buf + 24, (unsigned)total);
+    FILE *out = _wfopen(outPath, L"wb");
+    bool wrote = out && fwrite(buf, 1, total, out) == total;
+    if (out) wrote = (fclose(out) == 0) && wrote;
+    free(buf);
+    if (!wrote) { _wremove(outPath); Fail(res, 0, L"E-CONN-WRITE", L"cannot write the connection file", NULL); return false; }
+    res->count = (int)n;
+    return true;
 }

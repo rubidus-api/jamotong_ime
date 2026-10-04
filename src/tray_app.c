@@ -685,7 +685,7 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, PWSTR cmd, int show) {
     if (cmd && wcsstr(cmd, L"--ui-server")) return UiServer_Run(hI);
     if (cmd && (wcsstr(cmd, L"--check") || wcsstr(cmd, L"--export") || wcsstr(cmd, L"--expand")
                 || wcsstr(cmd, L"--build") || wcsstr(cmd, L"--import-dict") || wcsstr(cmd, L"--import-klc")
-                || wcsstr(cmd, L"--import-ngs"))) {
+                || wcsstr(cmd, L"--import-ngs") || wcsstr(cmd, L"--build-conn"))) {
         int rc = RunCli();   // 창·트레이 없이 명령만 하고 끝난다
         if (rc >= 0) return rc;
     }

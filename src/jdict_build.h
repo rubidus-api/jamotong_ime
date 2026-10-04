@@ -26,3 +26,6 @@ typedef struct JDictBuildResult {
 
 // 원본을 구워 outPath 에 쓴다. 실패하면 false 이고 산출물을 남기지 않는다(반쯤 구운 파일 금지).
 bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResult *res);
+// 연결 비용 파일 (.jdc, RFC-0022): Mozc 의 connection_single_column.txt(첫 줄 N, 그 뒤 N×N 줄의 비용, [rid][lid] 차례)를
+//   한 칸 1바이트(비용 / step, 255 까지)로 굽는다.
+bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDictBuildResult *res);

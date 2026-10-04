@@ -122,6 +122,7 @@ static void WriteSeq(Buf *b, const SeqLayout *sl) {
     for (int i = 0; i < sl->nScheme; i++) { PutStr(b, sl->schemeName[i]); PutStr(b, sl->schemeFile[i]); }
     PutStr(b, sl->toneFile);                           // 판 9: 성조 병음 사전 (없으면 빈 문자열)
     Put32(b, (unsigned)sl->ja);                        // 판 10: 일본어 방식
+    PutStr(b, sl->connFile);                           // 판 11: 연결 비용 표 (없으면 빈 문자열, RFC-0022)
     Put32(b, sl->chord ? 1u : 0u);                     // 앞단 조합 인식기가 있는가 (§6.3)
     if (sl->chord) WriteChord(b, (const ChordLayout *)sl->chord);
 }

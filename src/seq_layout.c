@@ -536,6 +536,92 @@ static void AddPredict(SeqCandidates *out, const SeqLayout *sl, const int *idx, 
     }
 }
 
+// ── 일본어 래티스 (RFC-0022) ─────────────────────────────────────────────────────────────
+//   끝 자리마다 가장 싼 노드 JA_BEAM 개. 노드 = (지금까지 비용, 오른쪽 품사, 시작, 앞 노드, 사전 자리). 낱말은 JA_MAXSEG 글자까지,
+//   한 조각에서 앞의 JA_SEG_CANDS 개(싼 차례)만 본다. 사전에 없는 한 글자는 일반 명사(Mozc id 1851)로 비싸게 지나간다.
+//   실제 사전으로 맞춘 값: 50문장에서 빔 10·1바이트 연결표로도 무제한과 같다(tools/ja/ja_lattice_proto.py).
+#define JA_BEAM       10
+#define JA_MAXSEG     16
+#define JA_SEG_CANDS  48
+#define JA_UNK_ID     1851
+#define JA_UNK_COST   10000
+typedef struct { int cost, rid, start, prev, idx; } JaNode;
+static JaNode g_jaNodes[(SEQ_MAX_READING + 1) * JA_BEAM];   // 입력 스레드 하나가 쓴다
+static int g_jaCount[SEQ_MAX_READING + 1];
+static void JaPut(int j, int cost, int rid, int start, int prev, int idx) {
+    JaNode *b = &g_jaNodes[j * JA_BEAM];
+    int k = g_jaCount[j];
+    if (k < JA_BEAM) { g_jaCount[j] = k + 1; }
+    else {
+        int w = 0;
+        for (int i = 1; i < JA_BEAM; i++) if (b[i].cost > b[w].cost) w = i;
+        if (cost >= b[w].cost) return;
+        k = w;
+    }
+    b[k].cost = cost; b[k].rid = rid; b[k].start = start; b[k].prev = prev; b[k].idx = idx;
+}
+static bool JaLattice(const SeqLayout *sl, const wchar_t *r, int n, wchar_t *out, int *firstLen, int *segs) {
+    if (n <= 0 || n > SEQ_MAX_READING) return false;
+    for (int j = 0; j <= n; j++) g_jaCount[j] = 0;
+    JaPut(0, 0, 0, 0, -1, -2);                                // 문장 앞 (BOS, id 0)
+    for (int i = 0; i < n; i++) {
+        if (!g_jaCount[i]) continue;
+        for (int j = i + 1; j <= n && j - i <= JA_MAXSEG; j++) {
+            wchar_t seg[JA_MAXSEG + 1];
+            wmemcpy(seg, r + i, (size_t)(j - i)); seg[j - i] = 0;
+            int first = 0, count = 0;
+            bool have = JDict_Candidates(sl->cand, seg, &first, &count);
+            if (!have && j != i + 1) continue;
+            int m = have ? (count < JA_SEG_CANDS ? count : JA_SEG_CANDS) : 1;
+            for (int e = 0; e < m; e++) {
+                int lid = JA_UNK_ID, rid = JA_UNK_ID, c = JA_UNK_COST, idx = -1;
+                if (have) {
+                    idx = first + e;
+                    if (!JDict_PosAt(sl->cand, idx, &lid, &rid)) continue;
+                    c = JDict_CostAt(sl->cand, idx);
+                    if (c < 0) c = JA_UNK_COST;
+                }
+                int best = -1, bestCost = 0x3FFFFFFF;
+                for (int k = 0; k < g_jaCount[i]; k++) {
+                    const JaNode *p = &g_jaNodes[i * JA_BEAM + k];
+                    int t = p->cost + JConn_Cost(sl->conn, p->rid, lid) + c;
+                    if (t < bestCost) { bestCost = t; best = i * JA_BEAM + k; }
+                }
+                if (best >= 0) JaPut(j, bestCost, rid, i, best, idx);
+            }
+        }
+    }
+    int end = -1, endCost = 0x7FFFFFFF;                       // 문장 끝 (EOS, id 0)
+    for (int k = 0; k < g_jaCount[n]; k++) {
+        const JaNode *p = &g_jaNodes[n * JA_BEAM + k];
+        int t = p->cost + JConn_Cost(sl->conn, p->rid, 0);
+        if (t < endCost) { endCost = t; end = n * JA_BEAM + k; }
+    }
+    if (end < 0) return false;
+    int chain[SEQ_MAX_READING + 1], nc = 0;
+    for (int x = end; x >= 0 && g_jaNodes[x].idx != -2 && nc <= SEQ_MAX_READING; x = g_jaNodes[x].prev) chain[nc++] = x;
+    out[0] = 0;
+    int pos = 0;
+    for (int k = nc - 1; k >= 0; k--) {
+        const JaNode *p = &g_jaNodes[chain[k]];
+        int segEnd = (int)(p - g_jaNodes) / JA_BEAM;
+        wchar_t val[SEQ_MAX_OUT + 1];
+        if (p->idx >= 0) {
+            const jdchar *v = NULL; int vn = 0;
+            if (!JDict_CandidateAt(sl->cand, p->idx, &v, &vn) || JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) < 0) return false;
+        } else {
+            wmemcpy(val, r + p->start, (size_t)(segEnd - p->start)); val[segEnd - p->start] = 0;
+        }
+        size_t have = wcslen(out), add = wcslen(val);
+        if (have + add > SEQ_MAX_OUT) return false;
+        wcscpy(out + have, val);
+        if (k == nc - 1) *firstLen = segEnd < n ? segEnd : 0;
+        pos = segEnd;
+    }
+    *segs = nc;
+    return pos == n && out[0];
+}
+
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {
     return SeqKb_ConvertEx(st, sl, SEQ_CONV_ALL, out);
 }
@@ -595,43 +681,56 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
         out->count += PhrasesFor((SeqLayout *)sl, key, out->items + out->count, SEQ_MAX_CANDS - out->count);
         for (int i = 0; i < out->count; i++) out->consumed[i] = n;
     }
-    enum { SEG_PENALTY = 100, NOCOST_SEG = 1000, INF = 0x3FFFFFFF };
-    int best[SEQ_MAX_READING + 1], back[SEQ_MAX_READING + 1], pick[SEQ_MAX_READING + 1];
-    best[0] = 0;
-    for (int j = 1; j <= n; j++) {
-        best[j] = INF; back[j] = -1; pick[j] = -1;
-        if (sl->zh && st->reading[j - 1] == SEQ_SEPARATOR) {   // 끊기는 값 없이 건넌다
-            best[j] = best[j - 1]; back[j] = j - 1; pick[j] = -2;
-            continue;
-        }
-        for (int i = 0; i < j; i++) {
-            if (best[i] >= INF) continue;
-            int idx = SegPick(sl, st->reading + i, j - i, bare, flags);
-            if (idx < 0) continue;
-            int c = sl->ja ? g_jaPickCost : JDict_CostAt(sl->cand, idx);
-            if (c < 0) c = NOCOST_SEG;
-            int total = best[i] + c + (sl->ja ? JA_SEG_PENALTY : SEG_PENALTY);
-            if (total < best[j]) { best[j] = total; back[j] = i; pick[j] = idx; }
-        }
-    }
     int firstSegLen = 0;   // 가장 그럴듯한 길의 첫 낱말이 쓰는 읽기 길이 (길이 없으면 0)
-    if (best[n] < INF) {
-        int cutEnd[SEQ_MAX_READING + 1], cutIdx[SEQ_MAX_READING + 1], nc = 0;
-        for (int j = n; j > 0; j = back[j]) if (pick[j] != -2) { cutEnd[nc] = j; cutIdx[nc] = pick[j]; nc++; }
-        if (nc > 0) firstSegLen = cutEnd[nc - 1];
-        if (nc >= 2 && (flags & SEQ_CONV_SENTENCE) && out->count < SEQ_MAX_CANDS) {   // 2) 문장 후보
-            wchar_t *sent = out->items[out->count];
-            sent[0] = L'\0';
-            bool fits = true;
-            for (int k = nc - 1; k >= 0 && fits; k--) {
-                wchar_t val[SEQ_MAX_OUT + 1];
-                const jdchar *v = NULL; int vn = 0;
-                fits = JDict_CandidateAt(sl->cand, cutIdx[k], &v, &vn)
-                       && JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) >= 0
-                       && wcslen(sent) + wcslen(val) <= SEQ_MAX_OUT;
-                if (fits) wcscat(sent, val);
+    if (sl->ja && sl->conn && JDict_HasPos(sl->cand)) {
+        // 일본어 + 연결 비용 (RFC-0022): Mozc 처럼 품사 사이의 비용까지 더한 래티스. 길이 낱말 하나여도 그 낱말을 맨 앞에 —
+        //   읽기 전체의 후보 차례(낱말 비용만)보다 문맥(문장 앞뒤)을 본 고름이 낫다.
+        wchar_t sent[SEQ_MAX_OUT + 1];
+        int segs = 0;
+        if (JaLattice(sl, st->reading, n, sent, &firstSegLen, &segs)
+            && (segs == 1 || (flags & SEQ_CONV_SENTENCE)) && out->count < SEQ_MAX_CANDS) {
+            bool dup = false;
+            for (int i = 0; i < out->count; i++) if (!wcscmp(out->items[i], sent)) dup = true;
+            if (!dup) { lstrcpynW(out->items[out->count], sent, SEQ_MAX_OUT + 1); out->consumed[out->count++] = n; }
+        }
+    } else {
+        enum { SEG_PENALTY = 100, NOCOST_SEG = 1000, INF = 0x3FFFFFFF };
+        int best[SEQ_MAX_READING + 1], back[SEQ_MAX_READING + 1], pick[SEQ_MAX_READING + 1];
+        best[0] = 0;
+        for (int j = 1; j <= n; j++) {
+            best[j] = INF; back[j] = -1; pick[j] = -1;
+            if (sl->zh && st->reading[j - 1] == SEQ_SEPARATOR) {   // 끊기는 값 없이 건넌다
+                best[j] = best[j - 1]; back[j] = j - 1; pick[j] = -2;
+                continue;
             }
-            if (fits && sent[0]) out->consumed[out->count++] = n;
+            for (int i = 0; i < j; i++) {
+                if (best[i] >= INF) continue;
+                int idx = SegPick(sl, st->reading + i, j - i, bare, flags);
+                if (idx < 0) continue;
+                int c = sl->ja ? g_jaPickCost : JDict_CostAt(sl->cand, idx);
+                if (c < 0) c = NOCOST_SEG;
+                int total = best[i] + c + (sl->ja ? JA_SEG_PENALTY : SEG_PENALTY);
+                if (total < best[j]) { best[j] = total; back[j] = i; pick[j] = idx; }
+            }
+        }
+        if (best[n] < INF) {
+            int cutEnd[SEQ_MAX_READING + 1], cutIdx[SEQ_MAX_READING + 1], nc = 0;
+            for (int j = n; j > 0; j = back[j]) if (pick[j] != -2) { cutEnd[nc] = j; cutIdx[nc] = pick[j]; nc++; }
+            if (nc > 0) firstSegLen = cutEnd[nc - 1];
+            if (nc >= 2 && (flags & SEQ_CONV_SENTENCE) && out->count < SEQ_MAX_CANDS) {   // 2) 문장 후보
+                wchar_t *sent = out->items[out->count];
+                sent[0] = L'\0';
+                bool fits = true;
+                for (int k = nc - 1; k >= 0 && fits; k--) {
+                    wchar_t val[SEQ_MAX_OUT + 1];
+                    const jdchar *v = NULL; int vn = 0;
+                    fits = JDict_CandidateAt(sl->cand, cutIdx[k], &v, &vn)
+                           && JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) >= 0
+                           && wcslen(sent) + wcslen(val) <= SEQ_MAX_OUT;
+                    if (fits) wcscat(sent, val);
+                }
+                if (fits && sent[0]) out->consumed[out->count++] = n;
+            }
         }
     }
     // 3) 그다음: 읽기 전체의 후보 앞의 몇 개 → 추천 단어 몇 개(첫 쪽에 보이게) → 읽기 전체의 나머지 → 남은 추천 단어
@@ -1089,6 +1188,32 @@ static bool CheckPresent(const wchar_t *layoutPath, const wchar_t *file, KlayDia
     KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", msg, L"put it beside the layout file or in the dictionary folder");
     return false;
 }
+// 연결 비용 파일 이름 (.jdc) — 사전 이름과 같은 규칙(경로 구분자·장치명 금지)
+static bool IsSafeConnName(const wchar_t *name) {
+    size_t n = name ? wcslen(name) : 0;
+    if (n < 5 || n >= 64 || _wcsicmp(name + n - 4, L".jdc") != 0) return false;
+    wchar_t alt[64];
+    wcscpy(alt, name);
+    wcscpy(alt + n - 4, L".jdb");
+    return Config_IsSafeDictFileName(alt);
+}
+static bool OpenConn(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
+    if (!sl->connFile[0]) return true;
+    wchar_t full[MAX_PATH];
+    JDictError e = JDICT_OK;
+    JConn *c = NULL;
+    if (IsSafeConnName(sl->connFile) && ResolveDict(layoutPath, sl->connFile, full, MAX_PATH)) c = JConn_Open(full, !g_lazyOpen, &e);
+    if (!c) {
+        wchar_t msg[200];
+        _snwprintf(msg, 200, L"the connection table '%ls' cannot be used", sl->connFile);
+        msg[199] = L'\0';
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-BAD", msg, L"build it with 'jamotong --build-conn'");
+        return false;
+    }
+    if (sl->conn) JConn_Close(sl->conn);
+    sl->conn = c;
+    return true;
+}
 bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag) {
     if (!sl || !sl->dictFile[0]) return false;
     if (!g_lazyOpen) return OpenDictNow(sl, layoutPath, diag);
@@ -1097,6 +1222,14 @@ bool SeqLayout_OpenDict(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
     if (sl->candFile[0] && !CheckPresent(layoutPath, sl->candFile, diag)) return false;
     if (sl->toneFile[0] && !CheckPresent(layoutPath, sl->toneFile, diag)) return false;
     for (int i = 0; i < sl->nScheme; i++) if (!CheckPresent(layoutPath, sl->schemeFile[i], diag)) return false;
+    if (sl->connFile[0]) {   // 연결 비용 파일도 있는지만 본다 (쓸 때 연다)
+        wchar_t full[MAX_PATH];
+        if (!IsSafeConnName(sl->connFile) || !ResolveDict(layoutPath, sl->connFile, full, MAX_PATH)) {
+            KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-DICT-MISSING", L"the connection table was not found",
+                         L"put it beside the layout file or in the dictionary folder");
+            return false;
+        }
+    }
     return true;
 }
 bool SeqLayout_EnsureOpen(SeqLayout *sl) {
@@ -1213,6 +1346,7 @@ static bool OpenDictNow(SeqLayout *sl, const wchar_t *layoutPath, KlayDiag *diag
         if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
         sl->schemeDict[i] = sd;
     }
+    if (!OpenConn(sl, layoutPath, diag)) return false;
     // 내용까지 본다 — 성한 사전만 자판을 세운다. 입력기(쓸 때 열기)는 전수 점검을 하지 않는다(RFC-0020 F3): CRC·순서를 보려고
     //   사전 전체(중국어 12MB)를 앱마다 메모리로 끌어올렸다. 항목의 범위는 읽을 때마다 본다. 전수 점검은 도구가 한다.
     if (g_lazyOpen) return true;
@@ -1254,6 +1388,7 @@ void SeqLayout_Free(SeqLayout *sl) {
     if (sl->chord) ChordLayout_Free((ChordLayout *)sl->chord);
     for (int i = 0; i < sl->nScheme; i++) if (sl->schemeDict[i]) JDict_Close(sl->schemeDict[i]);
     if (sl->tones) JDict_Close(sl->tones);
+    if (sl->conn) JConn_Close(sl->conn);
     if (sl->phrases) { PhrasesClear(sl->phrases); free(sl->phrases); }
     free(sl);
 }

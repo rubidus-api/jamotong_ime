@@ -20,7 +20,7 @@ static void TrimEnds(wchar_t *s) {
     while (n && (s[n-1] == L'\n' || s[n-1] == L'\r' || s[n-1] == L' ' || s[n-1] == L'\t')) s[--n] = L'\0';
 }
 static const wchar_t *const kSeqDirectives[] = { L"Dictionary", L"Candidates", L"ConvertKey",
-                                                 L"Engine", L"OnUnmatched", L"Chinese", L"Japanese", L"Scheme", L"Tones", NULL };
+                                                 L"Engine", L"OnUnmatched", L"Chinese", L"Japanese", L"Connection", L"Scheme", L"Tones", NULL };
 
 // 변환 글쇠 이름 → VK (§6.4). 적은 것만 받는다 — 글자 글쇠는 읽기를 만드는 데 쓰이므로 안 된다.
 static int ConvertKeyVk(const wchar_t *name) {
@@ -131,6 +131,14 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
             else sl->ja = 1;
             continue;
         }
+        if (!wcsncmp(p, L"Connection", 10)) {   // 연결 비용 표 (RFC-0022): Connection = 표.jdc — 일본어 방식의 래티스
+            wchar_t file[64] = {0};
+            size_t fl = 0;
+            if (swscanf(p, L"Connection = %63ls", file) != 1 || (fl = wcslen(file)) < 5 || _wcsicmp(file + fl - 4, L".jdc"))
+                FAIL(col0, L"E-JMT-DICT", L"Connection needs a plain .jdc file name", L"Connection = japanese-conn.jdc");
+            else lstrcpynW(sl->connFile, file, 64);
+            continue;
+        }
         if (!wcsncmp(p, L"Tones", 5)) {   // 성조 병음 사전 (0.66.0): Tones = 표.jdb
             wchar_t file[64] = {0};
             if (swscanf(p, L"Tones = %63ls", file) != 1 || !Config_IsSafeDictFileName(file)) {
@@ -195,6 +203,10 @@ SeqLayout *SeqLayout_LoadFromLines(const KlayLines *L, const wchar_t *layoutPath
     if (!bad && sl->zh && sl->ja) {
         KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-VALUE", L"a layout is Chinese or Japanese, not both",
                      L"keep one of the two lines");
+        bad = true;
+    }
+    if (!bad && sl->connFile[0] && !sl->ja) {
+        KlayDiag_Add(diag, KLAY_SEV_ERROR, 0, 1, L"E-JMT-VALUE", L"Connection is for the Japanese style", L"add 'Japanese = yes' or remove the line");
         bad = true;
     }
     if (!bad && sl->ja && !sl->candFile[0]) {

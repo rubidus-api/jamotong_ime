@@ -17,6 +17,7 @@ typedef struct JDict {
     unsigned count, kind, maxKeyLen, maxValLen, flags, crc;
     unsigned offIndex, offKeys, offVals, keyBytes, valBytes;
     unsigned offCosts;                  // 판 3 의 비용 블록 (없으면 0)
+    unsigned offPos;                    // 판 4 의 품사 블록 (없으면 0) — 항목마다 u16 lid, u16 rid
     unsigned format;                    // 파일의 판
     // 꼬리의 이름/라이선스/판 — 파일에는 길이 붙은 문자열이라 형식은 원래 길이 제한이 없다.
     // 자리는 넉넉히 잡는다: 라이선스 한 줄에 출처와 전문 파일 이름이 함께 들어가야 한다
@@ -139,9 +140,17 @@ static bool CheckLayout(JDict *d) {
         at += len * 2u;
     }
     d->offCosts = 0;
-    if (d->flags & JDICT_FLAG_COSTS) {   // 판 3: 꼬리 뒤에 항목마다 u16 비용
+    d->offPos = 0;
+    if ((d->flags & JDICT_FLAG_POS) && !(d->flags & JDICT_FLAG_COSTS)) return false;   // 품사는 비용과 함께만
+    if (d->flags & JDICT_FLAG_COSTS) {   // 판 3: 꼬리 뒤에 항목마다 u16 비용, 판 4: 그 뒤에 항목마다 u16 lid·rid
         if (d->format < 3 || d->kind != JDICT_KIND_CANDIDATES || (at & 1u) != 0) return false;
-        if ((size_t)at + (size_t)d->count * 2u != d->size) return false;
+        size_t want = (size_t)at + (size_t)d->count * 2u;
+        if (d->flags & JDICT_FLAG_POS) {
+            if (d->format < 4) return false;
+            d->offPos = (unsigned)want;
+            want += (size_t)d->count * 4u;
+        }
+        if (want != d->size) return false;
         d->offCosts = at;
         return true;
     }
@@ -316,6 +325,51 @@ int JDict_Completions(const JDict *d, const wchar_t *key, int *out, int max, int
 }
 
 bool JDict_HasCosts(const JDict *d) { return d && d->offCosts != 0; }
+bool JDict_HasPos(const JDict *d) { return d && d->offPos != 0; }
+bool JDict_PosAt(const JDict *d, int index, int *lid, int *rid) {
+    if (!d || !d->offPos || index < 0 || index >= (int)d->count) return false;
+    const unsigned char *p = d->base + d->offPos + (size_t)index * 4u;
+    *lid = (int)Rd16(p); *rid = (int)Rd16(p + 2);
+    return true;
+}
+
+// ── 연결 비용 파일 (.jdc, RFC-0022) ───────────────────────────────────────────────────
+//   머리 32바이트: "JMTCONN\0" | 판(1) | N | 단위 | crc32(머리 뒤 전부) | 파일 크기 | 예약, 그 뒤 N×N 바이트 [rid][lid].
+//   값 × 단위 = 비용. 매핑해 두고 범위를 보며 읽는다(범위 밖 id 는 가장 비싸게).
+typedef struct JConn { HANDLE file, mapping; const unsigned char *base; size_t size; unsigned n, step, crc; } JConn;
+void JConn_Close(JConn *c) {
+    if (!c) return;
+    if (c->base) UnmapViewOfFile(c->base);
+    if (c->mapping) CloseHandle(c->mapping);
+    if (c->file && c->file != INVALID_HANDLE_VALUE) CloseHandle(c->file);
+    free(c);
+}
+JConn *JConn_Open(const wchar_t *path, bool verify, JDictError *err) {
+    JDictError dummy;
+    if (!err) err = &dummy;
+    JConn *c = (JConn *)calloc(1, sizeof(JConn));
+    if (!c) { *err = JDICT_E_MEMORY; return NULL; }
+    c->file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (c->file == INVALID_HANDLE_VALUE) { free(c); *err = JDICT_E_OPEN; return NULL; }
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(c->file, &sz) || sz.QuadPart < 32 || sz.QuadPart > 0x7FFFFFFF) { CloseHandle(c->file); free(c); *err = JDICT_E_LAYOUT; return NULL; }
+    c->size = (size_t)sz.QuadPart;
+    c->mapping = CreateFileMappingW(c->file, NULL, PAGE_READONLY, 0, 0, NULL);
+    c->base = c->mapping ? (const unsigned char *)MapViewOfFile(c->mapping, FILE_MAP_READ, 0, 0, 0) : NULL;
+    if (!c->base) { JConn_Close(c); *err = JDICT_E_OPEN; return NULL; }
+    if (memcmp(c->base, "JMTCONN\0", 8) != 0) { JConn_Close(c); *err = JDICT_E_MAGIC; return NULL; }
+    if (Rd32(c->base + 8) != 1) { JConn_Close(c); *err = JDICT_E_VERSION; return NULL; }
+    c->n = Rd32(c->base + 12); c->step = Rd32(c->base + 16); c->crc = Rd32(c->base + 20);
+    if (c->n == 0 || c->n > 8192 || c->step == 0 || c->step > 1024 || Rd32(c->base + 24) != c->size
+        || (size_t)32 + (size_t)c->n * c->n != c->size) { JConn_Close(c); *err = JDICT_E_LAYOUT; return NULL; }
+    if (verify && JDict_Crc32(c->base + 32, (unsigned long)(c->size - 32)) != c->crc) { JConn_Close(c); *err = JDICT_E_CRC; return NULL; }
+    return c;
+}
+int JConn_Ids(const JConn *c) { return c ? (int)c->n : 0; }
+int JConn_Cost(const JConn *c, int rid, int lid) {
+    if (!c || rid < 0 || lid < 0 || (unsigned)rid >= c->n || (unsigned)lid >= c->n) return 255 * (c ? (int)c->step : 64);
+    return (int)c->base[32 + (size_t)rid * c->n + (size_t)lid] * (int)c->step;
+}
 int JDict_CostAt(const JDict *d, int index) {
     if (!d || !d->offCosts || index < 0 || index >= (int)d->count) return -1;
     return (int)Rd16(d->base + d->offCosts + (size_t)index * 2u);

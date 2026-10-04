@@ -22,6 +22,7 @@ typedef struct DictImportResult {
 typedef struct DictImportMeta {
     const wchar_t *name;      // NULL = "imported"
     const wchar_t *license;   // NULL = License 줄을 쓰지 않는다
+    bool           pos;       // RFC-0022: mozc 꼴의 품사(좌id·우id)를 넷째·다섯째 칸에 싣고, 품사가 다르면 합치지 않는다
 } DictImportMeta;
 
 // srcPath 를 읽어 outPath 에 `.jdt` 를 쓴다. limit > 0 이면 **비용이 낮은 것부터** 그만큼만 남긴다

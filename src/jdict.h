@@ -24,10 +24,13 @@
 // 판 3 (2026-10-02, 중국어 이어 치기): **후보 사전의 항목마다 비용**(u16, 작을수록 흔하다)을 꼬리 뒤에 붙일 수 있다
 // (flags bit1). 엔진은 이것으로 읽기를 낱말로 가르는 가장 그럴듯한 길을 고른다(SeqKb_Convert). 비용이 없는
 // 사전은 예전 판으로 적어, 옛 자모통도 그대로 읽는다.
-#define JDICT_FORMAT_VERSION 3
+// 판 4 (2026-10-04, RFC-0022 일본어): 후보 사전의 항목마다 **품사**(왼쪽·오른쪽 id, 각 u16)를 비용 뒤에 붙일 수 있다(flags bit2).
+// 엔진은 연결 비용 파일(.jdc)과 함께 품사 사이의 비용을 더해 문장을 가른다. 품사가 없는 사전은 예전 판으로 적는다.
+#define JDICT_FORMAT_VERSION 4
 #define JDICT_FORMAT_MIN     1
 #define JDICT_FLAG_ASCII_KEYS 1u   // 키가 전부 ASCII (순차 사전)
 #define JDICT_FLAG_COSTS      2u   // 항목마다 비용 (판 3)
+#define JDICT_FLAG_POS        4u   // 항목마다 품사 lid·rid (판 4, 비용과 함께만)
 #define JDICT_MAX_COST        65535
 #define JDICT_KIND_SEQUENCE  1
 // 후보 사전 (RFC-0016 §6.4): 읽기 하나에 후보가 여럿이다 — **같은 키가 여러 줄** 올 수 있고,
@@ -101,6 +104,17 @@ int  JDict_CostAt(const JDict *d, int index);
 //   비용이 없는 사전은 키 차례(그 안에서는 원본 차례) 그대로 앞의 max 개.
 int  JDict_Completions(const JDict *d, const wchar_t *key, int *out, int max, int scanLimit);
 bool JDict_HasCosts(const JDict *d);
+// 품사 (판 4, RFC-0022): 그 자리의 왼쪽·오른쪽 품사 id. 품사가 없는 사전이거나 범위 밖이면 false.
+bool JDict_HasPos(const JDict *d);
+bool JDict_PosAt(const JDict *d, int index, int *lid, int *rid);
+
+// 연결 비용 파일 (.jdc, RFC-0022 일본어): 품사 rid 뒤에 lid 가 올 때의 비용. 매핑해 두고 범위를 보며 읽는다.
+//   verify = 머리 뒤 전부의 crc 를 본다(도구·시험). 입력기는 가볍게 연다.
+typedef struct JConn JConn;
+JConn *JConn_Open(const wchar_t *path, bool verify, JDictError *err);
+void   JConn_Close(JConn *c);
+int    JConn_Ids(const JConn *c);
+int    JConn_Cost(const JConn *c, int rid, int lid);   // 범위 밖이면 가장 비싼 값
 
 // buf 의 앞부분과 맞는 가장 긴 항목. 찾으면 *keyLen 에 그 길이, val/valLen 에 값.
 bool JDict_LongestPrefix(const JDict *d, const wchar_t *buf, int *keyLen,

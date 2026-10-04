@@ -29,7 +29,7 @@ int KlayCli_IsCommand(int argc, const wchar_t *const *argv) {
     for (int i = 1; i < argc; i++)
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
-            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict") || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs")) return 1;
+            || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict") || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs") || !wcscmp(argv[i], L"--build-conn")) return 1;
     return 0;
 }
 
@@ -164,7 +164,8 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --build-dict <file.jdt> -o <out.jdb>\n"
         L"  jamotong --build <file.jmt> [-o <out.jmb>]   (default: <file>.v<format>.jmb beside it)\n"
         L"  jamotong --build-dir <folder>\n"
-        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..]\n"
+        L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..] [--pos]\n"
+        L"  jamotong --build-conn <connection_single_column.txt> -o <out.jdc>\n"
         L"  jamotong --import-klc <file.klc> -o <out.jmt>\n"
         L"  jamotong --import-ngs <file.key|.ist> -o <out.jmt>\n", ctx);
     return 2;
@@ -172,19 +173,20 @@ static int Usage(KlayCliOut out, void *ctx) {
 
 int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx) {
     const wchar_t *cmd = NULL, *arg = NULL, *outPath = NULL;
-    int json = 0, limit = 0;
+    int json = 0, limit = 0, pos = 0;
     const wchar_t *dictName = NULL, *dictLicense = NULL;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
             || !wcscmp(argv[i], L"--build-dir") || !wcscmp(argv[i], L"--import-dict")
-            || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs")) {
+            || !wcscmp(argv[i], L"--import-klc") || !wcscmp(argv[i], L"--import-ngs") || !wcscmp(argv[i], L"--build-conn")) {
             cmd = argv[i]; if (i + 1 < argc) arg = argv[++i];
         } else if (!wcscmp(argv[i], L"-o") && i + 1 < argc) outPath = argv[++i];
         else if (!wcscmp(argv[i], L"--limit") && i + 1 < argc) limit = (int)wcstol(argv[++i], NULL, 10);
         else if (!wcscmp(argv[i], L"--name") && i + 1 < argc) dictName = argv[++i];
         else if (!wcscmp(argv[i], L"--license") && i + 1 < argc) dictLicense = argv[++i];
         else if (!wcscmp(argv[i], L"--json")) json = 1;
+        else if (!wcscmp(argv[i], L"--pos")) pos = 1;
     }
     if (!cmd || !arg) return Usage(out, ctx);
 
@@ -229,13 +231,25 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         return 0;
     }
 
+    // --build-conn: Mozc 의 연결 비용 표를 .jdc 로 (RFC-0022 일본어 문장 변환)
+    if (!wcscmp(cmd, L"--build-conn")) {
+        if (!outPath) return Usage(out, ctx);
+        JDictBuildResult br;
+        if (!JConn_Build(arg, outPath, 64, &br)) {
+            Outf(out, ctx, L"error: %ls\n", br.message);
+            return 1;
+        }
+        Outf(out, ctx, L"wrote %ls - %d ids\n", outPath, br.count);
+        return 0;
+    }
+
     // --import-dict: 남의 사전 자료를 우리 사전 원본(.jdt)으로. 자료는 사용자가 고른다 (§6.4).
     if (!wcscmp(cmd, L"--import-dict")) {
         if (!outPath) return Usage(out, ctx);
         DictImportResult ir;
         const wchar_t *sbase = arg;
         for (const wchar_t *q = arg; *q; q++) if (*q == L'\\' || *q == L'/') sbase = q + 1;
-        DictImportMeta meta = { dictName, dictLicense };
+        DictImportMeta meta = { dictName, dictLicense, pos != 0 };
         if (!DictImport_Run(arg, outPath, limit, &meta, &ir)) {
             Outf(out, ctx, L"%ls: error: %ls\n", sbase, ir.error[0] ? ir.error : L"cannot import");
             return 1;

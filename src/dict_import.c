@@ -17,7 +17,7 @@ static char *DupStr(const char *s) {
     return p;
 }
 
-typedef struct { char *key; char *val; long cost; int order; } Entry;
+typedef struct { char *key; char *val; long cost; int order; int lid, rid; } Entry;
 
 static int CmpEntry(const void *a, const void *b) {   // 키로 묶고, 같은 키 안에서는 싼 것부터
     const Entry *x = (const Entry *)a, *y = (const Entry *)b;
@@ -88,6 +88,7 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
     char line[IMP_MAX_LINE];
     bool ok = true;
     bool allCost = true;      // 모든 줄이 비용을 가졌나 (mozc 꼴) — 그러면 .jdt 의 셋째 칸에 싣는다
+    const bool wantPos = meta && meta->pos;   // RFC-0022: 품사까지
 
     while (fgets(line, sizeof line, in)) {
         size_t len = strlen(line);
@@ -103,9 +104,11 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             *t = 0; p = t + 1;
         }
         const char *key = NULL, *val = NULL;
-        long cost = 0;
+        long cost = 0, lid = -1, rid = -1;
         if (nf >= 5 && IsInt(f[1]) && IsInt(f[2]) && IsInt(f[3])) {   // mozc 꼴
             key = f[0]; cost = strtol(f[3], NULL, 10); val = f[4];
+            lid = strtol(f[1], NULL, 10); rid = strtol(f[2], NULL, 10);
+            if (lid > 65535 || rid > 65535) { res->skipped++; continue; }
         } else if (nf == 2) {                                        // 두 칸짜리
             key = f[0]; val = f[1]; cost = 0;
         } else { res->skipped++; continue; }
@@ -125,12 +128,14 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
         }
         v[n].key = DupStr(key); v[n].val = DupStr(val);
         v[n].cost = cost; v[n].order = n;
+        v[n].lid = (int)lid; v[n].rid = (int)rid;
         if (nf < 5) allCost = false;
         if (!v[n].key || !v[n].val) { Fail(res, L"out of memory"); ok = false; break; }
         n++;
     }
     fclose(in);
     if (ok && n == 0) { Fail(res, L"the source has no usable rows"); ok = false; }
+    if (ok && wantPos && !allCost) { Fail(res, L"--pos needs Mozc-style rows (reading, left id, right id, cost, text)"); ok = false; }
 
     if (ok) qsort(v, (size_t)n, sizeof(Entry), CmpEntry);
     // 같은 (읽기, 표기)가 여러 번 오는 자료가 많다 (품사·연결비용만 다른 줄). 후보창은 16칸뿐이라
@@ -144,8 +149,11 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             int keptHere = 0;
             for (int k = i; k < j; k++) {
                 bool dup = false;
-                for (int m = 0; m < keptHere; m++)
-                    if (strcmp(v[k].val, v[w - keptHere + m].val) == 0) { dup = true; break; }
+                // 품사를 실을 때는 품사까지 같아야 같은 줄이다 — 조사 が 처럼 같은 표기가 품사마다 따로 있어야 연결 비용이 맞는다
+                for (int m = 0; m < keptHere; m++) {
+                    const Entry *e = &v[w - keptHere + m];
+                    if (strcmp(v[k].val, e->val) == 0 && (!wantPos || (v[k].lid == e->lid && v[k].rid == e->rid))) { dup = true; break; }
+                }
                 if (dup) { free(v[k].key); free(v[k].val); res->skipped++; }
                 else { v[w++] = v[k]; keptHere++; }
             }
@@ -188,7 +196,8 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             for (int i = 0; i < n; i++) {
                 if (allCost) {
                     long c = v[i].cost < 0 ? 0 : v[i].cost > JDICT_MAX_COST ? JDICT_MAX_COST : v[i].cost;
-                    fprintf(out, "%s\t%s\t%ld\n", v[i].key, v[i].val, c);
+                    if (wantPos) fprintf(out, "%s\t%s\t%ld\t%d\t%d\n", v[i].key, v[i].val, c, v[i].lid, v[i].rid);
+                    else fprintf(out, "%s\t%s\t%ld\n", v[i].key, v[i].val, c);
                 } else fprintf(out, "%s\t%s\n", v[i].key, v[i].val);
             }
             if (fclose(out) != 0) { Fail(res, L"cannot write the dictionary source"); ok = false; }
