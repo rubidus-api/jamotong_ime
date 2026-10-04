@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.71.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-0.71.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-0.71.0.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-cleanup-0.71.0.exe)
+**한국어** | [English](README.md) — **Jamotong v0.72.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-0.72.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-0.72.0.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-cleanup-0.72.0.exe)
 
 # Jamotong (자모통)
 
@@ -9,21 +9,21 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.71.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-0.71.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
-| 자모통 zip (설치기 없음) | [jamotong-0.71.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-0.71.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
-| 정리 도구 | [jamotong-cleanup-0.71.0.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.71.0/jamotong-cleanup-0.71.0.exe) — 이 PC 에서 자모통의 **모든 판**을 지웁니다: 설치본, 예전 언어 팩, 설치기 없이 한 등록(zip), 옛 IMM32 입력기와 그것들이 남긴 것. 내 설정은 칸을 체크할 때만. 실행 → 관리자 확인 → 모두 지우기; 재부팅하라고 하면 재부팅한 뒤 다시 실행하세요 |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.72.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-0.72.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.72.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-0.72.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
+| 정리 도구 | [jamotong-cleanup-0.72.0.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.0/jamotong-cleanup-0.72.0.exe) — 이 PC 에서 자모통의 **모든 판**을 지웁니다: 설치본, 예전 언어 팩, 설치기 없이 한 등록(zip), 옛 IMM32 입력기와 그것들이 남긴 것. 내 설정은 칸을 체크할 때만. 실행 → 관리자 확인 → 모두 지우기; 재부팅하라고 하면 재부팅한 뒤 다시 실행하세요 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.71.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+- **MSI (권장)**: `jamotong-0.72.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
   한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
   폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
   정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱 ▸ Jamotong ▸ 수정 ▸
   제거**입니다(자모통 자신의 한국어 창이 뜨도록 "제거" 단추는 막아 두었습니다). 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
-  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.71.0.msi /qn` (폴더를 정하려면
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.72.0.msi /qn` (폴더를 정하려면
   `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
 - **언어 (0.70.0)**: 중국어 간체·중국어 번체·일본어는 같은 MSI 의 구성 요소이고 기본으로 꺼져 있습니다 — 구성 요소
   페이지에서 체크하거나, 창 없는 설치에 `ADDLOCAL=ZhSimplified,ZhTraditional,Japanese`(모두는 `ADDLOCAL=ALL`)를
@@ -90,7 +90,7 @@ MSI 가 지웁니다.
 - **단축키 전면 사용자화**: 모든 트리거(자판 전환·한자·유니코드 입력·설정 열기·무간섭 모드)에
   **복수 단축키**(기능당 최대 8개) 지정 가능.
 - **무간섭(직접 입력) 모드**: 원격 데스크톱 등에서 자모통이 키를 일절 가로채지 않게 하는
-  토글(`Ctrl+Alt+P`, 또는 트레이 아이콘 우클릭 메뉴). 켜져 있는 동안 아이콘이 `--`로 바뀌고, 자판 전환키까지
+  토글(`Ctrl+Alt+P`, 또는 트레이 아이콘 우클릭 메뉴). 켜져 있는 동안 아이콘이 회색 줄표로 바뀌고, 자판 전환키까지
   원격으로 그대로 전달되어 원격 PC의 IME로 한글을 입력할 수 있다.
 - **관리 앱**(`jamotong.exe`): 트레이 상주가 아니라 작업 표시줄·작업 관리자에 나오는 일반 앱.
   `.jmt` 자판 파일 열기/편집/검증, TSF 없이 입력 테스트, 설정 창 열기를 한곳에서.
@@ -98,7 +98,7 @@ MSI 가 지웁니다.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.71.0.msi` 를 내려받아 두 번
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.72.0.msi` 를 내려받아 두 번
    누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
 
    설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
@@ -251,7 +251,7 @@ Backspace·Enter·Delete·Tab·Esc 를 친다. 전체 표는 파일 머리에 �
 # 줄 첫머리 '#' = 주석, 빈 줄 무시
 Type   = hangul        # static | hangul | chord  (생략 시 hangul)
 Name   = my_layout     # 자판 목록/언어바에 표시되는 이름 (최대 63자)
-Abbrev = 마            # 트레이 2x2 아이콘에 그릴 1~4글자 (선택)
+Abbrev = 마            # 1~4글자: 앞 두 글자가 트레이 아이콘의 언어(ko, en; ZH → cn, JA → jp), 전체로 표지를 고른다 (선택)
 ```
 
 선택 메타데이터(v2 — 전부 선택이고, 이것들이 없는 v1 파일은 예전 그대로 로드된다):
