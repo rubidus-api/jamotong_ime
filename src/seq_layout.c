@@ -3,6 +3,7 @@
 #include "seq_layout.h"
 #include "config.h"      // Config_IsSafeDictFileName / 사전 폴더
 #include "chord_layout.h"   // 앞단 조합 인식기 (RFC-0016 §6.3)
+#include "kana_tables.h"    // 일본어 방식의 F8~F10 (생성한 표)
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,6 +101,7 @@ bool SeqKb_IsVMode(const SeqLayout *sl, const wchar_t *reading) {
 
 bool SeqKb_WouldEat(const SeqState *st, const SeqLayout *sl, wchar_t ch) {
     if (!SeqLayout_EnsureOpen((SeqLayout *)sl) || ch < 0x21 || ch > 0x7E) return false;   // 쓸 때 연다 (B22)
+    if (sl->ja && st->noPunct && !st->pending[0] && SeqKb_IsJaPunctKey(ch)) return false;   // 일본어: 문장부호를 끈 자판
     if (sl->zh && ch == SEQ_SEPARATOR) return st->pending[0] || st->reading[0];   // 음절 끊기 (읽기 안에서만)
     if (sl->zh && !st->pending[0] && SeqKb_IsVMode(sl, st->reading) && IsVChar(ch)) return true;   // V 모드의 숫자·식
     if (sl->zh && ch == L'V' && sl->scheme > 0 && !st->pending[0] && !st->reading[0]) return true;  // 쌍병의 V 모드는 Shift+V
@@ -293,9 +295,47 @@ static bool ReadingBare(const SeqLayout *sl, const wchar_t *reading) {   // 읽�
     return true;
 }
 
+// 일본어 방식 (0.70.0): mozc 의 비용은 연결 비용과 함께 쓰는 값이라, 낱말 비용만으로는 가나 그대로의 항목(비용 0 이
+//   많다)이 앞서고 문장이 잘게 갈린다. 낱말마다 큰 벌점(JA_SEG_PENALTY)을 주고, 읽기와 같은 히라가나(두 글자 이상)·
+//   가타카나 항목은 비싸게 본다 — 실제 사전으로 맞춘 값(日本語, 私は日本語を, 電車で会社に行く).
+#define JA_SEG_PENALTY  4000
+#define JA_HIRA_PENALTY 3000
+#define JA_KATA_PENALTY 5000
+static int JaKanaPenalty(const wchar_t *cand, const wchar_t *seg, int len) {
+    if ((int)wcslen(cand) != len) return 0;
+    bool hira = true, kata = true;
+    for (int i = 0; i < len; i++) {
+        wchar_t s = seg[i], c = cand[i];
+        if (c != s) hira = false;
+        if (!(c == s || (s >= 0x3041 && s <= 0x3096 && c == (wchar_t)(s + 0x60)))) kata = false;
+    }
+    if (hira) return len > 1 ? JA_HIRA_PENALTY : 0;
+    return kata ? JA_KATA_PENALTY : 0;
+}
+// 일본어: 범위의 앞 12개 가운데 고친 비용이 가장 싼 후보
+static int JaPick(const SeqLayout *sl, const wchar_t *seg, int len, int first, int count, int *costOut) {
+    int best = -1, bestCost = 0x7FFFFFFF;
+    for (int i = 0; i < count && i < 12; i++) {
+        const jdchar *v = NULL; int vn = 0;
+        wchar_t buf[SEQ_MAX_OUT + 1];
+        if (!JDict_CandidateAt(sl->cand, first + i, &v, &vn) || JDict_CopyValue(v, vn, buf, SEQ_MAX_OUT + 1) < 0) break;
+        int c = JDict_CostAt(sl->cand, first + i);
+        if (c < 0) c = 0;
+        c += JaKanaPenalty(buf, seg, len);
+        if (c < bestCost) { bestCost = c; best = first + i; }
+    }
+    if (costOut) *costOut = bestCost;
+    return best;
+}
+static int g_jaPickCost;   // 일본어: SegPick 이 고른 후보의 고친 비용 (입력 스레드 하나가 쓴다)
+
 // 조각을 낱말 하나로 볼 때 쓸 후보(가장 싼 것). 모호음이면 비슷한 철자도 본다. 없으면 -1.
 static int SegPick(const SeqLayout *sl, const wchar_t *raw, int len, bool bare, unsigned flags) {
     int first = 0, count = 0, minChars = 0, best = -1, bestCost = 0x7FFFFFFF;
+    if (sl->ja) {
+        if (!SegRange(sl, raw, len, bare, &first, &count, &minChars)) return -1;
+        return JaPick(sl, raw, len, first, count, &g_jaPickCost);
+    }
     if (SegRange(sl, raw, len, bare, &first, &count, &minChars)) {
         best = FirstFitting(sl, first, count, minChars);
         if (best >= 0) { bestCost = JDict_CostAt(sl->cand, best); if (bestCost < 0) bestCost = 0x7FFF0000; }
@@ -379,7 +419,7 @@ typedef struct SeqPhrases {
     wchar_t *val[SEQ_PHRASES_MAX];
 } SeqPhrases;
 static void PhrasesClear(SeqPhrases *p) { for (int i = 0; i < p->n; i++) free(p->val[i]); p->n = 0; }
-static void PhrasesLoad(SeqPhrases *p, const wchar_t *path) {
+static void PhrasesLoad(SeqPhrases *p, const wchar_t *path, bool anyKey) {
     PhrasesClear(p);
     FILE *f = _wfopen(path, L"rb");
     if (!f) return;
@@ -392,17 +432,20 @@ static void PhrasesLoad(SeqPhrases *p, const wchar_t *path) {
         if (!q[0] || q[0] == '#') continue;
         char *sep = q;
         while (*sep && *sep != ' ' && *sep != '\t') sep++;
-        if (!*sep || sep == q || sep - q >= 24) continue;
+        if (!*sep || sep == q || sep - q >= 72) continue;
         *sep++ = 0;
         while (*sep == ' ' || *sep == '\t') sep++;
         if (!*sep) continue;
         bool ok = true;
-        for (char *k = q; *k; k++) if (!(*k >= 'a' && *k <= 'z')) ok = false;   // 키는 소문자 로마자
+        // 키: 중국어는 소문자 로마자, 일본어(anyKey)는 가나 읽기 (UTF-8 그대로, 23글자까지)
+        for (char *k = q; *k && !anyKey; k++) if (!(*k >= 'a' && *k <= 'z')) ok = false;
         if (!ok) continue;
-        wchar_t w[SEQ_MAX_OUT + 1];
+        wchar_t w[SEQ_MAX_OUT + 1], kw[24];
         int wn = MultiByteToWideChar(CP_UTF8, 0, sep, -1, w, SEQ_MAX_OUT + 1);
         if (wn <= 1) continue;
-        for (int i = 0; q[i]; i++) p->key[p->n][i] = (wchar_t)q[i], p->key[p->n][i + 1] = 0;
+        int kn = MultiByteToWideChar(CP_UTF8, 0, q, -1, kw, 24);
+        if (kn <= 1) continue;
+        lstrcpynW(p->key[p->n], kw, 24);
         p->val[p->n] = _wcsdup(w);
         if (p->val[p->n]) p->n++;
     }
@@ -420,7 +463,7 @@ static int PhrasesFor(SeqLayout *sl, const wchar_t *key, wchar_t items[][SEQ_MAX
     bool have = false;
     if (g_phrasesPath[0]) { lstrcpynW(path, g_phrasesPath, MAX_PATH); have = true; }
     else if (Config_UserDictDir(dir, MAX_PATH)) {
-        _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, SEQ_PHRASES_FILE);
+        _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, sl->ja ? SEQ_JA_PHRASES_FILE : SEQ_PHRASES_FILE);
         path[MAX_PATH - 1] = 0;
         have = true;
     }
@@ -428,7 +471,7 @@ static int PhrasesFor(SeqLayout *sl, const wchar_t *key, wchar_t items[][SEQ_MAX
         WIN32_FILE_ATTRIBUTE_DATA fad;
         if (GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) {
             if (fad.ftLastWriteTime.dwLowDateTime != p->stamp.dwLowDateTime || fad.ftLastWriteTime.dwHighDateTime != p->stamp.dwHighDateTime) {
-                PhrasesLoad(p, path);
+                PhrasesLoad(p, path, sl->ja != 0);
                 p->stamp = fad.ftLastWriteTime;
             }
         } else if (p->n) { PhrasesClear(p); memset(&p->stamp, 0, sizeof p->stamp); }
@@ -462,6 +505,7 @@ bool SeqLayout_ToneOf(const SeqLayout *sl, const wchar_t *cand, wchar_t *out, in
     return JDict_CopyValue(v, vn, out, cap) >= 0;
 }
 static bool g_noEmoji;   // 이번 변환이 이모지를 빼는가 (SeqKb_ConvertEx 가 정한다 — 입력 스레드 하나가 쓴다)
+static const wchar_t *g_jaReading;   // 일본어: 읽기 그대로의 가나 항목은 목록에서 빼고 정한 자리에 둔다 (NULL = 아님)
 
 // 후보 하나를 붙인다 — 이미 있는 글자와 같으면 붙이지 않는다(문장 후보와 낱말 후보가 같은 때 등).
 static bool AddCand(SeqCandidates *out, const JDict *d, int index, int consumed) {
@@ -470,6 +514,7 @@ static bool AddCand(SeqCandidates *out, const JDict *d, int index, int consumed)
     if (!JDict_CandidateAt(d, index, &v, &vn)) return false;
     if (JDict_CopyValue(v, vn, out->items[out->count], SEQ_MAX_OUT + 1) < 0) return false;
     if (g_noEmoji && SeqKb_IsEmoji(out->items[out->count])) return false;
+    if (g_jaReading && JaKanaPenalty(out->items[out->count], g_jaReading, (int)wcslen(g_jaReading))) return false;
     for (int j = 0; j < out->count; j++) if (!wcscmp(out->items[j], out->items[out->count])) return false;
     out->consumed[out->count++] = consumed;
     return true;
@@ -520,6 +565,7 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
     memset(out, 0, sizeof *out);
     out->generation = st->generation;
     g_noEmoji = (flags & SEQ_CONV_NOEMOJI) != 0;
+    g_jaReading = sl->ja ? st->reading : NULL;
     const int n = (int)wcslen(st->reading);
     const bool bare = ReadingBare(sl, st->reading);   // 첫 글자 줄임만 친 읽기 (zg, wsm)
     if (sl->zh && SeqKb_IsVMode(sl, st->reading)) {     // V 모드: 숫자·식만 — 사전은 보지 않는다
@@ -538,6 +584,10 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
             lstrcpynW(out->items[out->count], dt[i], SEQ_MAX_OUT + 1);
             out->consumed[out->count++] = n;
         }
+    }
+    if (sl->ja) {   // 문구 치환 (일본어): 읽기와 꼭 같은 키, 맨 앞 쪽에
+        out->count += PhrasesFor((SeqLayout *)sl, st->reading, out->items + out->count, SEQ_MAX_CANDS - out->count);
+        for (int i = 0; i < out->count; i++) out->consumed[i] = n;
     }
     if (sl->zh) {   // 사용자 구 — 읽기(끊기를 뺀 것)와 꼭 같은 키, 맨 앞 쪽에
         wchar_t key[SEQ_MAX_READING + 1];
@@ -558,9 +608,9 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
             if (best[i] >= INF) continue;
             int idx = SegPick(sl, st->reading + i, j - i, bare, flags);
             if (idx < 0) continue;
-            int c = JDict_CostAt(sl->cand, idx);
+            int c = sl->ja ? g_jaPickCost : JDict_CostAt(sl->cand, idx);
             if (c < 0) c = NOCOST_SEG;
-            int total = best[i] + c + SEG_PENALTY;
+            int total = best[i] + c + (sl->ja ? JA_SEG_PENALTY : SEG_PENALTY);
             if (total < best[j]) { best[j] = total; back[j] = i; pick[j] = idx; }
         }
     }
@@ -614,6 +664,15 @@ bool SeqKb_ConvertEx(SeqState *st, const SeqLayout *sl, unsigned flags, SeqCandi
         }
     }
     AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_FIRST - fuzzyShown, n, wmin);
+    if (sl->ja) {   // 히라가나·가타카나 그대로 (일본어 입력기의 기본 후보) — 첫 쪽 끝에
+        for (int form = SEQ_KANA_HIRAGANA; form <= SEQ_KANA_KATAKANA && out->count < SEQ_MAX_CANDS; form++) {
+            wchar_t kf[SEQ_MAX_OUT + 1];
+            if (!SeqKb_KanaForm(st->reading, form, kf, SEQ_MAX_OUT + 1)) continue;
+            bool dup = false;
+            for (int j = 0; j < out->count; j++) if (!wcscmp(out->items[j], kf)) dup = true;
+            if (!dup) { lstrcpynW(out->items[out->count], kf, SEQ_MAX_OUT + 1); out->consumed[out->count++] = n; }
+        }
+    }
     for (int r = 0; r < nfr; r++) AddWhole(out, sl, fFirst[r], fCount[r], &fNext[r], SEQ_FUZZY_FIRST, n, wmin);
     AddWhole(out, sl, wfirst, whole ? wcount : 0, &wnext, SEQ_MAX_CANDS, n, wmin);
     AddPredict(out, sl, pidx, np, &pnext, SEQ_PREDICT_CANDS, n, wmin);
@@ -782,6 +841,80 @@ int SeqKb_DateTimeCands(const SeqLayout *sl, const wchar_t *reading, const SYSTE
     }
     #undef ADD
     return n;
+}
+
+// ── 일본어 방식: 가나 꼴 바꾸기 (F6~F10) ─────────────────────────────────────────────────
+bool SeqKb_IsJaPunctKey(wchar_t ch) {   // '-' 는 장음 ー 라 글자다 — 여기에 넣지 않는다
+    return ch == L',' || ch == L'.' || ch == L'[' || ch == L']' || ch == L'/' || ch == L'~' || ch == L'!' || ch == L'?';
+}
+static wchar_t KanaPunctAscii(wchar_t c) {   // 읽기 안의 일본어 문장부호 → 친 글쇠
+    switch (c) {
+        case L'\x3002': return L'.';  case L'\x3001': return L',';  case L'\x300C': return L'[';  case L'\x300D': return L']';
+        case L'\x30FB': return L'/';  case L'\x30FC': return L'-';  case L'\x301C': return L'~';  case L'\xFF01': return L'!';
+        case L'\xFF1F': return L'?';
+        default: return 0;
+    }
+}
+static bool PutW(wchar_t *out, int cap, int *o, wchar_t c) { if (*o + 1 >= cap) return false; out[(*o)++] = c; return true; }
+bool SeqKb_KanaForm(const wchar_t *r, int form, wchar_t *out, int cap) {
+    if (!r || !r[0] || !out || cap < 2) return false;
+    int o = 0;
+    if (form == SEQ_KANA_HIRAGANA || form == SEQ_KANA_KATAKANA || form == SEQ_KANA_HALF) {
+        for (const wchar_t *p = r; *p; p++) {
+            wchar_t c = *p;
+            if (form != SEQ_KANA_HIRAGANA && c >= 0x3041 && c <= 0x3096) c = (wchar_t)(c + 0x60);   // ひらがな → カタカナ
+            else if (form == SEQ_KANA_HIRAGANA && c >= 0x30A1 && c <= 0x30F6) c = (wchar_t)(c - 0x60);
+            if (form == SEQ_KANA_HALF) {
+                if (c >= 0x30A1 && c <= 0x30F6) {
+                    const unsigned short *h = g_kanaHalf[c - 0x30A1];
+                    if (!PutW(out, cap, &o, (wchar_t)h[0]) || (h[1] && !PutW(out, cap, &o, (wchar_t)h[1]))) return false;
+                    continue;
+                }
+                static const wchar_t from[] = L"\x3002\x3001\x300C\x300D\x30FB\x30FC", to[] = L"\xFF61\xFF64\xFF62\xFF63\xFF65\xFF70";
+                const wchar_t *f = wcschr(from, c);
+                if (f && c) c = to[f - from];
+            }
+            if (!PutW(out, cap, &o, c)) return false;
+        }
+        out[o] = 0;
+        return true;
+    }
+    // 로마자 (F9 전각, F10 반각): 두 가나 음절 먼저, 촉음 っ 는 다음 자음을 겹친다
+    const wchar_t *p = r;
+    bool sokuon = false;
+    while (*p) {
+        wchar_t h[3] = { p[0], p[1], 0 };
+        for (int k = 0; k < 2; k++) if (h[k] >= 0x30A1 && h[k] <= 0x30F6) h[k] = (wchar_t)(h[k] - 0x60);   // カタカナ도
+        const char *rom = NULL; int used = 0;
+        if (h[0] == 0x3063 && h[1]) { sokuon = true; p++; continue; }   // っ
+        for (size_t i = 0; i < sizeof g_kanaRomaji / sizeof g_kanaRomaji[0] && !rom; i++) {
+            size_t kl = wcslen(g_kanaRomaji[i].kana);
+            if (kl <= 2 && !wcsncmp(h, g_kanaRomaji[i].kana, kl) && (kl == 1 || h[1])) { rom = g_kanaRomaji[i].romaji; used = (int)kl; }
+        }
+        char one[2] = { 0, 0 };
+        if (!rom) {
+            wchar_t a = KanaPunctAscii(p[0]);
+            if (!a && p[0] >= 0x21 && p[0] <= 0x7E) a = p[0];
+            if (!a) return false;   // 가나도 문장부호도 아닌 글자 — 로마자로 못 쓴다
+            one[0] = (char)a; rom = one; used = 1;
+        }
+        if (sokuon && rom[0] >= 'a' && rom[0] <= 'z' && !(rom[0] == 'a' || rom[0] == 'i' || rom[0] == 'u' || rom[0] == 'e' || rom[0] == 'o')) {
+            wchar_t d = (wchar_t)(rom[0] == 'c' ? 't' : rom[0]);   // っち → tchi
+            if (!PutW(out, cap, &o, form == SEQ_KANA_ROMAJI_FULL ? (wchar_t)(d + 0xFEE0) : d)) return false;
+        } else if (sokuon) {
+            for (const char *x = "ltu"; *x; x++) if (!PutW(out, cap, &o, form == SEQ_KANA_ROMAJI_FULL ? (wchar_t)(*x + 0xFEE0) : (wchar_t)*x)) return false;
+        }
+        sokuon = false;
+        for (const char *x = rom; *x; x++) {
+            wchar_t c = (wchar_t)(unsigned char)*x;
+            if (form == SEQ_KANA_ROMAJI_FULL && c >= 0x21 && c <= 0x7E) c = (wchar_t)(c + 0xFEE0);
+            if (!PutW(out, cap, &o, c)) return false;
+        }
+        p += used;
+    }
+    if (sokuon) for (const char *x = "ltu"; *x; x++) if (!PutW(out, cap, &o, form == SEQ_KANA_ROMAJI_FULL ? (wchar_t)(*x + 0xFEE0) : (wchar_t)*x)) return false;
+    out[o] = 0;
+    return true;
 }
 
 // ── V 모드: 한자 수·금액·날짜·계산 ─────────────────────────────────────────────────────

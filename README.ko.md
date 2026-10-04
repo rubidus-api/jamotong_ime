@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.69.1** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-0.69.1.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-0.69.1.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-chinese-simplified-0.69.1.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-chinese-traditional-0.69.1.msi)
+**한국어** | [English](README.md) — **Jamotong v0.70.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) · [Chinese Simplified pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-chinese-simplified-0.70.0.msi) · [Chinese Traditional pack (MSI)](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-chinese-traditional-0.70.0.msi)
 
 # Jamotong (자모통)
 
@@ -9,25 +9,25 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.69.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-0.69.1.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). 제거는 "설치된 앱"에서 |
-| 자모통 zip (설치기 없음) | [jamotong-0.69.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-0.69.1.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.70.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.70.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
-| 일본어 사전 팩 (시범) | [jamotong-japanese-demo-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-demo-0.49.0.zip) — 시범 일본어 입력, 5만 항목(약 0.5MB) |
-| 일본어 사전 팩 (추가) | [jamotong-japanese-full-0.49.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.49.0/jamotong-japanese-full-0.49.0.zip) — 같은 것, 50만 항목(약 7MB) |
-| 중국어 간체 팩 (설치 패키지) | [jamotong-chinese-simplified-0.69.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-chinese-simplified-0.69.1.msi) — 간체 병음 입력, 약 50만 항목(약 7MB). 자모통을 먼저 설치 |
-| 중국어 번체 팩 (설치 패키지) | [jamotong-chinese-traditional-0.69.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.69.1/jamotong-chinese-traditional-0.69.1.msi) — 같은 것을 번체로 (약 7MB) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.69.1.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+- **MSI (권장)**: `jamotong-0.70.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
   한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
   폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
   정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱 ▸ Jamotong ▸ 수정 ▸
   제거**입니다(자모통 자신의 한국어 창이 뜨도록 "제거" 단추는 막아 두었습니다). 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
-  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.69.1.msi /qn` (폴더를 정하려면
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.70.0.msi /qn` (폴더를 정하려면
   `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
+- **언어 (0.70.0)**: 중국어 간체·중국어 번체·일본어는 같은 MSI 의 구성 요소이고 기본으로 꺼져 있습니다 — 구성 요소
+  페이지에서 체크하거나, 창 없는 설치에 `ADDLOCAL=ZhSimplified,ZhTraditional,Japanese`(모두는 `ADDLOCAL=ALL`)를
+  덧붙입니다. 나중에 **설치된 앱 ▸ Jamotong ▸ 수정 ▸ 변경**에서 더하거나 뺍니다. 0.62~0.69 의 따로 된 중국어 팩
+  MSI 는 업그레이드가 지우고, 깔려 있던 팩은 같은 구성 요소로 그대로 설치됩니다.
 - **zip**: 설치기 없이 같은 파일만 담았습니다. 손으로 두고 등록할 분을 위한 것입니다([설치](#설치) 참고).
   `install.bat`·`uninstall.bat` 은 0.61.0 부터 없습니다.
 
@@ -95,7 +95,7 @@ MSI 가 지웁니다.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.69.1.msi` 를 내려받아 두 번
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.70.0.msi` 를 내려받아 두 번
    누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
 
    설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
@@ -745,15 +745,16 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 열린 일본어 사전 한 조각(7MB, 128,908줄)으로 실측: 123,381항목을 남기고 5,527줄은 읽기가 길어
 제외, 변환 0.08초·굽기 0.08초, `.jdb` 5.3MB, 여는 데 1.6ms.
 
-**바로 쓰는 일본어(시범).** 설치본은 가볍게 두고, 일본어 자료는 **사전 팩**으로 따로 낸다:
-시범팩(5만 항목, 약 0.5MB)과 추가팩(50만 항목, 약 5MB — 사전 한 벌의 한도). 각 팩에는 가나→한자
-사전, 로마자→가나 표, 둘을 묶는 자판, 그리고 낱말 자료의 라이선스 원문이 들어 있다. 풀어서 `.jdb`
-두 개를 `%APPDATA%\Jamotong\dicts` 에, `.jmt` 를 `%APPDATA%\Jamotong\layouts` 에 넣고 관리 앱을
-실행하면 된다. `nihon` 을 치고 사이띄개를 누르면 日本 이 나온다. 낱말 자료는 오픈소스 Mozc 사전에서
-왔고, 아직 일본어 화자의 확인을 받지 않아 **시범**으로 낸다.
+**일본어(로마자).** 설치기의 **일본어** 구성 요소(0.70.0)가 **Japanese (romaji)** 자판을 켠 채로 넣는다. 로마자로 친다
+(`nihongo`, `kka` 는 っか, `-` 는 ー). 읽기는 가나로 보인다. **사이띄개**로 변환: 첫 후보는 문장 전체
+(`denshadekaishaniiku` → 電車で会社に行く), 그다음 읽기의 낱말, 히라가나·가타카나. 1~9 로 고르고, **엔터**는 가나
+그대로, Esc 는 지운다. **F6** 히라가나, **F7** 가타카나, **F8** 반각 가타카나, **F9** 전각·**F10** 반각 로마자. 문장부호는
+、。「」・〜！？ 로 나온다(Layout Options 에서 끌 수 있다). **문구 치환**: Layout Options ▸ Edit custom phrases 가
+`japanese-phrases.txt` 를 연다 — 한 줄에 하나, 가나 읽기 다음에 글(`よろ よろしくお願いします`), 후보 맨 앞에 나온다. 사전은
+오픈소스 Mozc 사전(약 50만 항목)이다. Mozc 의 문법 표 없이 하는 문장 변환이라 일본어 전용 입력기보다 단순하다 — 긴
+문장은 확인해 쓰자. 라이선스는 `licenses\japanese` 에 깔린다.
 
-**중국어(병음).** 따로 내는 설치 패키지 둘이다: `jamotong-chinese-simplified-<판>.msi`, `jamotong-chinese-traditional-<판>.msi`.
-각각 자모통이 깔려 있을 때만 설치되고(`jamotong.dll` 옆), 지우는 것은 자모통이 있든 없든 되며, 제 자판 —
+**중국어(병음).** 설치기의 구성 요소 둘이다(0.70.0; 0.62~0.69 는 따로 된 MSI): **중국어 간체**, **중국어 번체**. 각각 제 자판 —
 **Chinese Simplified (pinyin)** 또는 **Chinese Traditional (pinyin)** — 을 자판 목록에 **켠 채로** 넣는다(끄면 꺼진 채
 남는다). 성조 없이 병음을 치면 다른 중국어 입력기처럼 **치는 동안 후보가 뜬다**. 사이띄개는 하이라이트된 후보, 1~9 는 그
 후보, `-` `=` 는 쪽 넘김, `[` `]` 는 그 낱말의 첫·끝 글자만(以词定字), 엔터는 친 로마자 그대로, Esc 는 읽기를 지운다.

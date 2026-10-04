@@ -514,9 +514,12 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     SendMessageW(s, BM_SETCHECK, (seq && !L->optNoSentence) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g, BM_SETCHECK, (seq && !L->optNoSuggest) ? BST_CHECKED : BST_UNCHECKED, 0);
     bool zh = seq && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->zh;
+    bool ja = seq && L->pSeqLayout && ((const SeqLayout *)L->pSeqLayout)->ja;   // 일본어 방식 (0.70.0)
     HWND pc = GetDlgItem(hwnd, ID_CHK_LOPT_PUNCT);
-    EnableWindow(pc, zh);
-    SendMessageW(pc, BM_SETCHECK, (zh && !L->optNoPunct) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SetWindowTextW(pc, ja ? L"Japanese punctuation (\x3001\x3002\x300C\x300D\x30FB\x301C\xFF01\xFF1F)"
+                          : L"Chinese punctuation (\xFF0C\x3002\xFF1F\xFF01\x201C\x201D \x2014 \x300C\x300D for traditional)");
+    EnableWindow(pc, zh || ja);
+    SendMessageW(pc, BM_SETCHECK, ((zh || ja) && !L->optNoPunct) ? BST_CHECKED : BST_UNCHECKED, 0);
     HWND fz = GetDlgItem(hwnd, ID_CHK_LOPT_FUZZY);
     EnableWindow(fz, zh);
     SendMessageW(fz, BM_SETCHECK, (zh && L->optFuzzy) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -527,9 +530,9 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     EnableWindow(tn, hasTones);
     SendMessageW(tn, BM_SETCHECK, (hasTones && !L->optNoTones) ? BST_CHECKED : BST_UNCHECKED, 0);
     HWND bar = GetDlgItem(hwnd, ID_CHK_LOPT_BAR);
-    EnableWindow(bar, zh);
-    SendMessageW(bar, BM_SETCHECK, (zh && L->optBar) ? BST_CHECKED : BST_UNCHECKED, 0);
-    EnableWindow(GetDlgItem(hwnd, ID_BTN_LOPT_PHRASES), zh);
+    EnableWindow(bar, zh || ja);
+    SendMessageW(bar, BM_SETCHECK, ((zh || ja) && L->optBar) ? BST_CHECKED : BST_UNCHECKED, 0);
+    EnableWindow(GetDlgItem(hwnd, ID_BTN_LOPT_PHRASES), zh || ja);
     {   // 글쇠: 온 병음 + 이 자판이 가진 쌍병 표
         HWND kc = GetDlgItem(hwnd, ID_CMB_LOPT_KEYS);
         SendMessageW(kc, CB_RESETCONTENT, 0, 0);
@@ -549,6 +552,7 @@ static void LoptRefresh(HWND hwnd, bool refill) {
     }
     SetWindowTextW(GetDlgItem(hwnd, ID_LBL_LOPT_HINT), seq
         ? (zh ? L"For this layout only. Keys: full pinyin or double pinyin (two keys per syllable). Custom phrases: one per line, letters then text (dz \x5317\x4EAC\x5E02)."
+           : ja ? L"For this layout only. Space converts, F6-F10 give hiragana, katakana, half-width katakana and romaji. Custom phrases: one per line, reading then text (\x3088\x308D \x3088\x308D\x3057\x304F\x304A\x9858\x3044\x3057\x307E\x3059)."
               : L"Applies to this layout only. The sentence candidate converts all you typed at once; suggestions offer longer words and idioms that start with it, and initials such as wsm for a whole word.")
         : L"This layout has no options of its own. Options appear here for input layouts that convert a reading (Chinese pinyin, Japanese kana).");
 }
@@ -862,8 +866,20 @@ static LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 case ID_BTN_LOPT_PHRASES: {   // 사용자 구 파일을 메모장으로 (없으면 보기 줄을 넣어 만든다)
                     wchar_t dir[MAX_PATH], path[MAX_PATH];
                     if (!Config_UserDictDir(dir, MAX_PATH)) break;
-                    _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, SEQ_PHRASES_FILE);
+                    const LayoutConfig *PL = (g_loptSel >= 0 && g_loptSel < g_TempConfig.layoutCount) ? &g_TempConfig.layouts[g_loptSel] : NULL;
+                    bool jaFile = PL && PL->type == LAYOUT_TYPE_SEQUENCE && PL->pSeqLayout && ((const SeqLayout *)PL->pSeqLayout)->ja;
+                    _snwprintf(path, MAX_PATH, L"%ls\\%ls", dir, jaFile ? SEQ_JA_PHRASES_FILE : SEQ_PHRASES_FILE);
                     path[MAX_PATH - 1] = L'\0';
+                    if (jaFile && GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {   // 일본어 문구 치환 (0.70.0)
+                        FILE *f = _wfopen(path, L"wb");
+                        if (f) {
+                            fputs("\xEF\xBB\xBF# Jamotong custom phrases for the Japanese layout - one per line:\r\n"
+                                  "# the reading in kana, then a space or tab, then the text. They come first in the candidates.\r\n"
+                                  "# \xE3\x82\x88\xE3\x82\x8D \xE3\x82\x88\xE3\x82\x8D\xE3\x81\x97\xE3\x81\x8F\xE3\x81\x8A\xE9\xA1\x98\xE3\x81\x84\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\r\n"
+                                  "# \xE3\x82\x81\xE3\x82\x8B me@example.com\r\n", f);
+                            fclose(f);
+                        }
+                    }
                     if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
                         FILE *f = _wfopen(path, L"wb");
                         if (f) {

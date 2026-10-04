@@ -164,7 +164,7 @@ static void ApplyRoundedCorners(HWND hwnd, COLORREF border) {
 static void CandNote(int i, wchar_t *buf, int cap) {
     buf[0] = L'\0';
     const wchar_t *cand = g_candidates[i] ? g_candidates[i] : L"";
-    if (g_onKey) {
+    if (g_onKey || g_notes) {   // 순차 입력의 후보창(중국어·일본어): 준 주석만 — 부호값은 한자 후보창의 것이다
         if (g_notes && g_notes[i] && g_notes[i][0]) lstrcpynW(buf, g_notes[i], cap);
         return;
     }

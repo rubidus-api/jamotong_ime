@@ -225,6 +225,28 @@ static void Transition_FlushComposition(JamotongTextService *obj, const char *wh
     if (!done) Pending_Set(obj, ch, editOk ? eh : NULL, obj->compTargetCtx);
 }
 
+// 순차 입력(중국어·일본어)의 읽기도 포커스 이동·밖에서의 전환에서 잃지 않는다 — 읽기는 미리보기(오버레이)일 뿐
+//   문서에 없으므로, 한글 음절처럼 조합을 시작한 대상에 친 그대로 확정한다 (일본어 실기 2026-10-04: かな 가 사라졌다).
+static void Transition_FlushSeq(JamotongTextService *obj, const char *why) {
+    LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
+    if (!cur || cur->type != LAYOUT_TYPE_SEQUENCE || !cur->pSeqLayout) return;
+    if (!obj->seqKb.pending[0] && !obj->seqKb.reading[0]) return;
+    SeqResult r = SeqKb_Flush(&obj->seqKb, (const SeqLayout *)cur->pSeqLayout);
+    if (!r.committed[0]) return;
+    HWND eh = obj->compTargetHwnd;
+    bool editOk = eh && IsWindow(eh) && GetWindowThreadProcessId(eh, NULL) == GetCurrentThreadId();
+    BOOL done = FALSE;
+    if (editOk) {
+        done = EditCtl_ReplaceSelection(eh, r.committed) ? TRUE : FALSE;
+    } else if (obj->compTargetCtx) {
+        EditSessionData esd = {0};
+        lstrcpynW(esd.committed, r.committed, 121);
+        done = SUCCEEDED(RequestEditSessionDataEx(obj, obj->compTargetCtx, &esd, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE));
+    }
+    PreeditOverlay_Hide();
+    JamoDiag("TRANS %s seq flush %u chars done=%d", why, (unsigned)wcslen(r.committed), (int)done);
+}
+
 // compartment 통지 등 '밖'에서 자판이 바뀐 뒤의 공통 뒤처리. 키 싱크의 자판 전환 경로와 같은 순서:
 // 조합 경계(인라인 조합 확정·FSM/칩·모아치기 정리) → 언어바. (compartment 발행은 호출자가 한다.)
 // ── 조합 경계 전환 — 한 경로 (RFC-0008 W1-03) ────────────────────────────────────────────
@@ -269,6 +291,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
             OutputResultSeq(obj, pic, res, TRUE);   // 키 이벤트 안 — 동기 세션 허용
         }
     } else {
+        Transition_FlushSeq(obj, why == TRANS_WHY_FOCUS ? "focus" : "ext-switch");
         Transition_FlushComposition(obj, why == TRANS_WHY_FOCUS ? "focus" : "ext-switch");
     }
     Jamotong_FoldInput(obj);             // 접는 일은 한 곳에만 (B3)
@@ -725,7 +748,7 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
         if (live) wcsncat(title, obj->seqKb.pending, SEQ_MAX_IN);
         CandidateUI_SetTitle(title);
         const LayoutConfig *cl0 = Config_GetCurrentLayout(&obj->config);
-        CandidateUI_SetHorizontal(sl->zh && cl0 && cl0->optBar);
+        CandidateUI_SetHorizontal((sl->zh || sl->ja) && cl0 && cl0->optBar);
     }
     {   // 성조 병음 (자판 선택 Tones, 기본 켬)
         const LayoutConfig *cur = Config_GetCurrentLayout(&obj->config);
@@ -735,7 +758,7 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
             if (tones) SeqLayout_ToneOf(sl, g_seqCands.items[i], g_seqNotes[i], 48);
             g_seqNotePtrs[i] = g_seqNotes[i];
         }
-        CandidateUI_SetNotes(tones ? g_seqNotePtrs : NULL);
+        CandidateUI_SetNotes(g_seqNotePtrs);   // 늘 준다 (성조가 없으면 빈 줄) — 부호값 주석은 한자 후보창에만 (일본어 실기 2026-10-04)
     }
     if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
@@ -939,6 +962,7 @@ static void SeqSymbolSink(void *ctx, const wchar_t *sym);
 //   확정 글자는 삽입하고, 아직 보류 중인 입력은 문서가 아니라 캐럿 옆 미리보기 칩으로만 보여준다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r) {
     if (!pic) return;
+    if (r->composing[0]) CompTarget_Remember(obj, pic);   // 포커스가 떠나면 읽기를 넣을 대상 (Transition_FlushSeq)
     SeqKb_NoteCommitted(&obj->seqKb, r->committed);   // 숫자 뒤의 . , 는 그대로 (중국어 문장부호)
     // 한 번의 입력이 낳는 확정 글자는 편집 세션 한 칸(127자)보다 길 수 있다(보류를 한꺼번에
     // 푸는 경우). 나눠 보내되 한 글자도 잃지 않는다.
@@ -1278,6 +1302,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
         } else if (layout && layout->type == LAYOUT_TYPE_SEQUENCE) {
             const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
             if (sl) SeqLayout_SelectScheme((SeqLayout *)sl, layout->optKeys);   // 쌍병: 자판 선택(Keys)의 글쇠 표
+            if (sl) obj->seqKb.noPunct = sl->ja && layout->optNoPunct;           // 일본어: 문장부호를 끈 자판 (0.70.0)
             bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             wchar_t qc = GetQwertyChar(wParam, isShift);
             bool pend = obj->seqKb.pending[0] != L'\0' || SeqKb_Reading(&obj->seqKb)[0] != L'\0';
@@ -1672,6 +1697,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // 순차 변환 자판: 친 글자열을 표대로 바꾼다 (로마자→가나류). 보류는 미리보기로만 보인다.
         const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
         if (sl) SeqLayout_SelectScheme((SeqLayout *)sl, layout->optKeys);   // 쌍병: 자판 선택(Keys)의 글쇠 표
+        if (sl) obj->seqKb.noPunct = sl->ja && layout->optNoPunct;           // 일본어: 문장부호를 끈 자판 (0.70.0)
         if (sl && sl->chord) {
             // §6.3: 앞단 조합이 먼저 결정한다. 그 결과 `symbol` 만 엔진으로 들어가고(싱크),
             // text/key 같은 동작은 예전처럼 실제 입력으로 나간다. 같은 글쇠를 둘이 겹쳐 먹지 않는다.
@@ -1723,6 +1749,41 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                     }
                 }
             }
+            if (sl->ja && wParam >= VK_F6 && wParam <= VK_F10 && !HasCtrlAltWin()
+                && (obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0])) {
+                // 일본어 방식 (0.70.0): F6 히라가나, F7 가타카나, F8 반각 가타카나, F9 전각 로마자, F10 반각 로마자로 확정
+                SeqResult fr = SeqKb_Flush(&obj->seqKb, sl);   // 보류까지 읽기로 — fr.committed 가 읽기 전체다
+                wchar_t kf[SEQ_MAX_READING * 4 + 1];
+                static const int forms[] = { SEQ_KANA_HIRAGANA, SEQ_KANA_KATAKANA, SEQ_KANA_HALF, SEQ_KANA_ROMAJI_FULL, SEQ_KANA_ROMAJI };
+                if (SeqKb_KanaForm(fr.committed, forms[wParam - VK_F6], kf, (int)(sizeof kf / sizeof kf[0]))
+                    && wcslen(kf) < sizeof fr.committed / sizeof fr.committed[0])
+                    wcscpy(fr.committed, kf);
+                fr.composing[0] = L'\0';
+                fr.eaten = true;
+                if (CandidateUI_IsVisible()) CandidateUI_Hide();
+                SeqReleaseCandCtx(obj);
+                SeqApply(obj, pic, &fr);
+                if (pfEaten) *pfEaten = TRUE;
+                goto kd_done;
+            }
+            if (sl->ja && wParam != VK_BACK && wParam != VK_ESCAPE && !HasCtrlAltWin()) {
+                // 일본어 방식: 엔진이 받지 않는 글자 글쇠(숫자·끈 문장부호…)가 읽기 뒤에 오면 읽기를 친 그대로 확정하고 그 글자를
+                //   잇는다 — 읽기를 띄워 둔 채 글자만 앱으로 가면 조합이 꼬인다(실기 2026-10-04).
+                wchar_t qc = GetQwertyChar(wParam, isShift);
+                bool hasReading = obj->seqKb.pending[0] || SeqKb_Reading(&obj->seqKb)[0];
+                if (hasReading && qc >= 0x21 && qc <= 0x7E && !SeqKb_WouldEat(&obj->seqKb, sl, qc)) {
+                    SeqResult fr = SeqKb_Flush(&obj->seqKb, sl);
+                    size_t n = wcslen(fr.committed);
+                    if (n + 2 <= sizeof fr.committed / sizeof fr.committed[0]) { fr.committed[n] = qc; fr.committed[n + 1] = L'\0'; }
+                    fr.composing[0] = L'\0';
+                    fr.eaten = true;
+                    if (CandidateUI_IsVisible()) CandidateUI_Hide();
+                    SeqReleaseCandCtx(obj);
+                    SeqApply(obj, pic, &fr);
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
+            }
             if (wParam == VK_BACK)        r = SeqKb_Backspace(&obj->seqKb, sl);
             else if (wParam == VK_ESCAPE) r = SeqKb_Cancel(&obj->seqKb);
             else {
@@ -1750,7 +1811,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         }
                         // 자리가 없을 만큼 길면(병적인 표) 예전 길로 — 한 글자도 잃지 않는다
                     }
-                    if (wParam == VK_RETURN && sl->zh) {   // 중국어 병음 방식: 엔터는 친 로마자만 (줄은 바꾸지 않는다)
+                    if (wParam == VK_RETURN && (sl->zh || sl->ja)) {   // 중국어·일본어 방식: 엔터는 읽기만 확정 (줄은 바꾸지 않는다)
                         SeqApply(obj, pic, &fr);
                         SeqLiveRefresh(obj, pic, sl);
                         if (pfEaten) *pfEaten = TRUE;

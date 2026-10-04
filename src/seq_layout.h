@@ -41,6 +41,13 @@ enum { SEQ_ZH_NONE = 0, SEQ_ZH_SIMPLIFIED = 1, SEQ_ZH_TRADITIONAL = 2 };
 //   모호음 — z/zh c/ch s/sh n/l an/ang en/eng in/ing 을 같게 찾는다(선택). 사용자 구 — 사용자 사전 폴더의 chinese-phrases.txt.
 #define SEQ_MAX_SCHEMES 4
 #define SEQ_PHRASES_FILE L"chinese-phrases.txt"
+// 일본어 방식 (자판 파일 `Japanese = yes`, 0.70.0 RFC-0021). 읽기는 가나(로마자 표가 바꾼 것), 사이띄개가 변환한다. 켜면:
+//   - 사용자 사전 폴더의 japanese-phrases.txt (읽기 ⇥ 문구) — 문구 치환, 후보 맨 앞
+//   - 후보에 히라가나·가타카나 그대로의 줄, F6~F10 은 읽기를 히라가나·가타카나·반각 가타카나·전각·반각 로마자로 확정
+//   - 엔터는 읽기를 그대로 확정한다(줄은 바꾸지 않는다). 문장부호(、。「」・ー…)는 로마자 표가 읽기에 넣는다 —
+//     자판 선택에서 끄면 그 글쇠는 응용으로 간다.
+#define SEQ_JA_PHRASES_FILE L"japanese-phrases.txt"
+enum { SEQ_KANA_HIRAGANA = 0, SEQ_KANA_KATAKANA = 1, SEQ_KANA_HALF = 2, SEQ_KANA_ROMAJI_FULL = 3, SEQ_KANA_ROMAJI = 4 };
 #define SEQ_SEPARATOR L'\''
 
 // 읽기·후보 (RFC-0016 §6.4). 후보 사전이 없으면 이 자리는 비어 있고 동작도 예전 그대로다.
@@ -71,6 +78,7 @@ typedef struct SeqLayout {
     JDict   *cand;
     int      convertVk;          // 변환 글쇠 (VK_*), 0 = 없음
     int      zh;                 // SEQ_ZH_* (중국어 병음 방식, 구운 자판 판 7)
+    int      ja;                 // 일본어 방식 (구운 자판 판 10)
     // 쌍병 글쇠 표 (구운 자판 판 8). scheme = 0 이면 Dictionary, k 면 schemeDict[k-1] 이 친 글쇠를 읽기로 바꾼다.
     int      nScheme;
     wchar_t  schemeName[SEQ_MAX_SCHEMES][16];
@@ -97,6 +105,7 @@ typedef struct SeqState {
     bool     candOpen;                           // 후보를 내놓은 상태인가
     wchar_t  lastCommit;                         // 마지막으로 확정한 글자 (숫자 뒤의 . , 는 그대로 둔다)
     bool     dquoteOpen, squoteOpen;             // 중국어 따옴표 짝 (“ ” / ‘ ’ — 번체는 「 」 / 『 』)
+    bool     noPunct;                            // 일본어 방식: 문장부호 글쇠를 응용에 (입력기가 자판 선택에서 정한다)
 } SeqState;
 
 // 한 번의 입력이 낳은 결과. committed = 지금 문서에 넣을 글자들, composing = 아직 보류(미리보기).
@@ -191,5 +200,10 @@ bool      SeqLayout_ToneOf(const SeqLayout *sl, const wchar_t *cand, wchar_t *ou
 bool      SeqKb_IsEmoji(const wchar_t *cand);
 // 사용자 구 파일 자리를 정한다 (시험용 — NULL 이면 사용자 사전 폴더의 SEQ_PHRASES_FILE).
 void      SeqKb_SetPhrasesPath(const wchar_t *path);
+// ── 일본어 방식의 도구 (sl->ja) ─────────────────────────────────────────────────────
+// 가나 읽기를 다른 꼴로 (SEQ_KANA_*): 히라가나, 가타카나, 반각 가타카나, 전각·반각 로마자(헵번식에 가깝게). 못 하면 false.
+bool      SeqKb_KanaForm(const wchar_t *reading, int form, wchar_t *out, int cap);
+// 이 글자가 일본어 문장부호 글쇠인가 (로마자 표가 문장부호로 바꾸는 것: , . [ ] / - ~ ! ? 등)
+bool      SeqKb_IsJaPunctKey(wchar_t ch);
 // 모호음 변형 키들 (첫째는 key 자신). 시험용으로도 쓴다.
 int       SeqKb_FuzzyKeys(const wchar_t *key, wchar_t out[][SEQ_MAX_READING + 1], int cap);
