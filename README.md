@@ -11,6 +11,7 @@ Framework) text service with no frameworks and no external libraries.
 |---|---|
 | **Jamotong installer package (recommended)** | **[jamotong-0.70.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi)** — double-click to install (English or Korean, you choose the folder). **One file**: tick Chinese Simplified, Chinese Traditional or Japanese on the features page to install them too (about 21 MB with all three); remove it from Installed apps |
 | Jamotong zip (no installer) | [jamotong-0.70.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
+| Old-version cleanup | [jamotong-cleanup-0.70.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-cleanup-0.70.0.zip) — removes what older versions left: the separate language pack installers of 0.62–0.69, a Jamotong older than 0.70.0, the old Japanese/Chinese zip packs in your profile (moved to a backup folder). Lists and asks first (README inside) |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
