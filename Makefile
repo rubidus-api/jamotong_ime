@@ -2,6 +2,7 @@
 #   make            : dist/jamotong.dll   (x64 TSF IME)
 #   make win32      : dist/jamotong32.dll (x86 — 32비트 앱용; TIP DLL은 호스트 비트수와 일치 필요)
 #   make configapp  : dist/jamotong.exe   (트레이 모니터링/설정 앱)
+#   make cleanup    : dist/jamotong-cleanup.exe (모든 판을 지우는 정리 도구 — 릴리스마다 함께 낸다)
 # 내부 개발 타깃(네이티브 테스트·패키징 등)은 비공개 저장소의 private.mk 가 제공한다(없으면 무시).
 
 CC = x86_64-w64-mingw32-gcc
@@ -45,6 +46,13 @@ dist/jamotong.exe: $(APP_SRCS) src/jamotong_app.rc src/jamotong.ico src/version.
 	$(WINDRES64) -I src src/jamotong_app.rc -O coff -o dist/jamotong_app_res.o
 	$(CC) $(CFLAGS) -municode -mwindows -o $@ $(APP_SRCS) dist/jamotong_app_res.o -static -static-libgcc -s -lgdi32 -lcomdlg32 -lcomctl32 -limm32 -lole32 -luuid -lshell32 -ladvapi32
 
+# 정리 도구 (오너 2026-10-04): 자모통의 모든 판·예전 팩·설치기 없는 등록을 지운다. 자모통 소스를 링크하지 않는 따로 된 GUI.
+cleanup: dist/jamotong-cleanup.exe
+dist/jamotong-cleanup.exe: src/cleanup_tool.c src/jamotong_cleanup.rc src/jamotong_cleanup.manifest src/jamotong.ico src/version.h
+	@mkdir -p dist
+	$(WINDRES64) -I src src/jamotong_cleanup.rc -O coff -o dist/jamotong_cleanup_res.o
+	$(CC) $(CFLAGS) -municode -mwindows -o $@ src/cleanup_tool.c dist/jamotong_cleanup_res.o -static -static-libgcc -s -lmsi -lshell32 -lole32 -lcomctl32 -ladvapi32 -luser32 -lgdi32
+
 # 빌드 산출물 + 재배포 데이터(redist/: 한자 데이터·자판)를 dist/에 모아 '설치할 파일들'을 만든다.
 # 소스 빌드 사용자는 이 파일들을 관리자만 바꿀 수 있는 폴더에 복사하고 관리자로 jamotong.exe --register.
 stage: all win32 configapp
@@ -53,9 +61,9 @@ stage: all win32 configapp
 	@echo "dist/ = the files to install: copy them to a folder only administrators can change, then run jamotong.exe --register as administrator"
 
 clean:
-	rm -f $(TARGET) dist/jamotong32.dll dist/jamotong.exe dist/*_res*.o
+	rm -f $(TARGET) dist/jamotong32.dll dist/jamotong.exe dist/jamotong-cleanup.exe dist/*_res*.o
 
-.PHONY: all win32 configapp stage clean
+.PHONY: all win32 configapp cleanup stage clean
 
 # ── 내부 개발 타깃 (비공개 저장소가 옆에 있으면 활성화) ──────────────────────────────
 -include ../jamotong-private/private.mk

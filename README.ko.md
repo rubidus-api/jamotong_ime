@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.70.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip)
+**한국어** | [English](README.md) — **Jamotong v0.70.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-cleanup-0.70.0.exe)
 
 # Jamotong (자모통)
 
@@ -11,7 +11,7 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 |---|---|
 | **자모통 설치 패키지 (권장)** | **[jamotong-0.70.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
 | 자모통 zip (설치기 없음) | [jamotong-0.70.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-0.70.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
-| 예전 판 정리 도구 | [jamotong-cleanup-0.70.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-cleanup-0.70.0.zip) — 예전 판이 남긴 것을 지웁니다: 0.62~0.69 의 따로 된 언어 팩 설치본, 0.70.0 보다 낮은 자모통, 사용자 폴더의 예전 일본어·중국어 zip 팩(백업 폴더로 옮김). 먼저 보여 주고 묻습니다(README 동봉) |
+| 정리 도구 | [jamotong-cleanup-0.70.0.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.70.0/jamotong-cleanup-0.70.0.exe) — 이 PC 에서 자모통의 **모든 판**을 지웁니다: 설치본, 예전 언어 팩, 설치기 없이 한 등록(zip), 옛 IMM32 입력기와 그것들이 남긴 것. 내 설정은 칸을 체크할 때만. 실행 → 관리자 확인 → 모두 지우기; 재부팅하라고 하면 재부팅한 뒤 다시 실행하세요 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
