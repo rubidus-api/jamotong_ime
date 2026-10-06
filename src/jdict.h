@@ -115,6 +115,11 @@ JConn *JConn_Open(const wchar_t *path, bool verify, JDictError *err);
 void   JConn_Close(JConn *c);
 int    JConn_Ids(const JConn *c);
 int    JConn_Cost(const JConn *c, int rid, int lid);   // 범위 밖이면 가장 비싼 값
+// 품사 종류 (.jdc 판 2, 0.73.0 문절 편집): 낱말을 문절로 묶는 데 쓴다. 판 1 파일·범위 밖이면 0.
+#define JCONN_CLASS_FUNC   1   // 앞 낱말에 붙는다: 조사·조동사·비자립 동사/형용사·접미·닫는 문장부호
+#define JCONN_CLASS_PREFIX 2   // 뒤 낱말이 붙는다: 접두사
+bool   JConn_HasClass(const JConn *c);
+int    JConn_Class(const JConn *c, int id);
 
 // buf 의 앞부분과 맞는 가장 긴 항목. 찾으면 *keyLen 에 그 길이, val/valLen 에 값.
 bool JDict_LongestPrefix(const JDict *d, const wchar_t *buf, int *keyLen,

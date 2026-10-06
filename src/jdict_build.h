@@ -29,3 +29,5 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
 // 연결 비용 파일 (.jdc, RFC-0022): Mozc 의 connection_single_column.txt(첫 줄 N, 그 뒤 N×N 줄의 비용, [rid][lid] 차례)를
 //   한 칸 1바이트(비용 / step, 255 까지)로 굽는다.
 bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDictBuildResult *res);
+// 품사 종류까지 (.jdc 판 2): idDefPath = Mozc 의 id.def ("id 품사,…" 줄, UTF-8). NULL 이면 판 1 그대로.
+bool JConn_BuildEx(const wchar_t *srcPath, const wchar_t *idDefPath, const wchar_t *outPath, int step, JDictBuildResult *res);

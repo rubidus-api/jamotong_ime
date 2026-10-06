@@ -438,7 +438,28 @@ bool JDict_Build(const wchar_t *srcPath, const wchar_t *outPath, JDictBuildResul
 }
 
 // ── 연결 비용 파일 (.jdc, RFC-0022) ───────────────────────────────────────────────────
+// id.def 한 줄의 품사("助詞,格助詞,…", UTF-8)가 어느 종류인가
+static unsigned char ConnClassOf(const char *f) {
+    static const char *const func[] = {
+        "\xE5\x8A\xA9\xE8\xA9\x9E,",                                           // 助詞
+        "\xE5\x8A\xA9\xE5\x8B\x95\xE8\xA9\x9E,",                               // 助動詞
+        "\xE5\x8B\x95\xE8\xA9\x9E,\xE9\x9D\x9E\xE8\x87\xAA\xE7\xAB\x8B,",       // 動詞,非自立
+        "\xE5\x8B\x95\xE8\xA9\x9E,\xE6\x8E\xA5\xE5\xB0\xBE,",                   // 動詞,接尾
+        "\xE5\xBD\xA2\xE5\xAE\xB9\xE8\xA9\x9E,\xE9\x9D\x9E\xE8\x87\xAA\xE7\xAB\x8B,",   // 形容詞,非自立
+        "\xE5\xBD\xA2\xE5\xAE\xB9\xE8\xA9\x9E,\xE6\x8E\xA5\xE5\xB0\xBE,",               // 形容詞,接尾
+        "\xE5\x90\x8D\xE8\xA9\x9E,\xE6\x8E\xA5\xE5\xB0\xBE,",                   // 名詞,接尾
+        "\xE8\xA8\x98\xE5\x8F\xB7,\xE5\x8F\xA5\xE7\x82\xB9,",                   // 記号,句点
+        "\xE8\xA8\x98\xE5\x8F\xB7,\xE8\xAA\xAD\xE7\x82\xB9,",                   // 記号,読点
+        "\xE8\xA8\x98\xE5\x8F\xB7,\xE6\x8B\xAC\xE5\xBC\xA7\xE9\x96\x89,",       // 記号,括弧閉
+    };
+    for (size_t i = 0; i < sizeof func / sizeof func[0]; i++) if (!strncmp(f, func[i], strlen(func[i]))) return 1;   // JCONN_CLASS_FUNC
+    if (!strncmp(f, "\xE6\x8E\xA5\xE9\xA0\xAD\xE8\xA9\x9E,", 10)) return 2;      // 接頭詞 — JCONN_CLASS_PREFIX
+    return 0;
+}
 bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDictBuildResult *res) {
+    return JConn_BuildEx(srcPath, NULL, outPath, step, res);
+}
+bool JConn_BuildEx(const wchar_t *srcPath, const wchar_t *idDefPath, const wchar_t *outPath, int step, JDictBuildResult *res) {
     memset(res, 0, sizeof *res);
     if (step < 1 || step > 1024) { Fail(res, 0, L"E-CONN-STEP", L"the step must be 1..1024", NULL); return false; }
     FILE *fp = _wfopen(srcPath, L"rb");
@@ -449,7 +470,7 @@ bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDict
         Fail(res, 1, L"E-CONN-SIZE", L"the first line must be the number of ids (1..8192)", L"Mozc's connection_single_column.txt");
         return false;
     }
-    size_t cells = (size_t)n * (size_t)n, total = 32 + cells;
+    size_t cells = (size_t)n * (size_t)n, body = cells + (idDefPath ? (size_t)n : 0), total = 32 + body;
     unsigned char *buf = (unsigned char *)calloc(1, total);
     if (!buf) { fclose(fp); Fail(res, 0, L"E-CONN-MEMORY", L"out of memory", NULL); return false; }
     for (size_t i = 0; i < cells; i++) {
@@ -463,11 +484,27 @@ bool JConn_Build(const wchar_t *srcPath, const wchar_t *outPath, int step, JDict
         buf[32 + i] = (unsigned char)(q > 255 ? 255 : q);
     }
     fclose(fp);
+    if (idDefPath) {   // 품사 종류 (판 2)
+        FILE *fd = _wfopen(idDefPath, L"rb");
+        if (!fd) { free(buf); Fail(res, 0, L"E-CONN-IDDEF", L"cannot open the part-of-speech list", L"Mozc's id.def"); return false; }
+        char line[512];
+        long seen = 0;
+        while (fgets(line, sizeof line, fd)) {
+            char *end = NULL;
+            long id = strtol(line, &end, 10);
+            if (end == line || *end != ' ') continue;
+            if (id < 0 || id >= n) { fclose(fd); free(buf); Fail(res, 0, L"E-CONN-IDDEF", L"the part-of-speech list names an id the table does not have", NULL); return false; }
+            buf[32 + cells + (size_t)id] = ConnClassOf(end + 1);
+            seen++;
+        }
+        fclose(fd);
+        if (seen != n) { free(buf); Fail(res, 0, L"E-CONN-IDDEF", L"the part-of-speech list and the table differ in size", L"take id.def and connection_single_column.txt from the same Mozc"); return false; }
+    }
     memcpy(buf, "JMTCONN\0", 8);
-    Wr32(buf + 8, 1u);
+    Wr32(buf + 8, idDefPath ? 2u : 1u);
     Wr32(buf + 12, (unsigned)n);
     Wr32(buf + 16, (unsigned)step);
-    Wr32(buf + 20, JDict_Crc32(buf + 32, (unsigned long)cells));
+    Wr32(buf + 20, JDict_Crc32(buf + 32, (unsigned long)body));
     Wr32(buf + 24, (unsigned)total);
     FILE *out = _wfopen(outPath, L"wb");
     bool wrote = out && fwrite(buf, 1, total, out) == total;

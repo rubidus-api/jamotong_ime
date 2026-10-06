@@ -1,4 +1,4 @@
-**한국어** | [English](README.md) — **Jamotong v0.72.1** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-cleanup-0.72.1.exe)
+**한국어** | [English](README.md) — **Jamotong v0.73.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-cleanup-0.73.0.exe)
 
 # Jamotong (자모통)
 
@@ -9,21 +9,21 @@ TSF(Text Services Framework) 텍스트 서비스로 구현한 한글 입력기.
 
 | | 최신 릴리스 (클릭 = 바로 다운로드) |
 |---|---|
-| **자모통 설치 패키지 (권장)** | **[jamotong-0.72.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
-| 자모통 zip (설치기 없음) | [jamotong-0.72.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
-| 정리 도구 | [jamotong-cleanup-0.72.1.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-cleanup-0.72.1.exe) — 이 PC 에서 자모통의 **모든 판**을 지웁니다: 설치본, 예전 언어 팩, 설치기 없이 한 등록(zip), 옛 IMM32 입력기와 그것들이 남긴 것. 내 설정은 칸을 체크할 때만. 실행 → 관리자 확인 → 모두 지우기; 재부팅하라고 하면 재부팅한 뒤 다시 실행하세요 |
+| **자모통 설치 패키지 (권장)** | **[jamotong-0.73.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.msi)** — 두 번 눌러 설치(영어·한국어, 폴더 선택). **파일 하나**: 구성 요소 페이지에서 중국어 간체·번체·일본어를 체크하면 함께 설치됩니다(셋 다 약 21MB). 제거는 "설치된 앱"에서 |
+| 자모통 zip (설치기 없음) | [jamotong-0.73.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.zip) — 같은 파일만 담았습니다. 손으로 두고 등록합니다([설치](#설치) 참고) |
+| 정리 도구 | [jamotong-cleanup-0.73.0.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-cleanup-0.73.0.exe) — 이 PC 에서 자모통의 **모든 판**을 지웁니다: 설치본, 예전 언어 팩, 설치기 없이 한 등록(zip), 옛 IMM32 입력기와 그것들이 남긴 것. 내 설정은 칸을 체크할 때만. 실행 → 관리자 확인 → 모두 지우기; 재부팅하라고 하면 재부팅한 뒤 다시 실행하세요 |
 | 입력기 목록 복구 도구 | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — Win+Space 에 설치 안 한 IME 가 잔뜩 보일 때 (README 동봉) |
 
 전체 버전 목록·릴리스 노트: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### 설치 방법
 
-- **MSI (권장)**: `jamotong-0.72.1.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
+- **MSI (권장)**: `jamotong-0.73.0.msi` 를 두 번 누르면 설치가 시작됩니다. 첫 화면에서 설치기 언어(영어 또는
   한국어 — 윈도가 한국어로 설정돼 있으면 한국어가 미리 골라져 있습니다)를 고르고, 이어서 라이선스와 설치
   폴더를 보여 줍니다. 관리자 권한을 한 번 묻습니다(입력기 등록은 기계 전체 자리에 써야 합니다 — 윈도가 그렇게
   정해 놓았습니다). 업그레이드는 새 MSI 를 실행하면 되고, 제거는 **설정 ▸ 앱 ▸ 설치된 앱 ▸ Jamotong ▸ 수정 ▸
   제거**입니다(자모통 자신의 한국어 창이 뜨도록 "제거" 단추는 막아 두었습니다). 재부팅은 걸지 않습니다 — 그때 돌고 있던 앱은 이전 사본을 계속 쓰다가 다시 로그인하면 새 판을
-  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.72.1.msi /qn` (폴더를 정하려면
+  씁니다. 창 없는 설치도 됩니다: `msiexec /i jamotong-0.73.0.msi /qn` (폴더를 정하려면
   `INSTALLDIR="D:\Jamotong\"` 를 덧붙입니다).
 - **언어 (0.70.0)**: 중국어 간체·중국어 번체·일본어는 같은 MSI 의 구성 요소이고 기본으로 꺼져 있습니다 — 구성 요소
   페이지에서 체크하거나, 창 없는 설치에 `ADDLOCAL=ZhSimplified,ZhTraditional,Japanese`(모두는 `ADDLOCAL=ALL`)를
@@ -98,7 +98,7 @@ MSI 가 지웁니다.
 
 ## 설치
 
-1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.72.1.msi` 를 내려받아 두 번
+1. [Releases](https://github.com/rubidus-api/jamotong_ime/releases)에서 `jamotong-0.73.0.msi` 를 내려받아 두 번
    누른다. 프로그램을 설치하고 64비트·32비트 입력기를 등록한다.
 
    설치기 없이(zip, 또는 `dist/` 에 파일을 모으는 `make stage`): 파일을 관리자만 바꿀 수 있는 폴더(보통
@@ -751,7 +751,10 @@ jamotong --build-dict  kana-words.jdt -o kana-words.jdb
 **일본어(로마자).** 설치기의 **일본어** 구성 요소(0.70.0)가 **Japanese (romaji)** 자판을 켠 채로 넣는다. 로마자로 친다
 (`nihongo`, `kka` 는 っか, `-` 는 ー). 읽기는 가나로 보인다. **사이띄개**로 변환: 첫 후보는 문장 전체
 (`denshadekaishaniiku` → 電車で会社に行く), 그다음 읽기의 낱말, 히라가나·가타카나. 1~9 로 고르고, **엔터**는 가나
-그대로, Esc 는 지운다. **F6** 히라가나, **F7** 가타카나, **F8** 반각 가타카나, **F9** 전각·**F10** 반각 로마자. 문장부호는
+그대로, Esc 는 지운다. **문절 편집(0.73.0)**: 문장이 문절 둘 이상이면 사이띄개가 바꾼 문장을 보이고 고치는 문절을 괄호로
+두른다(`[私は]日本語を話します`) — 후보는 그 문절의 것이다. **←/→** 로 문절을 옮기고, **Shift+←/→** 로 그 문절을 줄이거나
+늘리고(뒤는 다시 가른다), **↑/↓**·사이띄개로 후보를 옮기고, 1~9 로 고르면 다음 문절로 간다. **엔터**는 문장을 넣고,
+백스페이스·Esc 는 가나로 돌아간다. 이어서 치면 문장이 먼저 들어간다. 고른 것을 배우지는 않는다. **F6** 히라가나, **F7** 가타카나, **F8** 반각 가타카나, **F9** 전각·**F10** 반각 로마자. 문장부호는
 、。「」・〜！？ 로 나온다(Layout Options 에서 끌 수 있다). **문구 치환**: Layout Options ▸ Edit custom phrases 가
 `japanese-phrases.txt` 를 연다 — 한 줄에 하나, 가나 읽기 다음에 글(`よろ よろしくお願いします`), 후보 맨 앞에 나온다. 사전은
 오픈소스 Mozc 사전(약 50만 항목)과 그 **품사 연결 비용**이다(0.71.0): 낱말 비용에 앞 낱말 뒤에 올 때의 비용을 더해

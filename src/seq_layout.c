@@ -224,7 +224,9 @@ SeqResult SeqKb_Flush(SeqState *st, const SeqLayout *sl) {
         FlushBuf(st, sl, buf, &r, true);
     }
     if (st->reading[0]) {   // 읽은 그대로 확정한다 — 고르지 않은 것을 대신 고르지 않는다
-        Emit(&r, st->reading);
+        // 문절 편집 중(일본어, 0.73.0)이면 화면에 보이는 바꾼 문장을 — 사용자가 보고 있던 것이 들어가야 한다
+        Emit(&r, (st->conv[0] && st->convGen == st->generation) ? st->conv : st->reading);
+        st->conv[0] = L'\0';
         st->reading[0] = L'\0';
         st->generation++;
         st->candOpen = false;
@@ -545,10 +547,10 @@ static void AddPredict(SeqCandidates *out, const SeqLayout *sl, const int *idx, 
 #define JA_SEG_CANDS  48
 #define JA_UNK_ID     1851
 #define JA_UNK_COST   10000
-typedef struct { int cost, rid, start, prev, idx; } JaNode;
+typedef struct { int cost, rid, lid, start, prev, idx; } JaNode;
 static JaNode g_jaNodes[(SEQ_MAX_READING + 1) * JA_BEAM];   // 입력 스레드 하나가 쓴다
 static int g_jaCount[SEQ_MAX_READING + 1];
-static void JaPut(int j, int cost, int rid, int start, int prev, int idx) {
+static void JaPut(int j, int cost, int lid, int rid, int start, int prev, int idx) {
     JaNode *b = &g_jaNodes[j * JA_BEAM];
     int k = g_jaCount[j];
     if (k < JA_BEAM) { g_jaCount[j] = k + 1; }
@@ -558,12 +560,14 @@ static void JaPut(int j, int cost, int rid, int start, int prev, int idx) {
         if (cost >= b[w].cost) return;
         k = w;
     }
-    b[k].cost = cost; b[k].rid = rid; b[k].start = start; b[k].prev = prev; b[k].idx = idx;
+    b[k].cost = cost; b[k].lid = lid; b[k].rid = rid; b[k].start = start; b[k].prev = prev; b[k].idx = idx;
 }
-static bool JaLattice(const SeqLayout *sl, const wchar_t *r, int n, wchar_t *out, int *firstLen, int *segs) {
-    if (n <= 0 || n > SEQ_MAX_READING) return false;
+// 가장 싼 길의 낱말들 (앞에서부터). leftRid = 앞 문맥의 오른쪽 품사(문장 앞이면 0 = BOS). 낱말 수, 못 가르면 0.
+typedef struct { int start, end, idx, lid, rid; } JaWord;   // idx < 0 = 사전에 없는 한 글자
+static int JaLatticeWords(const SeqLayout *sl, const wchar_t *r, int n, int leftRid, JaWord *words, int cap) {
+    if (n <= 0 || n > SEQ_MAX_READING) return 0;
     for (int j = 0; j <= n; j++) g_jaCount[j] = 0;
-    JaPut(0, 0, 0, 0, -1, -2);                                // 문장 앞 (BOS, id 0)
+    JaPut(0, 0, 0, leftRid, 0, -1, -2);                       // 문장 앞 (BOS, id 0) 또는 앞 문맥
     for (int i = 0; i < n; i++) {
         if (!g_jaCount[i]) continue;
         for (int j = i + 1; j <= n && j - i <= JA_MAXSEG; j++) {
@@ -587,7 +591,7 @@ static bool JaLattice(const SeqLayout *sl, const wchar_t *r, int n, wchar_t *out
                     int t = p->cost + JConn_Cost(sl->conn, p->rid, lid) + c;
                     if (t < bestCost) { bestCost = t; best = i * JA_BEAM + k; }
                 }
-                if (best >= 0) JaPut(j, bestCost, rid, i, best, idx);
+                if (best >= 0) JaPut(j, bestCost, lid, rid, i, best, idx);
             }
         }
     }
@@ -597,29 +601,226 @@ static bool JaLattice(const SeqLayout *sl, const wchar_t *r, int n, wchar_t *out
         int t = p->cost + JConn_Cost(sl->conn, p->rid, 0);
         if (t < endCost) { endCost = t; end = n * JA_BEAM + k; }
     }
-    if (end < 0) return false;
+    if (end < 0) return 0;
     int chain[SEQ_MAX_READING + 1], nc = 0;
     for (int x = end; x >= 0 && g_jaNodes[x].idx != -2 && nc <= SEQ_MAX_READING; x = g_jaNodes[x].prev) chain[nc++] = x;
-    out[0] = 0;
-    int pos = 0;
-    for (int k = nc - 1; k >= 0; k--) {
+    if (nc == 0 || nc > cap) return 0;
+    for (int k = nc - 1, w = 0; k >= 0; k--, w++) {
         const JaNode *p = &g_jaNodes[chain[k]];
-        int segEnd = (int)(p - g_jaNodes) / JA_BEAM;
+        words[w].start = p->start; words[w].end = chain[k] / JA_BEAM;
+        words[w].idx = p->idx; words[w].lid = p->lid; words[w].rid = p->rid;
+    }
+    return words[nc - 1].end == n ? nc : 0;
+}
+// 그 낱말의 표기 (사전에 없는 글자는 읽기 그대로)
+static bool JaWordText(const SeqLayout *sl, const wchar_t *r, const JaWord *w, wchar_t *val) {
+    if (w->idx >= 0) {
+        const jdchar *v = NULL; int vn = 0;
+        return JDict_CandidateAt(sl->cand, w->idx, &v, &vn) && JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) >= 0;
+    }
+    int len = w->end - w->start;
+    if (len > SEQ_MAX_OUT) return false;
+    wmemcpy(val, r + w->start, (size_t)len); val[len] = 0;
+    return true;
+}
+static bool JaLattice(const SeqLayout *sl, const wchar_t *r, int n, wchar_t *out, int *firstLen, int *segs) {
+    JaWord words[SEQ_MAX_READING + 1];
+    int nc = JaLatticeWords(sl, r, n, 0, words, SEQ_MAX_READING + 1);
+    if (nc == 0) return false;
+    out[0] = 0;
+    for (int k = 0; k < nc; k++) {
         wchar_t val[SEQ_MAX_OUT + 1];
-        if (p->idx >= 0) {
-            const jdchar *v = NULL; int vn = 0;
-            if (!JDict_CandidateAt(sl->cand, p->idx, &v, &vn) || JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) < 0) return false;
-        } else {
-            wmemcpy(val, r + p->start, (size_t)(segEnd - p->start)); val[segEnd - p->start] = 0;
-        }
+        if (!JaWordText(sl, r, &words[k], val)) return false;
         size_t have = wcslen(out), add = wcslen(val);
         if (have + add > SEQ_MAX_OUT) return false;
         wcscpy(out + have, val);
-        if (k == nc - 1) *firstLen = segEnd < n ? segEnd : 0;
-        pos = segEnd;
     }
+    *firstLen = words[0].end < n ? words[0].end : 0;
     *segs = nc;
-    return pos == n && out[0];
+    return out[0] != 0;
+}
+
+// ── 문절 편집 (0.73.0, RFC-0022 P2) ──────────────────────────────────────────────────────
+//   래티스의 낱말을 문절로 묶는다: 조사·조동사·비자립 낱말·접미는 앞 낱말에, 접두사 뒤의 낱말은 그 접두사에 붙는다
+//   (.jdc 판 2 의 품사 종류). 종류가 없는 연결 표면 히라가나뿐인 낱말을 앞에 붙인다. 사전에 없는 글자는 이어서 한 문절.
+static bool JaAllHiragana(const wchar_t *s) {
+    if (!s[0]) return false;
+    for (; *s; s++) if (!((*s >= 0x3041 && *s <= 0x309F) || *s == 0x30FC)) return false;
+    return true;
+}
+static bool JaAttaches(const SeqLayout *sl, const JaWord *prev, const JaWord *w, const wchar_t *text) {
+    if (prev->idx < 0 && w->idx < 0) return true;
+    if (w->idx < 0) return false;
+    if (JConn_HasClass(sl->conn))
+        return (JConn_Class(sl->conn, w->lid) & JCONN_CLASS_FUNC) || (prev->idx >= 0 && (JConn_Class(sl->conn, prev->rid) & JCONN_CLASS_PREFIX));
+    return JaAllHiragana(text);
+}
+// r[pos..n) 를 갈라 문절 at 부터 채운다 (leftRid = 앞 문절의 오른쪽 품사). 못 가르면 false.
+static bool JaFillFrom(const SeqLayout *sl, const wchar_t *r, int n, SeqSegments *sg, int at, int pos, int leftRid) {
+    sg->count = at;
+    if (pos >= n) return at > 0;
+    JaWord words[SEQ_MAX_READING + 1];
+    int nw = JaLatticeWords(sl, r + pos, n - pos, leftRid, words, SEQ_MAX_READING + 1);
+    if (nw == 0) return false;
+    for (int k = 0; k < nw; k++) {
+        wchar_t val[SEQ_MAX_OUT + 1];
+        if (!JaWordText(sl, r + pos, &words[k], val)) return false;
+        bool attach = sg->count > at && (JaAttaches(sl, &words[k - 1], &words[k], val) || sg->count >= SEQ_MAX_SEGS);
+        if (attach && wcslen(sg->text[sg->count - 1]) + wcslen(val) > SEQ_MAX_OUT) attach = false;
+        if (!attach) {
+            if (sg->count >= SEQ_MAX_SEGS) return false;
+            int i = sg->count++;
+            sg->start[i] = pos + words[k].start; sg->len[i] = 0; sg->text[i][0] = 0;
+        }
+        int i = sg->count - 1;
+        sg->len[i] += words[k].end - words[k].start;
+        sg->rid[i] = words[k].rid;
+        wcscat(sg->text[i], val);
+    }
+    return true;
+}
+bool SeqKb_JaSegments(SeqState *st, const SeqLayout *sl, SeqSegments *out) {
+    if (!st || !out || !SeqLayout_EnsureOpen((SeqLayout *)sl) || !sl->ja || !sl->cand || !sl->conn || !JDict_HasPos(sl->cand)) return false;
+    SeqState before = *st;
+    if (st->pending[0]) {   // 보류를 먼저 읽기로 (SeqKb_ConvertEx 와 같다)
+        wchar_t buf[SEQ_MAX_IN + 2];
+        lstrcpynW(buf, st->pending, SEQ_MAX_IN + 2);
+        SeqResult tmp; memset(&tmp, 0, sizeof tmp);
+        FlushBuf(st, sl, buf, &tmp, true);
+    }
+    const int n = (int)wcslen(st->reading);
+    wchar_t ph[1][SEQ_MAX_OUT + 1];
+    memset(out, 0, sizeof *out);
+    if (n == 0 || PhrasesFor((SeqLayout *)sl, st->reading, ph, 1) > 0   // 문구 치환이 있는 읽기는 예전 목록으로
+        || !JaFillFrom(sl, st->reading, n, out, 0, 0, 0) || out->count < 2) { *st = before; return false; }
+    out->generation = st->generation;
+    out->focus = 0;
+    st->candOpen = true;   // 후보를 내놓은 상태 — 접으면(SeqKb_CancelCandidates) 읽기로 돌아간다
+    return true;
+}
+bool SeqKb_JaSegResize(const SeqState *st, const SeqLayout *sl, SeqSegments *sg, int delta) {
+    if (!st || !sl || !sg || sg->generation != st->generation || sg->focus < 0 || sg->focus >= sg->count) return false;
+    const int n = (int)wcslen(st->reading), f = sg->focus;
+    int len = sg->len[f] + delta;
+    if (len < 1 || sg->start[f] + len > n || len == sg->len[f]) return false;
+    static SeqSegments t;   // 크다 — 입력 스레드 하나가 쓴다
+    t = *sg;
+    // 정한 구간은 그 안에서만 다시 가른 것을 한 문절로, 그 뒤는 새로 가른다. 앞 문절들은 그대로.
+    JaWord words[SEQ_MAX_READING + 1];
+    int leftRid = f > 0 ? t.rid[f - 1] : 0;
+    int nw = JaLatticeWords(sl, st->reading + t.start[f], len, leftRid, words, SEQ_MAX_READING + 1);
+    if (nw == 0) return false;
+    t.len[f] = len; t.text[f][0] = 0;
+    for (int k = 0; k < nw; k++) {
+        wchar_t val[SEQ_MAX_OUT + 1];
+        if (!JaWordText(sl, st->reading + t.start[f], &words[k], val) || wcslen(t.text[f]) + wcslen(val) > SEQ_MAX_OUT) return false;
+        wcscat(t.text[f], val);
+        t.rid[f] = words[k].rid;
+    }
+    if (t.start[f] + len >= n) t.count = f + 1;
+    else if (!JaFillFrom(sl, st->reading, n, &t, f + 1, t.start[f] + len, t.rid[f])) return false;
+    *sg = t;
+    return true;
+}
+bool SeqKb_JaSegMove(SeqSegments *sg, int delta) {
+    if (!sg || sg->count <= 0) return false;
+    int f = sg->focus + delta;
+    if (f < 0 || f >= sg->count) return false;
+    sg->focus = f;
+    return true;
+}
+static void JaSegAdd(SeqCandidates *out, const wchar_t *s, int len) {
+    if (out->count >= SEQ_MAX_CANDS || !s[0] || wcslen(s) > SEQ_MAX_OUT) return;
+    for (int j = 0; j < out->count; j++) if (!wcscmp(out->items[j], s)) return;
+    wcscpy(out->items[out->count], s);
+    out->consumed[out->count++] = len;
+}
+bool SeqKb_JaSegCands(const SeqState *st, const SeqLayout *sl, const SeqSegments *sg, SeqCandidates *out) {
+    if (!st || !sl || !sg || !out || sg->generation != st->generation || sg->focus < 0 || sg->focus >= sg->count) return false;
+    const int f = sg->focus, len = sg->len[f];
+    wchar_t span[SEQ_MAX_READING + 1];
+    wmemcpy(span, st->reading + sg->start[f], (size_t)len); span[len] = 0;
+    memset(out, 0, sizeof *out);
+    out->generation = st->generation;
+    JaSegAdd(out, sg->text[f], len);                           // 지금 것이 맨 앞
+    // 구간 전체가 낱말인 것: 낱말 비용 + 앞 문절과의 연결 비용이 싼 차례
+    int first = 0, count = 0;
+    if (len <= JA_MAXSEG && JDict_Candidates(sl->cand, span, &first, &count)) {
+        enum { TOP = 40 };
+        int pick[TOP], cost[TOP], np = 0;
+        int leftRid = f > 0 ? sg->rid[f - 1] : 0;
+        for (int e = 0; e < count && e < 400; e++) {
+            int lid = 0, rid = 0, c = JDict_CostAt(sl->cand, first + e);
+            if (!JDict_PosAt(sl->cand, first + e, &lid, &rid)) continue;
+            c = (c < 0 ? JA_UNK_COST : c) + JConn_Cost(sl->conn, leftRid, lid);
+            int k;
+            if (np < TOP) k = np++;
+            else if (c < cost[TOP - 1]) k = TOP - 1;   // 가장 비싼 것을 밀어낸다
+            else continue;
+            while (k > 0 && cost[k - 1] > c) { pick[k] = pick[k - 1]; cost[k] = cost[k - 1]; k--; }
+            pick[k] = first + e; cost[k] = c;
+        }
+        for (int k = 0; k < np; k++) {
+            wchar_t val[SEQ_MAX_OUT + 1];
+            const jdchar *v = NULL; int vn = 0;
+            if (JDict_CandidateAt(sl->cand, pick[k], &v, &vn) && JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) >= 0) JaSegAdd(out, val, len);
+        }
+    }
+    // 낱말 여럿인 문절: 첫 낱말(뜻을 지는 말)만 바꾸고 뒤(조사·어미)는 그대로
+    JaWord words[SEQ_MAX_READING + 1];
+    int nw = JaLatticeWords(sl, span, len, f > 0 ? sg->rid[f - 1] : 0, words, SEQ_MAX_READING + 1);
+    if (nw >= 2) {
+        wchar_t tail[SEQ_MAX_OUT + 1] = L"", head[JA_MAXSEG + 1];
+        bool ok = true;
+        for (int k = 1; k < nw && ok; k++) {
+            wchar_t val[SEQ_MAX_OUT + 1];
+            ok = JaWordText(sl, span, &words[k], val) && wcslen(tail) + wcslen(val) <= SEQ_MAX_OUT;
+            if (ok) wcscat(tail, val);
+        }
+        int hl = words[0].end;
+        if (ok && hl <= JA_MAXSEG) {
+            wmemcpy(head, span, (size_t)hl); head[hl] = 0;
+            if (JDict_Candidates(sl->cand, head, &first, &count))
+                for (int e = 0; e < count && e < 24; e++) {
+                    wchar_t val[SEQ_MAX_OUT * 2 + 2];
+                    const jdchar *v = NULL; int vn = 0;
+                    if (!JDict_CandidateAt(sl->cand, first + e, &v, &vn) || JDict_CopyValue(v, vn, val, SEQ_MAX_OUT + 1) < 0) continue;
+                    wcscat(val, tail);
+                    JaSegAdd(out, val, len);
+                }
+        }
+    }
+    for (int form = SEQ_KANA_HIRAGANA; form <= SEQ_KANA_KATAKANA; form++) {   // 히라가나·가타카나 그대로
+        wchar_t kf[SEQ_MAX_OUT + 1];
+        if (SeqKb_KanaForm(span, form, kf, SEQ_MAX_OUT + 1)) JaSegAdd(out, kf, len);
+    }
+    return out->count > 0;
+}
+bool SeqKb_JaSegChoose(const SeqState *st, SeqSegments *sg, const SeqCandidates *cands, int index) {
+    if (!st || !sg || !cands || sg->generation != st->generation || cands->generation != st->generation
+        || index < 0 || index >= cands->count || sg->focus < 0 || sg->focus >= sg->count) return false;
+    lstrcpynW(sg->text[sg->focus], cands->items[index], SEQ_MAX_OUT + 1);
+    return true;
+}
+void SeqKb_JaSegText(const SeqSegments *sg, bool mark, wchar_t *out, int cap) {
+    if (!out || cap <= 0) return;
+    out[0] = 0;
+    if (!sg) return;
+    int k = 0;
+    for (int i = 0; i < sg->count; i++) {
+        bool f = mark && i == sg->focus;
+        if (f && k + 1 < cap) out[k++] = L'[';
+        for (const wchar_t *p = sg->text[i]; *p && k + 1 < cap; p++) out[k++] = *p;
+        if (f && k + 1 < cap) out[k++] = L']';
+    }
+    out[k] = 0;
+}
+void SeqKb_JaSegSync(SeqState *st, const SeqSegments *sg) {
+    if (!st) return;
+    st->conv[0] = 0;
+    if (!sg || sg->generation != st->generation) return;
+    SeqKb_JaSegText(sg, false, st->conv, (int)(sizeof st->conv / sizeof st->conv[0]));
+    st->convGen = st->generation;
 }
 
 bool SeqKb_Convert(SeqState *st, const SeqLayout *sl, SeqCandidates *out) {

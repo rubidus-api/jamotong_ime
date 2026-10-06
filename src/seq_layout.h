@@ -62,6 +62,16 @@ typedef struct SeqCandidates {
     int      consumed[SEQ_MAX_CANDS];           // 그 후보가 쓰는 읽기 앞부분의 글자 수 (나머지는 읽기에 남는다)
 } SeqCandidates;
 
+// 문절 (일본어 방식, 0.73.0 RFC-0022 P2): 변환한 문장을 문절로 나눈 것. 읽기는 SeqState 에 그대로 있다.
+#define SEQ_MAX_SEGS 24
+typedef struct SeqSegments {
+    unsigned generation;                        // 어느 읽기의 것인가
+    int      count, focus;                      // 문절 수, 지금 고치는 문절
+    int      start[SEQ_MAX_SEGS], len[SEQ_MAX_SEGS];   // 읽기 안의 자리와 길이
+    int      rid[SEQ_MAX_SEGS];                 // 그 문절 끝 낱말의 오른쪽 품사 (다음 문절의 문맥)
+    wchar_t  text[SEQ_MAX_SEGS][SEQ_MAX_OUT + 1];      // 지금 고른 표기
+} SeqSegments;
+
 typedef struct SeqLayout {
     wchar_t  name[64];
     // 앞단 조합 인식기 (RFC-0016 §6.3, 선택). 있으면 조합이 먼저 결정하고 그 `symbol` 만 엔진으로
@@ -110,6 +120,10 @@ typedef struct SeqState {
     wchar_t  lastCommit;                         // 마지막으로 확정한 글자 (숫자 뒤의 . , 는 그대로 둔다)
     bool     dquoteOpen, squoteOpen;             // 중국어 따옴표 짝 (“ ” / ‘ ’ — 번체는 「 」 / 『 』)
     bool     noPunct;                            // 일본어 방식: 문장부호 글쇠를 응용에 (입력기가 자판 선택에서 정한다)
+    // 문절 편집 (일본어, 0.73.0): 화면에 보이는 바꾼 문장. convGen 이 generation 과 같을 때만 산다 — 그동안의 확정
+    //   (SeqKb_Flush: 포커스 이동·자판 전환·읽기 밖의 글쇠)은 읽기 대신 이것을 넣는다. SeqKb_JaSegSync 가 정한다.
+    wchar_t  conv[192];
+    unsigned convGen;
 } SeqState;
 
 // 한 번의 입력이 낳은 결과. committed = 지금 문서에 넣을 글자들, composing = 아직 보류(미리보기).
@@ -209,5 +223,20 @@ void      SeqKb_SetPhrasesPath(const wchar_t *path);
 bool      SeqKb_KanaForm(const wchar_t *reading, int form, wchar_t *out, int cap);
 // 이 글자가 일본어 문장부호 글쇠인가 (로마자 표가 문장부호로 바꾸는 것: , . [ ] / - ~ ! ? 등)
 bool      SeqKb_IsJaPunctKey(wchar_t ch);
+// 문절 편집 (0.73.0): 연결 비용이 있는 일본어 자판에서, 읽기를 문절 둘 이상으로 가를 수 있을 때 true (보류는 읽기로 정착).
+//   문구 치환이 있는 읽기·한 문절뿐인 읽기는 false — 예전 후보 목록으로 간다. 읽기는 바뀌지 않는다(세대도 그대로).
+bool      SeqKb_JaSegments(SeqState *st, const SeqLayout *sl, SeqSegments *out);
+// 고치는 문절을 옮긴다 (delta = -1 / +1). 끝이면 false.
+bool      SeqKb_JaSegMove(SeqSegments *sg, int delta);
+// 고치는 문절의 길이를 읽기 delta 글자만큼 바꾼다 — 그 문절은 새 구간으로, 뒤는 다시 가른다. 앞 문절은 그대로.
+bool      SeqKb_JaSegResize(const SeqState *st, const SeqLayout *sl, SeqSegments *sg, int delta);
+// 고치는 문절의 후보: 지금 표기, 그 구간의 낱말(문맥에 싼 차례), 첫 낱말만 바꾼 것, 히라가나·가타카나. consumed = 구간 길이.
+bool      SeqKb_JaSegCands(const SeqState *st, const SeqLayout *sl, const SeqSegments *sg, SeqCandidates *out);
+// 고치는 문절의 표기를 그 후보로.
+bool      SeqKb_JaSegChoose(const SeqState *st, SeqSegments *sg, const SeqCandidates *cands, int index);
+// 문절을 이은 문장. mark 면 고치는 문절을 [ ] 로 두른다 (보이기용 — 확정에는 쓰지 않는다).
+void      SeqKb_JaSegText(const SeqSegments *sg, bool mark, wchar_t *out, int cap);
+// 지금의 문절을 "확정할 문장"으로 엔진에 알린다 (sg = NULL 이면 지운다 — 문절 편집을 나갈 때). 그 뒤의 SeqKb_Flush 가 쓴다.
+void      SeqKb_JaSegSync(SeqState *st, const SeqSegments *sg);
 // 모호음 변형 키들 (첫째는 key 자신). 시험용으로도 쓴다.
 int       SeqKb_FuzzyKeys(const wchar_t *key, wchar_t out[][SEQ_MAX_READING + 1], int cap);

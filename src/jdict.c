@@ -334,9 +334,10 @@ bool JDict_PosAt(const JDict *d, int index, int *lid, int *rid) {
 }
 
 // ── 연결 비용 파일 (.jdc, RFC-0022) ───────────────────────────────────────────────────
-//   머리 32바이트: "JMTCONN\0" | 판(1) | N | 단위 | crc32(머리 뒤 전부) | 파일 크기 | 예약, 그 뒤 N×N 바이트 [rid][lid].
+//   머리 32바이트: "JMTCONN\0" | 판(1·2) | N | 단위 | crc32(머리 뒤 전부) | 파일 크기 | 예약, 그 뒤 N×N 바이트 [rid][lid].
 //   값 × 단위 = 비용. 매핑해 두고 범위를 보며 읽는다(범위 밖 id 는 가장 비싸게).
-typedef struct JConn { HANDLE file, mapping; const unsigned char *base; size_t size; unsigned n, step, crc; } JConn;
+//   판 2 (0.73.0, 문절 편집): 표 뒤에 품사 종류 N 바이트(JCONN_CLASS_*) — 낱말을 문절로 묶는 데 쓴다. 판 1 은 종류가 없다.
+typedef struct JConn { HANDLE file, mapping; const unsigned char *base; size_t size; unsigned n, step, crc; bool cls; } JConn;
 void JConn_Close(JConn *c) {
     if (!c) return;
     if (c->base) UnmapViewOfFile(c->base);
@@ -358,14 +359,21 @@ JConn *JConn_Open(const wchar_t *path, bool verify, JDictError *err) {
     c->base = c->mapping ? (const unsigned char *)MapViewOfFile(c->mapping, FILE_MAP_READ, 0, 0, 0) : NULL;
     if (!c->base) { JConn_Close(c); *err = JDICT_E_OPEN; return NULL; }
     if (memcmp(c->base, "JMTCONN\0", 8) != 0) { JConn_Close(c); *err = JDICT_E_MAGIC; return NULL; }
-    if (Rd32(c->base + 8) != 1) { JConn_Close(c); *err = JDICT_E_VERSION; return NULL; }
+    unsigned ver = Rd32(c->base + 8);
+    if (ver != 1 && ver != 2) { JConn_Close(c); *err = JDICT_E_VERSION; return NULL; }
+    c->cls = ver == 2;
     c->n = Rd32(c->base + 12); c->step = Rd32(c->base + 16); c->crc = Rd32(c->base + 20);
     if (c->n == 0 || c->n > 8192 || c->step == 0 || c->step > 1024 || Rd32(c->base + 24) != c->size
-        || (size_t)32 + (size_t)c->n * c->n != c->size) { JConn_Close(c); *err = JDICT_E_LAYOUT; return NULL; }
+        || (size_t)32 + (size_t)c->n * c->n + (c->cls ? c->n : 0) != c->size) { JConn_Close(c); *err = JDICT_E_LAYOUT; return NULL; }
     if (verify && JDict_Crc32(c->base + 32, (unsigned long)(c->size - 32)) != c->crc) { JConn_Close(c); *err = JDICT_E_CRC; return NULL; }
     return c;
 }
 int JConn_Ids(const JConn *c) { return c ? (int)c->n : 0; }
+bool JConn_HasClass(const JConn *c) { return c && c->cls; }
+int JConn_Class(const JConn *c, int id) {
+    if (!c || !c->cls || id < 0 || (unsigned)id >= c->n) return 0;
+    return c->base[32 + (size_t)c->n * c->n + (size_t)id];
+}
 int JConn_Cost(const JConn *c, int rid, int lid) {
     if (!c || rid < 0 || lid < 0 || (unsigned)rid >= c->n || (unsigned)lid >= c->n) return 255 * (c ? (int)c->step : 64);
     return (int)c->base[32 + (size_t)rid * c->n + (size_t)lid] * (int)c->step;

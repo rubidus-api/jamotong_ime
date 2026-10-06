@@ -165,7 +165,7 @@ static int Usage(KlayCliOut out, void *ctx) {
         L"  jamotong --build <file.jmt> [-o <out.jmb>]   (default: <file>.v<format>.jmb beside it)\n"
         L"  jamotong --build-dir <folder>\n"
         L"  jamotong --import-dict <file> -o <out.jdt> [--limit N] [--name ..] [--license ..] [--pos]\n"
-        L"  jamotong --build-conn <connection_single_column.txt> -o <out.jdc>\n"
+        L"  jamotong --build-conn <connection_single_column.txt> [--pos-def <id.def>] -o <out.jdc>\n"
         L"  jamotong --import-klc <file.klc> -o <out.jmt>\n"
         L"  jamotong --import-ngs <file.key|.ist> -o <out.jmt>\n", ctx);
     return 2;
@@ -174,7 +174,7 @@ static int Usage(KlayCliOut out, void *ctx) {
 int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx) {
     const wchar_t *cmd = NULL, *arg = NULL, *outPath = NULL;
     int json = 0, limit = 0, pos = 0;
-    const wchar_t *dictName = NULL, *dictLicense = NULL;
+    const wchar_t *dictName = NULL, *dictLicense = NULL, *posDef = NULL;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--check") || !wcscmp(argv[i], L"--export") || !wcscmp(argv[i], L"--expand")
             || !wcscmp(argv[i], L"--build-dict") || !wcscmp(argv[i], L"--build")
@@ -187,6 +187,7 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
         else if (!wcscmp(argv[i], L"--license") && i + 1 < argc) dictLicense = argv[++i];
         else if (!wcscmp(argv[i], L"--json")) json = 1;
         else if (!wcscmp(argv[i], L"--pos")) pos = 1;
+        else if (!wcscmp(argv[i], L"--pos-def") && i + 1 < argc) posDef = argv[++i];
     }
     if (!cmd || !arg) return Usage(out, ctx);
 
@@ -235,11 +236,11 @@ int KlayCli_Run(int argc, const wchar_t *const *argv, KlayCliOut out, void *ctx)
     if (!wcscmp(cmd, L"--build-conn")) {
         if (!outPath) return Usage(out, ctx);
         JDictBuildResult br;
-        if (!JConn_Build(arg, outPath, 64, &br)) {
+        if (!JConn_BuildEx(arg, posDef, outPath, 64, &br)) {
             Outf(out, ctx, L"error: %ls\n", br.message);
             return 1;
         }
-        Outf(out, ctx, L"wrote %ls - %d ids\n", outPath, br.count);
+        Outf(out, ctx, L"wrote %ls - %d ids%ls\n", outPath, br.count, posDef ? L", with part-of-speech classes" : L"");
         return 0;
     }
 

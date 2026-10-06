@@ -29,6 +29,12 @@ bool CandidateUI_Show(int x, int y, int caretTop, wchar_t **candidates, int coun
 //   사이띄개 = 하이라이트된 후보, `-` `=` = 쪽 넘김, 숫자 = 고르기(Shift 를 누른 숫자는 문장부호라 넘긴다),
 //   Enter·Esc·`[`·`]` = onKey. 글자·백스페이스·문장부호는 HandleKey 가 false 를 돌려 입력기가 읽기를 고치게 한다.
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey);
+// 일본어 문절 편집의 글쇠 (0.73.0, RFC-0022 P2). 정하면 이 창에서: ↑↓·사이띄개 = 후보 옮기기(가로 후보줄이어도), 숫자 = 고르기,
+//   Esc = 접기(onCancel) 는 창이 하고, ←→(문절 옮기기, Shift 와 함께면 길이)·엔터·백스페이스와 그 밖의 글쇠는 창을 닫고 onKey 로
+//   넘긴다 — vk 에 Shift 면 CAND_KEY_SHIFT 를 더해서, index = 하이라이트한 후보. ←→·엔터·백스페이스는 여기서 끝나고(먹는다),
+//   그 밖의 글쇠는 onKey 뒤에 입력기가 새 입력으로 이어 처리한다.
+#define CAND_KEY_SHIFT 0x1000u
+void CandidateUI_SetSegmentKeys(CandidateKeyCallback onKey);
 // V 모드 (0.65.0): 숫자와 - = 를 고르기·쪽 넘김이 아니라 입력으로 보낸다 (사이띄개·화살표·엔터·Esc 는 그대로). Show 앞에, 창을 닫으면 풀린다.
 void CandidateUI_SetDigitsToInput(bool on);
 // 후보 옆에 붙일 작은 글 (0.66.0: 중국어 후보의 성조 병음). candidates 와 같은 길이의 배열, NULL·빈 문자열이면 없음.

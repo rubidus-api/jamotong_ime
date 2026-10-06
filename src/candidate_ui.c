@@ -52,6 +52,8 @@ static int g_winW = 220;     // 페이지 내용에 맞춘 창 너비
 static CandidateSelectCallback g_onSelect = NULL;
 static CandidateCancelCallback g_onCancel = NULL;
 static CandidateKeyCallback g_onKey = NULL;   // 병음 방식이면 있다 (CandidateUI_SetPinyinKeys)
+static CandidateKeyCallback g_onSegKey = NULL;   // 일본어 문절 편집이면 있다 (CandidateUI_SetSegmentKeys)
+static int g_hookShift = -1;                   // 훅이 넘긴 글쇠를 처리하는 동안: 그때의 Shift (0/1), 아니면 -1
 static bool g_digitsToInput = false;          // V 모드: 숫자·- = 는 입력기로
 static wchar_t **g_notes = NULL;              // 후보 옆의 작은 글 (성조 병음)
 // RFC-0020 P2 (0.69.0): 머리줄·가로 후보줄·마우스 올림. 창을 닫으면 풀린다.
@@ -369,9 +371,10 @@ static LRESULT CALLBACK CandKbHookProc(int nCode, WPARAM wParam, LPARAM lParam) 
                 if (shift && (vk >= '1' && vk <= '9')) nav = false;
                 if (g_digitsToInput && ((vk >= '0' && vk <= '9') || vk == VK_OEM_MINUS || vk == VK_OEM_PLUS)) nav = false;
             }
+            if (g_onSegKey && shift && (vk >= '1' && vk <= '9')) nav = false;   // 문절 편집: Shift+숫자는 문장부호 — 입력기로
             if (nav) {
                 if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
-                    PostMessageW(g_hwndCandi, CANDMSG_HOOKKEY, (WPARAM)vk, 0);
+                    PostMessageW(g_hwndCandi, CANDMSG_HOOKKEY, (WPARAM)vk, shift ? 1 : 0);   // Shift 는 지금의 것 — 받을 때는 이미 뗐을 수 있다
                 return 1;   // keydown/keyup 모두 차단 — 앱(터미널 너머 원격 포함)에 새지 않게
             }
         }
@@ -454,7 +457,9 @@ static LRESULT CALLBACK CandidateWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             return 0;
         }
         case CANDMSG_HOOKKEY:   // 저수준 훅이 차단·전달한 탐색 키 (PuTTY류 키 라우팅 폴백)
+            g_hookShift = lParam ? 1 : 0;
             CandidateUI_HandleKey((UINT)wParam);
+            g_hookShift = -1;
             return 0;
         case WM_GETOBJECT:          // 화면 읽기 도구가 이 창을 물을 때 (UIA, B10)
             return CandUia_OnGetObject(hwnd, wParam, lParam);
@@ -585,6 +590,7 @@ void CandidateUI_Hide(void) {
     g_active = false;
     g_ownDraw = true;
     g_onKey = NULL;   // 병음 방식은 이 창과 함께 끝난다 — 다음 Show 앞에 다시 정한다
+    g_onSegKey = NULL;
     g_digitsToInput = false;
     g_notes = NULL;
     g_title[0] = L'\0';
@@ -627,6 +633,7 @@ static void SelectIndex(int realIdx) {
 }
 
 void CandidateUI_SetPinyinKeys(CandidateKeyCallback onKey) { g_onKey = onKey; }
+void CandidateUI_SetSegmentKeys(CandidateKeyCallback onKey) { g_onSegKey = onKey; }
 void CandidateUI_SetDigitsToInput(bool on) { g_digitsToInput = on; }
 void CandidateUI_SetTitle(const wchar_t *title) { lstrcpynW(g_title, title ? title : L"", 64); }
 void CandidateUI_SetHorizontal(bool on) { g_horizontal = on; }
@@ -659,7 +666,25 @@ static bool HandlePinyinKey(UINT vKey) {
 bool CandidateUI_HandleKey(UINT vKey) {
     if (!OwnerThreadGuard("HandleKey")) return false;   // 남의 스레드면 이 키는 응용의 것이다 (B5)
     if (!g_hwndCandi) return false;
-    if (g_horizontal) {   // 가로 후보줄: ←→ = 후보 옮기기, ↑↓ = 쪽 (RFC-0020 P2)
+    if (g_onSegKey) {   // 일본어 문절 편집 (0.73.0): ←→ 는 문절의 것이라 후보는 ↑↓·사이띄개로 옮긴다
+        if (vKey == VK_SHIFT || vKey == VK_LSHIFT || vKey == VK_RSHIFT || vKey == VK_CONTROL || vKey == VK_LCONTROL || vKey == VK_RCONTROL
+            || vKey == VK_MENU || vKey == VK_LMENU || vKey == VK_RMENU || vKey == VK_LWIN || vKey == VK_RWIN || vKey == VK_CAPITAL) return true;
+        bool shift = g_hookShift >= 0 ? g_hookShift != 0 : (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (vKey == VK_SPACE) {   // 다음 후보 (끝에서는 처음으로)
+            if (g_page * g_perPage + g_sel + 1 >= g_count) { g_page = 0; g_sel = 0; RefreshCandWindow(); return true; }
+            vKey = VK_DOWN;
+        }
+        bool ours = vKey == VK_UP || vKey == VK_DOWN || vKey == VK_PRIOR || vKey == VK_NEXT || vKey == VK_ESCAPE
+                    || (!shift && vKey >= '1' && vKey <= '9');
+        if (!ours) {
+            CandidateKeyCallback cb = g_onSegKey;   // 창을 먼저 닫는다 — 콜백이 새 후보창을 연다
+            void *ctx = g_ctx;
+            int idx = g_page * g_perPage + g_sel;
+            CandidateUI_Hide();
+            cb(vKey | (shift ? CAND_KEY_SHIFT : 0), idx, ctx);
+            return vKey == VK_LEFT || vKey == VK_RIGHT || vKey == VK_RETURN || vKey == VK_BACK;
+        }
+    } else if (g_horizontal) {   // 가로 후보줄: ←→ = 후보 옮기기, ↑↓ = 쪽 (RFC-0020 P2)
         if (vKey == VK_RIGHT) vKey = VK_DOWN; else if (vKey == VK_LEFT) vKey = VK_UP;
         else if (vKey == VK_DOWN) vKey = VK_NEXT; else if (vKey == VK_UP) vKey = VK_PRIOR;
     }

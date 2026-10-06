@@ -257,6 +257,7 @@ static void Transition_FlushSeq(JamotongTextService *obj, const char *why) {
 // 순차 변환 결과를 문서에 넣는다 (정의는 아래 조합 타이머 곁) — 경계 확정에서 먼저 쓴다.
 static void SeqApply(JamotongTextService *obj, ITfContext *pic, const SeqResult *r);
 static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl, bool live);
+static bool SeqShowSegments(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl);
 
 static void UiCandHide(JamotongTextService *obj);
 static void UiCodeHide(JamotongTextService *obj);
@@ -664,6 +665,50 @@ static unsigned SeqFlags(JamotongTextService *obj) {
 static void SeqReleaseCandCtx(JamotongTextService *obj) {
     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
 }
+// 일본어 문절 편집 (0.73.0, RFC-0022 P2): 변환한 문장을 문절로 나눠 ←→ 로 옮기고 Shift+←→ 로 길이를 바꾸고 문절마다 후보를
+//   고른다. 읽기는 엔진에 그대로 있고, 화면(미리보기·후보창 머리줄)에는 바꾼 문장을 고치는 문절에 [ ] 를 둘러 보인다.
+//   확정은 언제나 엔진의 SeqKb_Flush 한 길 — 엔터·그 밖의 글쇠·포커스 이동 모두 보이는 문장(괄호 없이)을 넣는다.
+static SeqSegments g_seqSegs;     // 입력 스레드 하나가 쓴다 (g_seqCands 와 같다)
+static bool g_seqSegMode;
+static void SeqLeaveSegments(JamotongTextService *obj) {
+    if (!g_seqSegMode) return;
+    g_seqSegMode = false;
+    SeqKb_JaSegSync(&obj->seqKb, NULL);
+}
+// 후보창의 문절 글쇠 (창은 이미 닫혔다)
+static void OnSeqSegmentKey(UINT vkf, int index, void *ctx) {
+    JamotongTextService *obj = (JamotongTextService*)ctx;
+    if (!obj) return;
+    LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
+    ITfContext *pic = obj->candCtx.pic;
+    const SeqLayout *sl = (layout && layout->type == LAYOUT_TYPE_SEQUENCE) ? (const SeqLayout*)layout->pSeqLayout : NULL;
+    const UINT vk = vkf & 0xFFu;
+    const bool shift = (vkf & CAND_KEY_SHIFT) != 0;
+    if (!g_seqSegMode || !sl || !pic) { SeqLeaveSegments(obj); SeqReleaseCandCtx(obj); return; }
+    if ((vk == VK_LEFT || vk == VK_RIGHT) && shift) {            // 길이: 못 바꾸면 그대로 다시 보인다
+        SeqKb_JaSegResize(&obj->seqKb, sl, &g_seqSegs, vk == VK_RIGHT ? 1 : -1);
+        if (SeqShowSegments(obj, pic, sl)) return;
+    } else if (vk == VK_BACK || (vk >= VK_F6 && vk <= VK_F10)) {   // 읽기로 돌아간다 (F6~F10 은 이어서 읽기를 가나 꼴로)
+        SeqLeaveSegments(obj);
+        SeqResult cr; memset(&cr, 0, sizeof cr);
+        cr.eaten = true;
+        lstrcpynW(cr.composing, SeqKb_Reading(&obj->seqKb), (int)(sizeof cr.composing / sizeof cr.composing[0]));
+        SeqApply(obj, pic, &cr);
+    } else {
+        SeqKb_JaSegChoose(&obj->seqKb, &g_seqSegs, &g_seqCands, index);   // 하이라이트한 후보가 그 문절의 표기다
+        if (vk == VK_LEFT || vk == VK_RIGHT) {
+            SeqKb_JaSegMove(&g_seqSegs, vk == VK_RIGHT ? 1 : -1);
+            if (SeqShowSegments(obj, pic, sl)) return;
+        } else {                                                  // 엔터와 그 밖의 글쇠: 보이는 문장을 확정
+            SeqKb_JaSegSync(&obj->seqKb, &g_seqSegs);
+            SeqResult r = SeqKb_Flush(&obj->seqKb, sl);
+            g_seqSegMode = false;
+            if (r.eaten) SeqApply(obj, pic, &r);
+        }
+    }
+    SeqLeaveSegments(obj);
+    SeqReleaseCandCtx(obj);
+}
 // 중국어 병음 방식: 치는 동안 후보를 띄우고 고친다. 읽기가 비었거나 후보가 없으면 닫는다.
 static void SeqLiveRefresh(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
     if (!sl || !sl->zh) return;
@@ -696,6 +741,15 @@ static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
     LayoutConfig *layout = Config_GetCurrentLayout(&obj->config);
     if (layout && layout->type == LAYOUT_TYPE_SEQUENCE && layout->pSeqLayout) {
         const SeqLayout *sl = (const SeqLayout*)layout->pSeqLayout;
+        if (g_seqSegMode) {   // 일본어 문절 편집: 숫자는 그 문절의 후보를 고르고 다음 문절로 (끝 문절이면 그 자리)
+            if (obj->candCtx.pic && SeqKb_JaSegChoose(&obj->seqKb, &g_seqSegs, &g_seqCands, index)) {
+                SeqKb_JaSegMove(&g_seqSegs, 1);
+                if (SeqShowSegments(obj, obj->candCtx.pic, sl)) return;
+            }
+            SeqLeaveSegments(obj);
+            SeqReleaseCandCtx(obj);
+            return;
+        }
         SeqResult r = SeqKb_Choose(&obj->seqKb, sl, &g_seqCands, index);
         if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
         // 앞부분만 바꿨으면 남은 읽기의 후보를 곧바로 다시 띄운다 (이어 치기 변환 — 중국어 병음의 문장).
@@ -710,6 +764,7 @@ static void OnSeqCandidateSelected(int index, const wchar_t *str, void *ctx) {
 static void OnSeqCandidateCancelled(void *ctx) {
     JamotongTextService *obj = (JamotongTextService*)ctx;
     if (!obj) return;
+    SeqLeaveSegments(obj);                               // 문절 편집이었으면 나간다 — 읽기로 돌아간다
     SeqResult r = SeqKb_CancelCandidates(&obj->seqKb);   // 읽기는 그대로 남는다
     if (r.eaten) SeqApply(obj, obj->candCtx.pic, &r);
     if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
@@ -718,6 +773,7 @@ static void OnSeqCandidateCancelled(void *ctx) {
 // 읽기를 후보로 바꿔 후보창을 연다 (§6.4). 변환 글쇠와, 앞부분을 고른 뒤 남은 읽기의 이어 변환이 함께 쓴다.
 //   후보가 없으면 false — 엔진 상태는 그대로다.
 static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl, bool live) {
+    SeqLeaveSegments(obj);
     // live = 치는 동안 (중국어 방식): 쌍병의 반쯤 친 음절(보류)은 정착시키지 않고 조합에 그대로 보인다
     if (!SeqKb_ConvertEx(&obj->seqKb, sl, SeqFlags(obj) | (live ? SEQ_CONV_LIVE : 0), &g_seqCands)) return false;
     // 변환이 보류한 글자를 읽기로 정착시켰으므로 화면의 조합도 새로 그린다 —
@@ -764,6 +820,48 @@ static bool SeqOpenCandidates(JamotongTextService *obj, ITfContext *pic, const S
                           OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
         SeqKb_CancelCandidates(&obj->seqKb);   // 못 띄웠으면 읽기 그대로 (잃는 것 없음)
         if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+    }
+    return true;
+}
+
+// 문절 편집의 화면: 고치는 문절의 후보창 + 바꾼 문장(고치는 문절에 [ ]). g_seqSegs 가 지금의 문절이다.
+static bool SeqShowSegments(JamotongTextService *obj, ITfContext *pic, const SeqLayout *sl) {
+    if (!SeqKb_JaSegCands(&obj->seqKb, sl, &g_seqSegs, &g_seqCands)) return false;
+    g_seqSegMode = true;
+    SeqKb_JaSegSync(&obj->seqKb, &g_seqSegs);
+    wchar_t show[SEQ_MAX_SEGS * (SEQ_MAX_OUT + 1) + 4];
+    SeqKb_JaSegText(&g_seqSegs, true, show, (int)(sizeof show / sizeof show[0]));
+    const wchar_t *view = show;   // 긴 문장: 고치는 문절이 보이게 그 조금 앞부터
+    const wchar_t *mark = wcschr(show, L'[');
+    if (wcslen(show) > 56 && mark && mark - show > 20) view = mark - 12;
+    SeqResult cr; memset(&cr, 0, sizeof cr);
+    cr.eaten = true;
+    lstrcpynW(cr.composing, view, (int)(sizeof cr.composing / sizeof cr.composing[0]));
+    SeqApply(obj, pic, &cr);
+    for (int i = 0; i < g_seqCands.count; i++) { g_seqCandPtrs[i] = g_seqCands.items[i]; g_seqNotes[i][0] = L'\0'; g_seqNotePtrs[i] = g_seqNotes[i]; }
+    RECT rc; int x = 0, y = 0, caretTop = 0;
+    if (GetCaretScreenRect(obj, &rc)) { x = rc.left; y = rc.bottom; caretTop = rc.top; }
+    if (obj->candCtx.pic != pic) {
+        if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+        if (pic) { pic->lpVtbl->AddRef(pic); obj->candCtx.pic = pic; }
+    }
+    CandidateUI_SetStyle(obj->config.options.candFont, obj->config.options.candFontSize);
+    if (!GetLiveCaretScreenRect(&obj->candAnchorRect)) obj->candAnchorRect = rc;
+    obj->candAnchorValid = TRUE;
+    CandidateUI_SetPinyinKeys(NULL);
+    CandidateUI_SetSegmentKeys(OnSeqSegmentKey);
+    CandidateUI_SetDigitsToInput(false);
+    CandidateUI_SetTitle(view);
+    {
+        const LayoutConfig *cl0 = Config_GetCurrentLayout(&obj->config);
+        CandidateUI_SetHorizontal(cl0 && cl0->optBar);
+    }
+    CandidateUI_SetNotes(g_seqNotePtrs);
+    if (!CandidateUI_Show(x, y, caretTop, g_seqCandPtrs, g_seqCands.count, 0,
+                          OnSeqCandidateSelected, OnSeqCandidateCancelled, obj)) {
+        SeqLeaveSegments(obj);
+        SeqKb_CancelCandidates(&obj->seqKb);
+        SeqReleaseCandCtx(obj);
     }
     return true;
 }
@@ -1715,6 +1813,12 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         if (sl) {
             SeqResult r;
             if (sl->convertVk && (UINT)wParam == (UINT)sl->convertVk && SeqKb_CanConvert(&obj->seqKb, sl)) {
+                // 일본어 (0.73.0): 문절 둘 이상으로 갈리는 읽기는 문절 편집으로 — 문장 후보를 끈 자판은 예전 목록
+                if (sl->ja && (SeqFlags(obj) & SEQ_CONV_SENTENCE) && SeqKb_JaSegments(&obj->seqKb, sl, &g_seqSegs)
+                    && SeqShowSegments(obj, pic, sl)) {
+                    if (pfEaten) *pfEaten = TRUE;
+                    goto kd_done;
+                }
                 // §6.4: 읽기를 후보로 바꾼다. 후보가 없으면 이 글쇠는 응용의 것이다.
                 if (SeqOpenCandidates(obj, pic, sl, false)) {
                     if (pfEaten) *pfEaten = TRUE;

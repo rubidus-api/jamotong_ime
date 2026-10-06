@@ -1,4 +1,4 @@
-[한국어](README.ko.md) | **English** — **Jamotong v0.72.1** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-cleanup-0.72.1.exe)
+[한국어](README.ko.md) | **English** — **Jamotong v0.73.0** — [MSI](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.msi) · [ZIP](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.zip) · [Cleanup tool](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-cleanup-0.73.0.exe)
 
 # Jamotong (자모통)
 
@@ -9,23 +9,23 @@ Framework) text service with no frameworks and no external libraries.
 
 | | Latest release (direct download) |
 |---|---|
-| **Jamotong installer package (recommended)** | **[jamotong-0.72.1.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.msi)** — double-click to install (English or Korean, you choose the folder). **One file**: tick Chinese Simplified, Chinese Traditional or Japanese on the features page to install them too (about 21 MB with all three); remove it from Installed apps |
-| Jamotong zip (no installer) | [jamotong-0.72.1.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-0.72.1.zip) — the same files, to place and register by hand (see [Install](#install)) |
-| Cleanup tool | [jamotong-cleanup-0.72.1.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.72.1/jamotong-cleanup-0.72.1.exe) — removes **every version** of Jamotong from this PC: the installer, the old language packs, a registration without an installer (zip), the old IMM32 input method and what they left; your settings only if you tick the box. Run it, approve the administrator prompt, Remove all; if it asks for a restart, restart and run it again |
+| **Jamotong installer package (recommended)** | **[jamotong-0.73.0.msi](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.msi)** — double-click to install (English or Korean, you choose the folder). **One file**: tick Chinese Simplified, Chinese Traditional or Japanese on the features page to install them too (about 21 MB with all three); remove it from Installed apps |
+| Jamotong zip (no installer) | [jamotong-0.73.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-0.73.0.zip) — the same files, to place and register by hand (see [Install](#install)) |
+| Cleanup tool | [jamotong-cleanup-0.73.0.exe](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.73.0/jamotong-cleanup-0.73.0.exe) — removes **every version** of Jamotong from this PC: the installer, the old language packs, a registration without an installer (zip), the old IMM32 input method and what they left; your settings only if you tick the box. Run it, approve the administrator prompt, Remove all; if it asks for a restart, restart and run it again |
 | Input-list repair tool | [jamotong-ime-list-repair-0.18.0.zip](https://github.com/rubidus-api/jamotong_ime/releases/download/v0.18.0/jamotong-ime-list-repair-0.18.0.zip) — when Win+Space shows IMEs you never installed (README inside) |
 
 All versions and release notes: [Releases](https://github.com/rubidus-api/jamotong_ime/releases)
 
 ### Installing
 
-- **The MSI (recommended)**: double-click `jamotong-0.72.1.msi`. The first page asks for the language
+- **The MSI (recommended)**: double-click `jamotong-0.73.0.msi`. The first page asks for the language
   of the installer (English, or Korean — picked for you when Windows is set to Korean), then shows the
   license and the install folder. It asks for administrator rights once — registering an input method
   writes to a machine-wide place, which is Windows' rule, not ours. Upgrade by running the newer MSI;
   remove it from **Settings ▸ Apps ▸ Installed apps ▸ Jamotong ▸ Modify ▸ Remove** (Uninstall is turned off there so
   that Jamotong's own dialogs run). It never forces a restart: apps that were already
   running keep the previous copy until you sign in again. A silent install works too:
-  `msiexec /i jamotong-0.72.1.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
+  `msiexec /i jamotong-0.73.0.msi /qn` (add `INSTALLDIR="D:\Jamotong\"` to choose the folder).
 - **Languages (0.70.0)**: Chinese Simplified, Chinese Traditional and Japanese are features of the same
   MSI, off by default — tick them on the features page, or add `ADDLOCAL=ZhSimplified,ZhTraditional,Japanese`
   to a silent install (`ADDLOCAL=ALL` for everything). Add or remove them later with **Installed apps ▸
@@ -117,7 +117,7 @@ Your settings stay per user in `%APPDATA%\Jamotong`. An upgrade reuses the folde
 
 ## Install
 
-1. Download `jamotong-0.72.1.msi` from
+1. Download `jamotong-0.73.0.msi` from
    [Releases](https://github.com/rubidus-api/jamotong_ime/releases) and double-click it. It installs the
    program and registers the 64-bit and 32-bit text services.
 
@@ -825,7 +825,12 @@ Measured on one 7 MB shard of an open Japanese dictionary (128,908 rows): 123,38
 switched on. Type romaji (`nihongo`, `kka` for っか, `-` for ー); the reading
 shows as kana. **Space** converts: the first candidate is the whole sentence (`denshadekaishaniiku` →
 電車で会社に行く), then the words for the reading, hiragana and katakana. 1-9 pick, **Enter** types the kana as
-they are, Esc clears. **F6** hiragana, **F7** katakana, **F8** half-width katakana, **F9** full-width and
+they are, Esc clears. **Segments (0.73.0)**: when the sentence has two or more segments, Space shows it
+converted with the segment being edited in brackets (`[私は]日本語を話します`) and the candidates for that
+segment. **←/→** move to another segment, **Shift+←/→** make it shorter or longer (the rest is cut again),
+**↑/↓** or Space move through the candidates, 1-9 pick one and go to the next segment, **Enter** types the
+sentence, Backspace or Esc go back to the kana; typing on types the sentence first. Nothing is learned from
+what you pick. **F6** hiragana, **F7** katakana, **F8** half-width katakana, **F9** full-width and
 **F10** half-width romaji. Punctuation comes as 、。「」・〜！？ (Layout Options can turn it off). **Custom
 phrases**: Layout Options ▸ Edit custom phrases opens `japanese-phrases.txt`, one per line, the reading in
 kana then the text (`よろ よろしくお願いします`); they come first. The dictionary is the open-source Mozc
