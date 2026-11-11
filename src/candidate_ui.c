@@ -120,7 +120,7 @@ static void EnsureCandFont(void) {
 }
 
 // ── 모양 (RFC-0020 P2): 시스템 다크/라이트를 따르고, 고대비면 시스템 색 ─────────────────────────
-typedef struct { COLORREF bg, text, dim, accent, selBg, selText, hoverBg, border; } CandColors;
+typedef struct { COLORREF bg, text, dim, accent, selBg, selText, hoverBg, border, block; } CandColors;   // block = 줄 바탕 (설정창과 같은 팔레트)
 static bool SystemDark(void) {
     DWORD v = 1, sz = sizeof v; HKEY hk;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
@@ -134,18 +134,18 @@ static void PickCandColors(CandColors *c) {
         const PopupColors normal = { 0 };
         PopupColors pc; Popup_PickColors(true, &normal, &pc);
         c->bg = pc.bg; c->text = pc.text; c->dim = pc.dim; c->accent = pc.accent; c->selBg = pc.selBg; c->selText = pc.selText;
-        c->hoverBg = pc.bg; c->border = pc.text;
+        c->hoverBg = pc.bg; c->border = pc.text; c->block = pc.bg;
         return;
     }
     if (SystemDark()) {
-        c->bg = RGB(43, 43, 43); c->text = RGB(240, 240, 240); c->dim = RGB(160, 160, 160); c->accent = RGB(76, 194, 255);
-        c->selBg = RGB(52, 72, 92); c->selText = RGB(255, 255, 255); c->hoverBg = RGB(58, 58, 58); c->border = RGB(78, 78, 78);
+        c->bg = RGB(32, 32, 32); c->text = RGB(235, 235, 235); c->dim = RGB(140, 140, 140); c->accent = RGB(76, 194, 255);
+        c->block = RGB(54, 54, 54); c->selBg = RGB(72, 72, 72); c->selText = RGB(255, 255, 255); c->hoverBg = RGB(63, 63, 63); c->border = RGB(80, 80, 80);
     } else {
-        c->bg = RGB(250, 250, 250); c->text = RGB(26, 26, 26); c->dim = RGB(112, 112, 112); c->accent = RGB(0, 95, 184);
-        c->selBg = RGB(220, 234, 250); c->selText = RGB(0, 0, 0); c->hoverBg = RGB(238, 238, 238); c->border = RGB(214, 214, 214);
+        c->bg = RGB(243, 243, 243); c->text = RGB(26, 26, 26); c->dim = RGB(120, 120, 120); c->accent = RGB(0, 95, 184);
+        c->block = RGB(228, 228, 228); c->selBg = RGB(208, 208, 208); c->selText = RGB(0, 0, 0); c->hoverBg = RGB(218, 218, 218); c->border = RGB(190, 190, 190);
     }
 }
-// Windows 11 둥근 모서리·테두리 색 (dwmapi 를 동적으로 — 없으면 네모 그대로). 그림자는 창 클래스의 CS_DROPSHADOW.
+// Windows 11 테두리 색·사각 모서리 (dwmapi 를 동적으로 — 없으면 우리가 테두리를 그린다). 그림자는 없다.
 static bool g_roundedOk = false;
 static void ApplyRoundedCorners(HWND hwnd, COLORREF border) {
     typedef HRESULT (WINAPI *DwmSetAttr)(HWND, DWORD, LPCVOID, DWORD);
@@ -153,7 +153,7 @@ static void ApplyRoundedCorners(HWND hwnd, COLORREF border) {
     if (!tried) { tried = true; HMODULE m = LoadLibraryW(L"dwmapi.dll"); if (m) fn = (DwmSetAttr)(void *)GetProcAddress(m, "DwmSetWindowAttribute"); }
     g_roundedOk = false;
     if (!fn || !hwnd) return;
-    DWORD pref = 3;   /* DWMWCP_ROUNDSMALL */
+    DWORD pref = 1;   /* DWMWCP_DONOTROUND — 사각 블록 (설정창과 같은 모양) */
     if (SUCCEEDED(fn(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &pref, sizeof pref))) {
         g_roundedOk = true;
         fn(hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
@@ -236,28 +236,28 @@ static int MeasurePageWidth(void) {
                            : ((FONT_PX * 30 > Popup_Scale(480, g_dpi)) ? FONT_PX * 30 : Popup_Scale(480, g_dpi));   // 폭 상한(글꼴 크기 비례)
     return (w > cap) ? cap : w;
 }
+// 세로 목록은 이 쪽의 줄 수만큼만 키운다(빈 칸을 남기지 않는다). 쪽이 하나면 쪽 표시 줄도 없다.
 static int CandWindowHeight(void) {
     if (g_horizontal) return HDR_H + ROW_H + PAD_TOP;
-    return HDR_H + g_perPage * ROW_H + FOOT_H;
+    int rows = g_count - g_page * g_perPage;
+    if (rows > g_perPage) rows = g_perPage;
+    if (rows < 1) rows = 1;
+    bool paged = g_count > g_perPage;
+    return HDR_H + rows * ROW_H + (paged ? FOOT_H : Popup_Scale(6, g_dpi));
 }
 
-static void FillRoundRect(HDC hdc, const RECT *r, COLORREF c, int radius) {
-    HBRUSH b = CreateSolidBrush(c);
-    HPEN p = CreatePen(PS_SOLID, 1, c);
-    HGDIOBJ ob = SelectObject(hdc, b), op = SelectObject(hdc, p);
-    RoundRect(hdc, r->left, r->top, r->right, r->bottom, radius, radius);
-    SelectObject(hdc, ob); SelectObject(hdc, op);
-    DeleteObject(b); DeleteObject(p);
+// 사각 블록 — DC 브러시 하나에 색만 바꿔 칠한다 (GDI 개체를 만들지 않는다).
+static void FillBlock(HDC hdc, const RECT *r, COLORREF c) {
+    SetDCBrushColor(hdc, c);
+    FillRect(hdc, r, (HBRUSH)GetStockObject(DC_BRUSH));
 }
 
 static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     RECT rc;
     GetClientRect(hwnd, &rc);
     CandColors col; PickCandColors(&col);
-    HBRUSH bgb = CreateSolidBrush(col.bg);
-    FillRect(hdc, &rc, bgb);
-    DeleteObject(bgb);
-    if (!g_roundedOk) { HBRUSH fb = CreateSolidBrush(col.border); FrameRect(hdc, &rc, fb); DeleteObject(fb); }   // 둥근 모서리가 없으면 테두리를 그린다
+    FillBlock(hdc, &rc, col.bg);
+    if (!g_roundedOk) { SetDCBrushColor(hdc, col.border); FrameRect(hdc, &rc, (HBRUSH)GetStockObject(DC_BRUSH)); }   // 둥근 모서리가 없으면 테두리를 그린다
 
     EnsureCandFont();
     HFONT hOldFont = (HFONT)SelectObject(hdc, g_candFont);
@@ -266,7 +266,6 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     int end = start + g_perPage;
     if (end > g_count) end = g_count;
     int totalPages = (g_count + g_perPage - 1) / g_perPage;
-    const int radius = Popup_Scale(8, g_dpi);
 
     // 머리줄: 바꾸는 것(흐림) · (가로면 쪽 표시) · 닫기
     SetTextColor(hdc, col.dim);
@@ -283,15 +282,17 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
     int py0, py1, pcx;
     if (g_horizontal) { py0 = 0; py1 = HDR_H; pcx = g_rcClose.left - Popup_Scale(8, g_dpi) - arrowW - ps.cx / 2; }
     else { py0 = rc.bottom - FOOT_H; py1 = rc.bottom; pcx = rc.right / 2; }
-    SetRect(&g_rcPrev, pcx - ps.cx / 2 - arrowW, py0, pcx - ps.cx / 2, py1);
-    SetRect(&g_rcNext, pcx + ps.cx / 2, py0, pcx + ps.cx / 2 + arrowW, py1);
-    RECT pr = { pcx - ps.cx / 2, py0, pcx + ps.cx / 2 + 1, py1 };
-    SetTextColor(hdc, col.dim);
-    DrawTextW(hdc, pageBuf, -1, &pr, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-    SetTextColor(hdc, g_page > 0 ? col.accent : col.border);
-    DrawTextW(hdc, L"\x25C0", 1, &g_rcPrev, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ◀
-    SetTextColor(hdc, g_page < totalPages - 1 ? col.accent : col.border);
-    DrawTextW(hdc, L"\x25B6", 1, &g_rcNext, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ▶
+    if (g_horizontal || totalPages > 1) {   // 세로 목록이 한 쪽이면 쪽 표시를 그리지 않는다
+        SetRect(&g_rcPrev, pcx - ps.cx / 2 - arrowW, py0, pcx - ps.cx / 2, py1);
+        SetRect(&g_rcNext, pcx + ps.cx / 2, py0, pcx + ps.cx / 2 + arrowW, py1);
+        RECT pr = { pcx - ps.cx / 2, py0, pcx + ps.cx / 2 + 1, py1 };
+        SetTextColor(hdc, col.dim);
+        DrawTextW(hdc, pageBuf, -1, &pr, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+        SetTextColor(hdc, g_page > 0 ? col.accent : col.border);
+        DrawTextW(hdc, L"\x25C0", 1, &g_rcPrev, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ◀
+        SetTextColor(hdc, g_page < totalPages - 1 ? col.accent : col.border);
+        DrawTextW(hdc, L"\x25B6", 1, &g_rcNext, DT_SINGLELINE | DT_VCENTER | DT_CENTER);   // ▶
+    } else { SetRectEmpty(&g_rcPrev); SetRectEmpty(&g_rcNext); }
 
     if (g_horizontal) {   // 가로 후보줄: 한 줄에 아홉
         int x = Popup_Scale(4, g_dpi), y = HDR_H;
@@ -301,8 +302,8 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
             SelectObject(hdc, g_candFont);
             int nw = TextW(hdc, num), cw = TextW(hdc, g_candidates[i] ? g_candidates[i] : L"");
             SetRect(&g_cell[k], x, y, x + Popup_Scale(8, g_dpi) + nw + Popup_Scale(4, g_dpi) + cw + Popup_Scale(8, g_dpi), y + ROW_H);
-            if (k == g_sel) FillRoundRect(hdc, &g_cell[k], col.selBg, radius);
-            else if (k == g_hover) FillRoundRect(hdc, &g_cell[k], col.hoverBg, radius);
+            FillBlock(hdc, &g_cell[k], k == g_sel ? col.selBg : k == g_hover ? col.hoverBg : col.block);
+            if (k == g_sel) { RECT bar = { g_cell[k].left, g_cell[k].bottom - Popup_Scale(3, g_dpi), g_cell[k].right, g_cell[k].bottom }; FillBlock(hdc, &bar, col.accent); }
             int tx = g_cell[k].left + Popup_Scale(8, g_dpi), ty = y + (ROW_H - FONT_PX) / 2 - 1;
             SetTextColor(hdc, k == g_sel ? col.accent : col.dim);
             TextOutW(hdc, tx, ty, num, (int)wcslen(num));
@@ -318,11 +319,8 @@ static void DrawCandidateUI(HWND hwnd, HDC hdc) {
         for (int i = start; i < end; i++) {
             int k = i - start;
             RECT row = { Popup_Scale(4, g_dpi), y + 1, rc.right - Popup_Scale(4, g_dpi), y + ROW_H - 1 };
-            if (k == g_sel) {
-                FillRoundRect(hdc, &row, col.selBg, radius);
-                RECT bar = { row.left + Popup_Scale(1, g_dpi), row.top + ROW_H / 4, row.left + Popup_Scale(4, g_dpi), row.bottom - ROW_H / 4 };
-                FillRoundRect(hdc, &bar, col.accent, Popup_Scale(3, g_dpi));   // 강조색 막대
-            } else if (k == g_hover) FillRoundRect(hdc, &row, col.hoverBg, radius);
+            FillBlock(hdc, &row, k == g_sel ? col.selBg : k == g_hover ? col.hoverBg : col.block);
+            if (k == g_sel) { RECT bar = { row.left, row.top, row.left + Popup_Scale(4, g_dpi), row.bottom }; FillBlock(hdc, &bar, col.accent); }   // 강조색 막대
             wchar_t num[4]; swprintf(num, 4, L"%d", k + 1);
             SelectObject(hdc, g_candFont);
             int ty = y + (ROW_H - FONT_PX) / 2 - 1;
@@ -475,7 +473,7 @@ bool CandidateUI_Initialize(void) {
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.lpszClassName = L"JamotongCandidateUI";
-    wc.style = CS_DROPSHADOW;   // 그림자 (RFC-0020 P2)
+    wc.style = 0;   // 사각 블록 — 그림자 없음 (가볍게)
     return Jamo_EnsureClass(&wc);   // W2-05
 }
 

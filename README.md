@@ -196,6 +196,16 @@ Default keys — every function is configurable and accepts multiple bindings
     <img src="images/settings-dark.png" alt="Settings window, dark theme" width="300">
   </p>
 
+- **Candidate and composition windows** use the same square blocks and palette (light and dark follow
+  Windows): Hanja and symbol lists, Chinese pinyin (horizontal bar), Japanese conversion, and the
+  composition chip. The pictures below are drawn by the IME's own window code on Windows 11
+  (a small demo program stands in for the text app) — not mock-ups.
+
+  <p>
+    <img src="images/popups-light.png" alt="Candidate windows, light theme: Hanja, symbols, Japanese, Chinese pinyin, composition chip" width="660">
+    <img src="images/popups-dark.png" alt="Candidate windows, dark theme" width="660">
+  </p>
+
 ### Remote desktop — Jamotong on both PCs
 
 Compose on **one side only**. Two input methods composing the same keystrokes is not

@@ -44,8 +44,8 @@ static int     g_fixedSize = 0;         // 마지막 Show의 크기 설정 (0=Au
 static RECT    g_shownRect;             // 마지막으로 적용한 캐럿 rect (화면 좌표)
 static int     g_adjustLeft = 0;        // 사후 보정 잔여 횟수 (WM_TIMER)
 
-#define PAD_X 4                          // 칩 좌우 여백(px)
-#define PAD_Y 2
+#define PAD_X 2                          // 칩 좌우 여백(px) — 칩을 이만큼 왼쪽·위로 당겨 글자가 문서 자리에 겹치게 한다
+#define PAD_Y 1
 
 // 사후 자기보정: 호스트 앱의 삽입/렌더가 비동기(CUAS)거나 글자 크기가 섞인 문서라
 // Show 시점의 캐럿 rect(위치·줄높이)가 낡을 수 있다 → 표시 직후 짧게 시스템 캐럿을
@@ -54,10 +54,15 @@ static int     g_adjustLeft = 0;        // 사후 보정 잔여 횟수 (WM_TIMER
 #define ADJUST_INTERVAL  40              // ms — 40/80/120ms 세 번 확인
 #define ADJUST_TRIES     3
 
-// 다크/라이트에 무난한 칩 색 (은은한 남색 배경 + 흰 글자 + 밑줄)
-#define CHIP_BG   RGB(37, 61, 97)
-#define CHIP_TEXT RGB(255, 255, 255)
-#define CHIP_LINE RGB(140, 180, 255)
+// 사각 블록 칩 (설정창·후보창과 같은 팔레트): 강조색 바탕 + 대비 글자. 시스템 다크/라이트를 따른다.
+static bool ChipDark(void) {
+    DWORD v = 1, sz = sizeof v; HKEY hk;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
+        RegQueryValueExW(hk, L"AppsUseLightTheme", NULL, NULL, (BYTE *)&v, &sz);
+        RegCloseKey(hk);
+    }
+    return v == 0;
+}
 
 static void EnsureFont(const wchar_t *face, int h) {
     if (h < 12) h = 12;
@@ -127,8 +132,8 @@ static void PlaceChip(const RECT *rcCaret, const wchar_t *face) {
     // 밑줄형 커서: 칩 바닥을 커서 바로 위에 붙인다(커서·해당 줄을 덮지 않음).
     // 화면 위로 벗어나면 커서 아래로 폴백.
     // 화면 위로 벗어나면 커서 아래로 폴백. 모니터 작업영역 기준(W2-03 — 전엔 y<0 만 봤다).
-    int x = rcCaret->left;
-    int y = underlineCaret ? rcCaret->top - h - 1 : rcCaret->top;
+    int x = rcCaret->left - PAD_X;   // 글자가 문서 속 자리(캐럿)에 그대로 겹치도록 여백만큼 당긴다
+    int y = underlineCaret ? rcCaret->top - h - 1 : rcCaret->top - PAD_Y;
     RECT work;
     if (Popup_WorkAreaAt(rcCaret->left, rcCaret->top, &work)) {
         if (y < work.top) y = rcCaret->bottom + 2;
@@ -170,27 +175,18 @@ static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             RECT rc; GetClientRect(hwnd, &rc);
-            // 고대비 테마면 시스템 강조색 쌍으로 (W2-03) — 고정 남색은 일부 테마에서 읽히지 않는다
-            bool hc = Popup_HighContrast();
-            COLORREF cBg = hc ? GetSysColor(COLOR_HIGHLIGHT) : CHIP_BG;
-            COLORREF cText = hc ? GetSysColor(COLOR_HIGHLIGHTTEXT) : CHIP_TEXT;
-            COLORREF cLine = hc ? GetSysColor(COLOR_HIGHLIGHTTEXT) : CHIP_LINE;
-            HBRUSH bg = CreateSolidBrush(cBg);
-            FillRect(hdc, &rc, bg);
-            DeleteObject(bg);
+            // 고대비 테마면 시스템 강조색 쌍으로 (W2-03)
+            bool hc = Popup_HighContrast(), dark = ChipDark();
+            COLORREF cBg = hc ? GetSysColor(COLOR_HIGHLIGHT) : dark ? RGB(76, 194, 255) : RGB(0, 95, 184);
+            COLORREF cText = hc ? GetSysColor(COLOR_HIGHLIGHTTEXT) : dark ? RGB(0, 0, 0) : RGB(255, 255, 255);
+            SetDCBrushColor(hdc, cBg);
+            FillRect(hdc, &rc, (HBRUSH)GetStockObject(DC_BRUSH));
             if (g_text[0] && g_font) {
                 HFONT of = (HFONT)SelectObject(hdc, g_font);
                 SetBkMode(hdc, TRANSPARENT);
                 SetTextColor(hdc, cText);
                 TextOutW(hdc, PAD_X, PAD_Y, g_text, (int)wcslen(g_text));
                 SelectObject(hdc, of);
-                // 조합 표시 밑줄 (인라인 조합의 관례를 칩 안에서 재현)
-                HPEN pen = CreatePen(PS_SOLID, 1, cLine);
-                HGDIOBJ op = SelectObject(hdc, pen);
-                MoveToEx(hdc, PAD_X, rc.bottom - 2, NULL);
-                LineTo(hdc, rc.right - PAD_X, rc.bottom - 2);
-                SelectObject(hdc, op);
-                DeleteObject(pen);
             }
             EndPaint(hwnd, &ps);
             return 0;
