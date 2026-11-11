@@ -161,6 +161,12 @@ MSI 가 지웁니다.
   단축키 추가/편집/삭제), *IME Options*(전각·미리보기·한자 후보창 글꼴/크기), *General*(표시 배율·
   Import/Export·초기화). 값 블록은 양쪽 화살표를 누르거나 좌우 키로 한 칸씩 바꿉니다.
 
+  <p>
+    <img src="images/settings-light.png" alt="설정 창, 밝은 테마" width="300">
+    <img src="images/settings-scrolled.png" alt="단축키·IME 옵션 구역으로 내린 설정 창" width="300">
+    <img src="images/settings-dark.png" alt="설정 창, 어두운 테마" width="300">
+  </p>
+
 ### 원격 데스크톱 — 두 PC 모두에 자모통이 있을 때
 
 조합은 **한쪽에서만** 하세요. 두 입력기가 같은 키 입력을 동시에 조합하는 것은 지원하지 않습니다

@@ -190,6 +190,12 @@ Default keys — every function is configurable and accepts multiple bindings
   *IME Options* (full-width, preview, Hanja font/size), *General* (display scale,
   import/export, reset). Click the arrows on a block, or press Left/Right, to step its value.
 
+  <p>
+    <img src="images/settings-light.png" alt="Settings window, light theme" width="300">
+    <img src="images/settings-scrolled.png" alt="Settings window scrolled to Shortcuts and IME Options" width="300">
+    <img src="images/settings-dark.png" alt="Settings window, dark theme" width="300">
+  </p>
+
 ### Remote desktop — Jamotong on both PCs
 
 Compose on **one side only**. Two input methods composing the same keystrokes is not
