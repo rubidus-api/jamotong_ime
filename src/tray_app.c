@@ -323,11 +323,19 @@ static bool WriteFileUtf8FromEdit(const wchar_t *path) {
     free(w);
     // \r\n → \n
     int wn = 0; for (int i = 0; buf[i]; i++) if (buf[i] != '\r') buf[wn++] = buf[i];
-    HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    // 임시 파일에 쓰고 확인한 뒤 바꿔 넣는다 — 쓰기가 실패해도 원래 파일은 그대로다(리뷰 10).
+    wchar_t tmp[MAX_PATH + 8];
+    if (wcslen(path) + 5 >= MAX_PATH + 8) { free(buf); return false; }
+    wcscpy(tmp, path); wcscat(tmp, L".tmp");
+    HANDLE f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) { free(buf); return false; }
-    DWORD wr = 0; WriteFile(f, buf, (DWORD)wn, &wr, NULL); CloseHandle(f);
+    DWORD wr = 0;
+    bool ok = WriteFile(f, buf, (DWORD)wn, &wr, NULL) && wr == (DWORD)wn && FlushFileBuffers(f);
+    ok = CloseHandle(f) && ok;
     free(buf);
-    return true;
+    if (ok) ok = MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    if (!ok) DeleteFileW(tmp);
+    return ok;
 }
 
 static void SetEditText(const wchar_t *text) {
@@ -382,7 +390,12 @@ static bool CheckEditor(LayoutConfig *keep, bool show, const wchar_t *title) {
     if (g_curFile[0]) {
         wchar_t dir[MAX_PATH]; wcsncpy(dir, g_curFile, MAX_PATH - 1); dir[MAX_PATH - 1] = L'\0';
         wchar_t *slash = wcsrchr(dir, L'\\');
-        if (slash) { *slash = L'\0'; _snwprintf(tmp, MAX_PATH, L"%ls\\~jamotong-check.jmt", dir); tmp[MAX_PATH - 1] = L'\0'; wrote = WriteFileUtf8FromEdit(tmp); }
+        if (slash) {   // 이름이 겹치지 않는 임시 파일 — 같은 이름의 사용자 파일을 덮어쓰지 않는다 (없는 이름일 때만 쓴다)
+            *slash = L'\0';
+            _snwprintf(tmp, MAX_PATH, L"%ls\\~jamotong-check-%lu-%lu.jmt", dir, GetCurrentProcessId(), GetTickCount());
+            tmp[MAX_PATH - 1] = L'\0';
+            if (GetFileAttributesW(tmp) == INVALID_FILE_ATTRIBUTES) wrote = WriteFileUtf8FromEdit(tmp);
+        }
     }
     if (!wrote) {
         wchar_t tmpDir[MAX_PATH];

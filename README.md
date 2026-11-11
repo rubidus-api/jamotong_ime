@@ -184,9 +184,11 @@ Default keys — every function is configurable and accepts multiple bindings
 > The same fallback (helper, then cycling) is used automatically if the candidate window cannot be
 > created at all. Ordinary desktop apps behave exactly as before.
 - **Settings window**: `Ctrl+Alt+K`, or run `jamotong.exe` (Layout ▸ Settings).
-  Tabs: *Layouts* (enable/disable, reorder, add `.jmt`), *Shortcuts* (pick a function,
-  then add/edit/delete its keys), *IME Options* (Hanja behavior, full-width, preview
-  font/size), *General* (DPI, import/export, reset).
+  One page you scroll (mouse wheel, arrow keys, PgUp/PgDn), in sections: *Layouts* (click a
+  row to select it, click its box to turn it on/off, reorder, add `.jmt`), *Layout Options*
+  (for the selected layout), *Shortcuts* (pick a function, then add/edit/delete its keys),
+  *IME Options* (full-width, preview, Hanja font/size), *General* (display scale,
+  import/export, reset). Click the arrows on a block, or press Left/Right, to step its value.
 
 ### Remote desktop — Jamotong on both PCs
 

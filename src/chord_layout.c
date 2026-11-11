@@ -302,10 +302,12 @@ static bool AnyChordCovers(const ChordLayout *cl, unsigned mask, int layer) {
 static void ConfirmSustainedHold(ChordKbContext *c, const ChordEntry *he) {
     if (he->act == CA_PTR_MOVE || he->act == CA_PTR_WHEEL) {   // 연속 포인터: 이 조합의 글쇠마다 제 몫을 적어 둔다
         int dx = he->p1 > 0 ? 1 : he->p1 < 0 ? -1 : 0, dy = he->p2 > 0 ? 1 : he->p2 < 0 ? -1 : 0;
+        // 프로필을 적지 않았으면(-1) 기본값 — (unsigned char)-1 = 255 가 kPtrProf[] 를 벗어나지 않게
+        int prof = he->prof >= 0 && he->prof <= CPROF_SCROLL ? he->prof : (he->act == CA_PTR_WHEEL ? CPROF_SCROLL : CPROF_NORMAL);
         for (int k = 0; k < 256; k++) {
             if (c->role[k] != 1) continue;
-            if (he->act == CA_PTR_MOVE) { c->ptrKeyX[k] = (signed char)dx; c->ptrKeyY[k] = (signed char)dy; c->ptrKeyProf[k] = (unsigned char)he->prof; }
-            else { c->whKeyX[k] = (signed char)dx; c->whKeyY[k] = (signed char)dy; c->whKeyProf[k] = (unsigned char)he->prof; }
+            if (he->act == CA_PTR_MOVE) { c->ptrKeyX[k] = (signed char)dx; c->ptrKeyY[k] = (signed char)dy; c->ptrKeyProf[k] = (unsigned char)prof; }
+            else { c->whKeyX[k] = (signed char)dx; c->whKeyY[k] = (signed char)dy; c->whKeyProf[k] = (unsigned char)prof; }
         }
         for (int k = 0; k < 256; k++) if (c->role[k] == 1) c->role[k] = 2;
         c->holdKeys = c->pendKeys;

@@ -111,10 +111,14 @@ static bool CheckLayout(JDict *d) {
     // 판 1 의 자리는 고정이다 — 이 배치가 아니면 우리가 구운 파일이 아니다
     if (d->offIndex != JD_HEADER_BYTES) return false;
     if (d->offKeys != d->offIndex + d->count * JD_REC_BYTES) return false;
-    if (d->offVals != ((d->offKeys + d->keyBytes + 1u) & ~1u)) return false;
+    // 32비트로 더하면 헤더의 큰 값이 한 바퀴 돌아 검사를 빠져나간다 — 64비트로 더하고, 블록이 파일 안에 드는지 본다
+    unsigned long long keysEnd = (unsigned long long)d->offKeys + d->keyBytes;
+    if (keysEnd > d->size) return false;
+    if ((unsigned long long)d->offVals != ((keysEnd + 1ull) & ~1ull)) return false;
     if ((d->valBytes & 1u) != 0) return false;
-    unsigned offMeta = d->offVals + d->valBytes;
-    if (offMeta > d->size) return false;
+    unsigned long long metaEnd = (unsigned long long)d->offVals + d->valBytes;
+    if (metaEnd > d->size) return false;
+    unsigned offMeta = (unsigned)metaEnd;
     // 색인 전수 범위 검사 — 도구·시험은 한다. 입력기(가벼운 열기, RFC-0020 F3)는 건너뛴다: 50만 항목이면 색인만 6MB 이고
     //   그걸 앱마다 다 읽어 들였다. 항목의 범위는 KeyAt/ValAt 이 읽을 때마다 본다.
     for (unsigned i = 0; !g_lightOpen && i < d->count; i++) {

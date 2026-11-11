@@ -279,7 +279,14 @@ static void Scan(void) {
 static void Later(const wchar_t *p) {   // deleted at the next restart
     if (MoveFileExW(p, NULL, MOVEFILE_DELAY_UNTIL_REBOOT)) { g_reboot = true; Log(L"  at restart: %ls", p); }
 }
+static bool IsReparse(const wchar_t *p) {
+    DWORD a = GetFileAttributesW(p);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT);
+}
 static void DeleteTree(const wchar_t *dir) {
+    // 뿌리가 연결 지점(junction·symlink)이면 그 연결만 지운다 — 가리키는 곳의 파일은 건드리지 않는다
+    // (일반 사용자가 %ProgramData%\Jamotong 을 다른 폴더로의 junction 으로 미리 만들어 둘 수 있다).
+    if (IsReparse(dir)) { if (!RemoveDirectoryW(dir)) Later(dir); return; }
     wchar_t pat[MAX_PATH * 2 + 4];
     _snwprintf(pat, MAX_PATH * 2 + 4, L"%ls\\*", dir);
     WIN32_FIND_DATAW fd;
@@ -301,38 +308,73 @@ static void DeleteTree(const wchar_t *dir) {
     }
     if (!RemoveDirectoryW(dir)) Later(dir);
 }
-// A folder not named Jamotong (a folder the user picked) loses only Jamotong's own files
-static bool OurFile(const wchar_t *n) {
-    static const wchar_t *const pre[] = { L"jamotong", L"layout-ko-", L"example", L"hanja", L"chinese", L"japanese", L"romaji-kana",
-                                          L"pinyin-keys", L"README", L"LICENSE", L"COPYRIGHT", L"jmt-format", L"UNICODE-LICENSE",
-                                          L"install.bat", L"uninstall.bat", NULL };
-    for (int i = 0; pre[i]; i++) if (!_wcsnicmp(n, pre[i], wcslen(pre[i]))) return true;
+// 우리가 설치 때 두는 파일의 이름 — 정확한 이름이나 "접두 + 허용 확장자"만 (사용자가 고른 폴더에서 남의 파일을 지우지 않는다)
+static bool HasExt(const wchar_t *n, const wchar_t *const *exts) {
     const wchar_t *e = wcsrchr(n, L'.');
-    return e && (!_wcsicmp(e, L".jmb") || !_wcsicmp(e, L".jmt") || !_wcsicmp(e, L".jdb") || wcsstr(n, L".old."));
+    if (!e) return false;
+    for (int i = 0; exts[i]; i++) if (!_wcsicmp(e, exts[i])) return true;
+    return false;
+}
+static bool OurFile(const wchar_t *n) {
+    static const wchar_t *const exact[] = { L"COPYRIGHT.md", L"LICENSE", L"README.md", L"README.ko.md", L"UNICODE-LICENSE.txt",
+                                            L"jmt-format.md", L"jmt-format.ko.md", L"hanja.txt", L"hanja_hunum.txt",
+                                            L"install.bat", L"uninstall.bat", NULL };
+    for (int i = 0; exact[i]; i++) if (!_wcsicmp(n, exact[i])) return true;
+    static const wchar_t *const prog[] = { L".dll", L".exe", L".msi", L".ico", NULL };
+    static const wchar_t *const data[] = { L".jmb", L".jmt", L".jdb", L".jdc", L".jdt", L".txt", NULL };
+    if (!_wcsnicmp(n, L"jamotong", 8) && (HasExt(n, prog) || HasExt(n, data) || wcsstr(n, L".old."))) return true;   // jamotong.dll, jamotong32.dll, *.old.<n>
+    static const wchar_t *const dataPre[] = { L"layout-ko-", L"example", L"chinese", L"japanese", L"romaji-kana", L"pinyin-keys", NULL };
+    for (int i = 0; dataPre[i]; i++) if (!_wcsnicmp(n, dataPre[i], wcslen(dataPre[i])) && HasExt(n, data)) return true;
+    return false;
+}
+// 설치기가 쓰는 기본 위치 — 여기서만 폴더를 통째로 지운다
+static bool IsKnownRoot(const wchar_t *dir) {
+    static const int known[] = { CSIDL_PROGRAM_FILES, CSIDL_PROGRAM_FILESX86 };
+    for (int k = 0; k < 2; k++) {
+        wchar_t base[MAX_PATH], want[MAX_PATH * 2];
+        if (SHGetFolderPathW(NULL, known[k], NULL, 0, base) != S_OK) continue;
+        _snwprintf(want, MAX_PATH * 2, L"%ls\\Jamotong", base);
+        if (!_wcsicmp(dir, want)) return true;
+    }
+    return false;
+}
+// 경로가 Program Files 아래이고 ".." 가 없는가 — 관리자 권한으로 그 안의 DLL 을 불러도 되는 곳
+static bool UnderProgramFiles(const wchar_t *path) {
+    static const int known[] = { CSIDL_PROGRAM_FILES, CSIDL_PROGRAM_FILESX86 };
+    if (wcsstr(path, L"..")) return false;
+    for (int k = 0; k < 2; k++) {
+        wchar_t base[MAX_PATH];
+        if (SHGetFolderPathW(NULL, known[k], NULL, 0, base) != S_OK) continue;
+        size_t n = wcslen(base);
+        if (!_wcsnicmp(path, base, n) && path[n] == L'\\') return true;
+    }
+    return false;
 }
 static void CleanFolder(const wchar_t *dir) {
-    const wchar_t *last = wcsrchr(dir, L'\\');
-    if (last && !_wcsicmp(last + 1, L"Jamotong")) { DeleteTree(dir); return; }
+    if (IsKnownRoot(dir)) { DeleteTree(dir); return; }
+    if (IsReparse(dir)) return;   // 연결 지점은 따라가지 않는다
+    // 사용자가 고른 폴더(예: Downloads, 소스 폴더): 우리 파일만 지우고 하위 폴더는 건드리지 않는다
     wchar_t pat[MAX_PATH * 2 + 4];
     _snwprintf(pat, MAX_PATH * 2 + 4, L"%ls\\*", dir);
     WIN32_FIND_DATAW fd;
     HANDLE f = FindFirstFileW(pat, &fd);
     if (f == INVALID_HANDLE_VALUE) return;
     do {
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+        if (!OurFile(fd.cFileName)) continue;
         wchar_t p[MAX_PATH * 2];
         _snwprintf(p, MAX_PATH * 2, L"%ls\\%ls", dir, fd.cFileName);
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (!_wcsicmp(fd.cFileName, L"licenses") && !(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) DeleteTree(p);
-        } else if (OurFile(fd.cFileName)) {
-            SetFileAttributesW(p, FILE_ATTRIBUTE_NORMAL);
-            if (!DeleteFileW(p)) Later(p);
-        }
+        SetFileAttributesW(p, FILE_ATTRIBUTE_NORMAL);
+        if (!DeleteFileW(p)) Later(p);
     } while (FindNextFileW(f, &fd));
     FindClose(f);
     RemoveDirectoryW(dir);   // only if now empty
 }
 typedef HRESULT (WINAPI *RegProc)(void);
 static void UnregisterTip(int kind, const wchar_t *path) {
+    // 관리자 권한으로 등록된 경로의 DLL 을 불러 실행한다 — 사용자가 쓸 수 있는 폴더의 것이면 그 코드가 관리자로 돈다.
+    // Program Files 밖이면 불러 보지 않는다 (키는 아래에서 직접 지운다).
+    if (!UnderProgramFiles(path)) { Log(L"  skipped (not under Program Files): %ls", path); return; }
     if (kind == K_TIP64) {
         HMODULE m = LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (m) {

@@ -327,13 +327,46 @@ void Config_RemoveEditedLayout(JamotongConfig *edited, int idx, const JamotongCo
 // 폴더는 사용자 자신의 것이고 주는 권한은 읽기(RX)뿐이다. AppContainer 안에서 돌 때는 권한을
 // 바꿀 수 없으므로(그럴 필요도 없다) 조용히 지나간다.
 #ifdef _WIN32
+// 같은 경로는 프로세스당 한 번만 다룬다 — 예전에는 호출마다(시작 때마다, 사전 하나 열 때마다) DACL 을 다시 쓰고 하위로 상속을 퍼뜨려
+//   모든 호스트 프로세스가 같은 폴더의 ACL 을 되풀이해 썼다(디스크·잠금 경합). 이미 읽기 권한이 있으면 쓰지도 않는다.
+#define ACL_DONE_MAX 8
+static wchar_t g_aclDone[ACL_DONE_MAX][MAX_PATH];
+static int g_aclDoneN = 0;
+static CRITICAL_SECTION g_aclLock;
+static INIT_ONCE g_aclOnce = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK AclInit(PINIT_ONCE o, PVOID p, PVOID *c) { (void)o; (void)p; (void)c; InitializeCriticalSection(&g_aclLock); return TRUE; }
+
+static bool AclHasAcRead(PACL dacl) {   // DACL 에 AC(S-1-15-2-1) 허용 항목이 이미 있는가
+    if (!dacl) return false;
+    PSID ac = NULL;
+    if (!ConvertStringSidToSidW(L"S-1-15-2-1", &ac)) return false;
+    bool has = false;
+    for (DWORD i = 0; i < dacl->AceCount && !has; i++) {
+        PVOID ace = NULL;
+        if (!GetAce(dacl, i, &ace) || !ace) continue;
+        ACE_HEADER *h = (ACE_HEADER *)ace;
+        if (h->AceType != ACCESS_ALLOWED_ACE_TYPE) continue;
+        ACCESS_ALLOWED_ACE *a = (ACCESS_ALLOWED_ACE *)ace;
+        if (EqualSid((PSID)&a->SidStart, ac) && (a->Mask & FILE_GENERIC_READ) == FILE_GENERIC_READ) has = true;
+    }
+    LocalFree(ac);
+    return has;
+}
+
 void Config_GrantAppContainerRead(const wchar_t *path) {
+    if (!path || wcslen(path) >= MAX_PATH) return;
+    InitOnceExecuteOnce(&g_aclOnce, AclInit, NULL, NULL);
+    EnterCriticalSection(&g_aclLock);
+    for (int i = 0; i < g_aclDoneN; i++)
+        if (!_wcsicmp(g_aclDone[i], path)) { LeaveCriticalSection(&g_aclLock); return; }
+    LeaveCriticalSection(&g_aclLock);
     PSID sid = NULL;
     if (!ConvertStringSidToSidW(L"S-1-15-2-1", &sid)) return;
     PACL oldDacl = NULL, newDacl = NULL;
     PSECURITY_DESCRIPTOR sd = NULL;
     if (GetNamedSecurityInfoW(path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                               NULL, NULL, &oldDacl, NULL, &sd) == ERROR_SUCCESS) {
+        bool have = AclHasAcRead(oldDacl);
         EXPLICIT_ACCESSW ea;
         memset(&ea, 0, sizeof(ea));
         ea.grfAccessPermissions = GENERIC_READ | GENERIC_EXECUTE;
@@ -342,12 +375,15 @@ void Config_GrantAppContainerRead(const wchar_t *path) {
         ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
         ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
         ea.Trustee.ptstrName = (LPWSTR)sid;
-        if (SetEntriesInAclW(1, &ea, oldDacl, &newDacl) == ERROR_SUCCESS) {
+        if (!have && SetEntriesInAclW(1, &ea, oldDacl, &newDacl) == ERROR_SUCCESS) {
             SetNamedSecurityInfoW((LPWSTR)path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                                   NULL, NULL, newDacl, NULL);
             LocalFree(newDacl);
         }
         LocalFree(sd);
+        EnterCriticalSection(&g_aclLock);   // 읽을 수 있게 됐거나 이미 그랬다 — 이 프로세스에서는 다시 보지 않는다
+        if (g_aclDoneN < ACL_DONE_MAX) wcscpy(g_aclDone[g_aclDoneN++], path);
+        LeaveCriticalSection(&g_aclLock);
     }
     LocalFree(sid);
 }
@@ -597,6 +633,43 @@ bool Config_StagingLayoutDir(wchar_t *out, int cch) {
     return true;
 }
 
+// 줄 읽기 — 고정 버퍼에 fgetws 로 읽으면 긴 줄이 여러 줄로 쪼개져, 뒤 조각이 새 줄처럼(`[` 로 시작하면 섹션 머리처럼) 읽혔다.
+//   LineBounded: buf 에 한 줄을 읽고, 넘치는 뒷부분은 그 줄 끝까지 **버린다**(*cut = 잘렸다). EOF 면 false.
+static bool LineBounded(wchar_t *buf, int cap, FILE *f, bool *cut) {
+    if (cut) *cut = false;
+    if (!fgetws(buf, cap, f)) return false;
+    size_t n = wcslen(buf);
+    if (n && buf[n - 1] != L'\n' && !feof(f)) {   // 줄 끝을 못 봤다 — 남은 것을 줄 끝까지 버린다
+        if (cut) *cut = true;
+        for (wint_t c; (c = fgetwc(f)) != WEOF && c != L'\n';) {}
+    }
+    return true;
+}
+//   LineDyn: 한 줄을 통째로(상한 CFG_LINE_MAX 자) 읽어 새 버퍼로 준다. 호출자가 free. EOF 면 NULL.
+#define CFG_LINE_MAX 65536
+static wchar_t *LineDyn(FILE *f) {
+    size_t cap = 256, n = 0;
+    wchar_t *b = (wchar_t *)malloc(cap * sizeof(wchar_t));
+    if (!b) return NULL;
+    wint_t c;
+    bool any = false;
+    while ((c = fgetwc(f)) != WEOF) {
+        any = true;
+        if (c == L'\n') break;
+        if (n + 1 >= cap) {
+            if (cap >= CFG_LINE_MAX) continue;   // 상한을 넘는 부분은 버린다
+            wchar_t *nb = (wchar_t *)realloc(b, cap * 2 * sizeof(wchar_t));
+            if (!nb) { free(b); return NULL; }
+            b = nb; cap *= 2;
+        }
+        b[n++] = (wchar_t)c;
+    }
+    if (!any) { free(b); return NULL; }
+    b[n] = L'\0';
+    TrimCrLf(b);
+    return b;
+}
+
 // 사용자 자판 저장소의 모든 .jmt를 [LayoutFile:name] … [EndLayoutFile] 로 인라인 (Export용).
 static void BundleUserLayouts(FILE *fp) {
     wchar_t dir[MAX_PATH];
@@ -620,14 +693,11 @@ static void BundleUserLayouts(FILE *fp) {
         wchar_t encName[MAX_PATH * 3];   // percent-encoding은 최대 3배
         Config_EncodeLayoutName(fd.cFileName, encName, MAX_PATH * 3);
         fwprintf(fp, L"\n[LayoutFile:%ls]\n", encName);
-        wchar_t line[512];
         // 본문 각 줄 앞에 공백 마커를 붙인다 — 복원 시 첫 칸을 벗긴다. 본문 안의 '['로
         //   시작하는 줄이 상위 config 파서의 섹션 헤더나 [EndLayoutFile] 센티넬로 오인되어
-        //   라운드트립이 깨지는 것을 막는다.
-        while (fgetws(line, 512, lf)) {
-            TrimCrLf(line);
+        //   라운드트립이 깨지는 것을 막는다. 줄은 통째로 읽는다 — 예전 512칸 버퍼는 긴 줄을 쪼갰다.
+        for (wchar_t *line; (line = LineDyn(lf)) != NULL; free(line))
             fwprintf(fp, L" %ls\n", line);
-        }
         fwprintf(fp, L"[EndLayoutFile]\n");
         fclose(lf);
     } while (FindNextFileW(h, &fd));
@@ -687,7 +757,9 @@ static void ReadUnknown(const wchar_t *path, KeepList keep[5]) {
     if (!f) return;
     wchar_t line[1024];
     int sec = -1;    // -1 = 절 밖, 0..2 아는 절, 3 모르는 절
-    while (fgetws(line, 1024, f)) {
+    bool cut;
+    while (LineBounded(line, 1024, f, &cut)) {
+        if (cut) continue;   // 너무 긴 줄은 옮겨 적지 않는다 (잘린 조각을 새 줄로 읽지 않는다)
         size_t n = wcslen(line);
         while (n && (line[n - 1] == L'\n' || line[n - 1] == L'\r')) line[--n] = 0;
         if (line[0] == L'[') {
@@ -811,7 +883,7 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     temp.options.candFontSize = 24;     // 구버전 .ini 대비 기본값
     wcscpy(temp.options.candFont, L"Malgun Gothic");
     bool haveSc[SC_FN_COUNT] = { false };   // 파일에 해당 기능 목록이 명시됐는가 (없으면 기존 유지)
-    wchar_t line[256];
+    wchar_t line[512];   // [LayoutFile:<이름>] 머리도 들어간다 (이름은 percent-encoding 으로 최대 3배)
     wchar_t fontBuf[32];
     int section = 0; // 1 = Layouts, 2 = Shortcuts, 3 = Options, 4 = LayoutOptions
     struct { wchar_t name[64]; int sentence, suggest, punct, fuzzy, emoji, tones, bar; wchar_t keys[16]; } lopt[CONFIG_STAGED_MAX];   // -1 = 파일에 없음
@@ -830,7 +902,9 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
     }
     int lfRestored = 0;
 
-    while (fgetws(line, 256, fp)) {
+    bool lineCut;
+    while (LineBounded(line, 512, fp, &lineCut)) {
+        if (lineCut) continue;   // 한 줄이 버퍼보다 길다 — 설정 줄이 아니다 (뒤 조각을 새 줄로 읽지 않는다)
         TrimCrLf(line);
         // [LayoutFile:name] … [EndLayoutFile] : Export 번들의 사용자 자판 본문 복원(P0-2 남은 절반).
         //   layouts 폴더에 파일이 없을 때만 쓴다(기존 자판 덮어쓰기 방지). 다음 시작 시 자동 로드.
@@ -851,13 +925,10 @@ bool Config_LoadFromFileEx(JamotongConfig *config, const wchar_t *filepath,
                 if (GetFileAttributesW(dst) == INVALID_FILE_ATTRIBUTES)   // 없을 때만 복원
                     out = AtomicOpen(dst, dstTmp, MAX_PATH + 40);   // W1-06: 반쯤 쓴 자판을 남기지 않는다
             }
-            // 본문은 Export 와 같은 512 버퍼로 읽어 긴 줄이 쪼개지지 않게 한다(마커 격리가
-            //   연속 청크에서 깨지는 것을 막음). 각 줄은 선두 공백 마커 — 첫 칸만 벗겨 복원.
+            // 본문은 Export 와 같이 줄을 통째로 읽는다(긴 줄이 쪼개지지 않게). 각 줄은 선두 공백 마커 — 첫 칸만 벗겨 복원.
             //   본문에 '['로 시작하는 줄이 있어도 상위 섹션/센티넬로 오인되지 않는다.
-            wchar_t body[512];
-            while (fgetws(body, 512, fp)) {   // [EndLayoutFile]까지 본문 (있으면 파일에 씀)
-                TrimCrLf(body);
-                if (wcscmp(body, L"[EndLayoutFile]") == 0) break;
+            for (wchar_t *body; (body = LineDyn(fp)) != NULL; free(body)) {   // [EndLayoutFile]까지 본문 (있으면 파일에 씀)
+                if (wcscmp(body, L"[EndLayoutFile]") == 0) { free(body); break; }
                 if (out) fwprintf(out, L"%ls\n", body[0] == L' ' ? body + 1 : body);
             }
             if (out && AtomicCommit(out, dstTmp, dst, false)) {   // 덮어쓰지 않는다

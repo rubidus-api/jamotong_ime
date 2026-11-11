@@ -405,6 +405,12 @@ static ITfEditSessionVtbl ReadSelVtbl = { RSel_QueryInterface, RSel_AddRef, RSel
 //   컨트롤이 선택 텍스트를 '직접' 복사해 주므로 오프셋 해석(문자/바이트·개행 축약) 차이에서
 //   자유롭다. (실기 2026-07-08: EM_GETSEL+WM_GETTEXT 조합은 레거시 앱에서 "대한민국" 선택이
 //   "대한"으로 잘리는 오프셋 불일치를 보임.) 모르는 컨트롤은 CHARRANGE를 안 건드려 걸러진다.
+// 포인터를 싣는 메시지(EM_EXGETSEL·EM_GETSEL 의 &s/&e·SCI_GETSELTEXT)는 **같은 스레드의 창**에만 보낸다 — 다른 스레드·프로세스의
+//   창에는 포인터가 변환되지 않아(WM_USER 이상은 더욱) 우리 스택 주소를 상대가 자기 주소로 읽고, 응답 없는 창이면 키 처리가 멈춘다.
+static bool OwnThreadWindow(HWND h) {
+    return h && IsWindow(h) && GetWindowThreadProcessId(h, NULL) == GetCurrentThreadId();
+}
+
 static bool ReadSelViaRichEdit(HWND h, wchar_t *outBuf, int maxLen) {
     CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;   // 미응답 감지용 초기값
     SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
@@ -451,6 +457,7 @@ static bool ReadSelViaScintilla(HWND h, wchar_t *outBuf, int maxLen) {
 //   RichEdit 경로로 읽으면 '한'이 글자 셋짜리 쓰레기(U+95ED…)가 되어 사전 조회가 조용히 실패했다(실기 2026-09-30).
 static bool ReadSelFromCtl(HWND h, wchar_t *outBuf, int maxLen) {
     outBuf[0] = L'\0';
+    if (!OwnThreadWindow(h)) return false;
     if (ReadSelViaScintilla(h, outBuf, maxLen)) return true;
     if (ReadSelViaRichEdit(h, outBuf, maxLen)) return true;
     DWORD s = 0, e = 0;
@@ -473,7 +480,7 @@ static bool ReadSelFromCtl(HWND h, wchar_t *outBuf, int maxLen) {
 
 static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return;
+    if (!GetGUIThreadInfo(GetCurrentThreadId(), &gti) || !gti.hwndFocus) return;   // 이 스레드의 포커스 창만
     ReadSelFromCtl(gti.hwndFocus, outBuf, maxLen);
 }
 
@@ -482,8 +489,9 @@ static void ReadSelectionFromFocusCtl(wchar_t *outBuf, int maxLen) {
 // 후보창 콜백 등 뒤늦은 시점엔 포커스가 옮겨가 GetGUIThreadInfo가 딴 창을 주기 때문(실기 2026-07-08).
 HWND EditCtl_FocusEditWindow(void) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    if (!GetGUIThreadInfo(0, &gti) || !gti.hwndFocus) return NULL;
+    if (!GetGUIThreadInfo(GetCurrentThreadId(), &gti) || !gti.hwndFocus) return NULL;   // 이 스레드의 포커스 창만
     HWND h = gti.hwndFocus;
+    if (!OwnThreadWindow(h)) return NULL;
     // 클래스명에 "edit"(대소문자 무관)가 있어야 EDIT 계열로 인정 — PuTTY 같은 자체 렌더링
     // 터미널이 EM_GETSEL/EM_EXGETSEL에 우연히 응답해 EDIT로 오판되고, 우리가 보낸
     // EM_REPLACESEL을 무시해 한글 입력이 통째로 씹히는 것을 막는다(실기 2026-07-08).
@@ -516,7 +524,7 @@ static void CtlSetSel(HWND h, LONG from, LONG to, bool rich) {
 
 bool EditCtl_SelectWordBeforeCaret(HWND h, const wchar_t *word) {
     int len = (int)wcslen(word);
-    if (!h || len <= 0 || len > 16) return false;
+    if (!OwnThreadWindow(h) || len <= 0 || len > 16) return false;
     // 캐럿 위치: EM_EXGETSEL(RichEdit/AkelEdit) 우선 — AkelEdit는 EM_GETSEL 미응답이라
     // EM_GETSEL만 쓰면 단어 선택이 통째로 실패했다(실기 2026-07-08).
     LONG caret = -1; bool rich = false;
@@ -561,7 +569,7 @@ static EditSelSnap ReadSelSnap(HWND h) {
 // 반환: 문서에 들어가지 **않은 것이 확실할 때만** false (RFC-0008 W0-04, BACKLOGS B1).
 //   EM_REPLACESEL 은 결과를 주지 않으므로 전후 선택을 견준다 — 규칙은 edit_verdict.h.
 bool EditCtl_ReplaceSelection(HWND h, const wchar_t *str) {
-    if (!h) return false;
+    if (!OwnThreadWindow(h)) return false;
     EditSelSnap before = ReadSelSnap(h);
     SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)str);
     EditSelSnap after = ReadSelSnap(h);
@@ -578,7 +586,7 @@ bool EditCtl_ReadSelection(HWND h, wchar_t *outBuf, int maxLen) {
 }
 
 void EditCtl_CollapseSelectionToEnd(HWND h) {
-    if (!h) return;
+    if (!OwnThreadWindow(h)) return;
     CHARRANGE cr; cr.cpMin = -2; cr.cpMax = -2;
     SendMessageW(h, EM_EXGETSEL, 0, (LPARAM)&cr);
     if (cr.cpMin >= 0) { CtlSetSel(h, cr.cpMax, cr.cpMax, true); return; }

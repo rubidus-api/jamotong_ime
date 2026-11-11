@@ -31,10 +31,45 @@ static HFONT   g_font = NULL;
 static int     g_fontH = 0;
 static wchar_t g_fontFace[JAMO_UIIPC_MAX_FACE] = L"Malgun Gothic";
 
-// 받은 상태 (창 스레드에서만 만진다)
-static wchar_t (*g_lines)[JAMO_UIIPC_MAX_CANDLEN] = NULL;
+// 그리는 상태 (창 스레드에서만 만진다). 파이프 스레드는 아래 g_pend 에만 쓰고 창 스레드가 잠그고 복사해 간다.
+static wchar_t g_lines[JAMO_UIIPC_MAX_CAND][JAMO_UIIPC_MAX_CANDLEN];
 static int g_count = 0, g_perPage = 9, g_sel = 0;
 static int g_anchorX = 100, g_anchorY = 100, g_caretTop = 96;
+
+// 파이프에서 받아 걸러 둔 상태. 파이프 스레드가 쓰고 창 스레드가 읽는다 — g_lock 으로만 만진다
+// (예전에는 두 스레드가 같은 줄·글꼴을 동시에 만졌다: 그리는 도중 글꼴이 지워지고 줄이 바뀌었다).
+typedef struct {
+    wchar_t lines[JAMO_UIIPC_MAX_CAND][JAMO_UIIPC_MAX_CANDLEN];
+    int count, perPage, sel, anchorX, anchorY, caretTop;
+    unsigned fontSize;
+    wchar_t face[JAMO_UIIPC_MAX_FACE];
+    bool faceNew;
+} UiPending;
+static UiPending g_pend = { .perPage = 9 };
+static CRITICAL_SECTION g_lock;
+#define ANCHOR_LIMIT 1000000   // 화면 좌표로 터무니없는 값은 계산이 넘치기 전에 자른다
+
+static int ClampAnchor(INT32 v) { return v < -ANCHOR_LIMIT ? -ANCHOR_LIMIT : (v > ANCHOR_LIMIT ? ANCHOR_LIMIT : (int)v); }
+
+static void EnsureFont(int h);
+// 받아 둔 것을 창 스레드의 그리기 상태로 옮긴다 (글꼴도 여기서만 만든다)
+static void SyncFromPending(void) {
+    unsigned fs;
+    EnterCriticalSection(&g_lock);
+    g_count = g_pend.count; g_perPage = g_pend.perPage; g_sel = g_pend.sel;
+    g_anchorX = g_pend.anchorX; g_anchorY = g_pend.anchorY; g_caretTop = g_pend.caretTop;
+    if (g_count > 0) memcpy(g_lines, g_pend.lines, (size_t)g_count * sizeof g_lines[0]);
+    if (g_pend.faceNew) {
+        memcpy(g_fontFace, g_pend.face, sizeof g_fontFace);
+        g_fontFace[JAMO_UIIPC_MAX_FACE - 1] = L'\0';
+        g_pend.faceNew = false;
+        g_fontH = 0;   // 글꼴이 바뀌었으니 다시 만든다
+    }
+    fs = g_pend.fontSize;
+    LeaveCriticalSection(&g_lock);
+    if (g_sel < 0 || g_sel >= g_count) g_sel = 0;
+    EnsureFont(fs > 0 ? (fs > 72 ? 72 : (int)fs) : 20);
+}
 
 static void EnsureFont(int h) {
     if (h < 12) h = 12;
@@ -180,9 +215,9 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SendInput(2, in, sizeof(INPUT));
             return 0;
         }
-        case WM_UISRV_SHOW:   PlaceWindow(); return 0;
-        case WM_UISRV_UPDATE: PlaceWindow(); return 0;
-        case WM_UISRV_HIDE:   ShowWindow(hwnd, SW_HIDE); return 0;
+        case WM_UISRV_SHOW:   SyncFromPending(); PlaceWindow(); return 0;
+        case WM_UISRV_UPDATE: SyncFromPending(); PlaceWindow(); return 0;
+        case WM_UISRV_HIDE:   g_count = 0; ShowWindow(hwnd, SW_HIDE); return 0;
         case WM_DESTROY:      PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -195,13 +230,15 @@ static void ApplyMessage(const unsigned char *buf, DWORD len) {
     if (h->version != JAMO_UIIPC_VERSION) return;   // 모르는 판이면 조용히 무시
 
     if (h->msg == JAMO_UIMSG_HIDE) {
-        g_count = 0;
+        EnterCriticalSection(&g_lock); g_pend.count = 0; LeaveCriticalSection(&g_lock);
         if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);
         return;
     }
     if (h->msg == JAMO_UIMSG_UPDATE) {
-        if (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) g_perPage = (int)h->perPage;
-        if ((int)h->selection < g_count) g_sel = (int)h->selection;
+        EnterCriticalSection(&g_lock);
+        if (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) g_pend.perPage = (int)h->perPage;
+        if (h->selection < (UINT32)g_pend.count) g_pend.sel = (int)h->selection;   // 부호 없는 비교 — 큰 값이 음수가 되지 않게
+        LeaveCriticalSection(&g_lock);
         if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_UPDATE, 0, 0);
         return;
     }
@@ -212,30 +249,25 @@ static void ApplyMessage(const unsigned char *buf, DWORD len) {
     size_t need = sizeof(JamoUiMsgHeader) + (size_t)count * JAMO_UIIPC_MAX_CANDLEN * sizeof(wchar_t);
     if (len < need) return;   // 길이가 안 맞으면 버린다
 
-    if (!g_lines) {
-        g_lines = (wchar_t (*)[JAMO_UIIPC_MAX_CANDLEN])
-                  calloc(JAMO_UIIPC_MAX_CAND, sizeof(*g_lines));
-        if (!g_lines) return;
-    }
     const wchar_t *body = (const wchar_t*)(buf + sizeof(JamoUiMsgHeader));
+    EnterCriticalSection(&g_lock);
     for (UINT32 i = 0; i < count; i++) {
         const wchar_t *src = body + (size_t)i * JAMO_UIIPC_MAX_CANDLEN;
-        memcpy(g_lines[i], src, JAMO_UIIPC_MAX_CANDLEN * sizeof(wchar_t));
-        g_lines[i][JAMO_UIIPC_MAX_CANDLEN - 1] = L'\0';   // 종료 보장(보낸 쪽을 믿지 않는다)
+        memcpy(g_pend.lines[i], src, JAMO_UIIPC_MAX_CANDLEN * sizeof(wchar_t));
+        g_pend.lines[i][JAMO_UIIPC_MAX_CANDLEN - 1] = L'\0';   // 종료 보장(보낸 쪽을 믿지 않는다)
     }
-    g_count = (int)count;
-    g_perPage = (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) ? (int)h->perPage : 9;
-    g_sel = ((int)h->selection < g_count) ? (int)h->selection : 0;
-    g_anchorX = h->anchorX; g_anchorY = h->anchorY; g_caretTop = h->caretTop;
+    g_pend.count = (int)count;
+    g_pend.perPage = (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) ? (int)h->perPage : 9;
+    g_pend.sel = (h->selection < count) ? (int)h->selection : 0;
+    g_pend.anchorX = ClampAnchor(h->anchorX); g_pend.anchorY = ClampAnchor(h->anchorY);
+    g_pend.caretTop = ClampAnchor(h->caretTop);
+    g_pend.fontSize = h->fontSize;
     if (h->fontFace[0]) {
-        wchar_t face[JAMO_UIIPC_MAX_FACE];
-        memcpy(face, h->fontFace, sizeof(face));
-        face[JAMO_UIIPC_MAX_FACE - 1] = L'\0';
-        wcsncpy(g_fontFace, face, JAMO_UIIPC_MAX_FACE - 1);
-        g_fontFace[JAMO_UIIPC_MAX_FACE - 1] = L'\0';
-        g_fontH = 0;   // 글꼴이 바뀌었으니 다시 만든다
+        memcpy(g_pend.face, h->fontFace, sizeof g_pend.face);
+        g_pend.face[JAMO_UIIPC_MAX_FACE - 1] = L'\0';
+        g_pend.faceNew = true;
     }
-    EnsureFont(h->fontSize > 0 ? (int)h->fontSize : 20);
+    LeaveCriticalSection(&g_lock);
     if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_SHOW, 0, 0);
 }
 
@@ -278,7 +310,7 @@ static DWORD WINAPI PipeThread(LPVOID param) {
             ApplyMessage(buf, got);
         }
         // 클라이언트(호스트 프로세스)가 사라졌다 — 창을 치우고 다음 연결을 기다린다.
-        g_count = 0;
+        EnterCriticalSection(&g_lock); g_pend.count = 0; LeaveCriticalSection(&g_lock);
         if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);
         DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
@@ -289,6 +321,7 @@ int UiServer_Run(HINSTANCE hInst) {
     // 세션당 하나만.
     DWORD sid = 0;
     if (!ProcessIdToSessionId(GetCurrentProcessId(), &sid)) sid = 0;
+    InitializeCriticalSection(&g_lock);
     wchar_t mname[128];
     _snwprintf(mname, 128, JAMO_UIIPC_MUTEX_FMT, (unsigned long)sid);
     mname[127] = L'\0';

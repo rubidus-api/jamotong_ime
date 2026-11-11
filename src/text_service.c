@@ -932,6 +932,8 @@ static void SendKeyThrough(WPARAM vk, LPARAM lParam) {
 // 앱 큐와 순서가 안 맞을 수 있음(실기 2026-07-08: 30ms 지연으로도 AkelPad 엔터가 마지막
 // 음절을 소실). 비-EDIT(터미널 등)은 종전 SendInput 유지(PuTTY 검증됨).
 static bool IsEditFamily(HWND h) {
+    // 포인터를 싣는 메시지는 같은 스레드의 창에만 보낸다 (다른 프로세스 창에는 포인터가 변환되지 않고, 멈춘 창이면 키 처리도 멈춘다)
+    if (!h || !IsWindow(h) || GetWindowThreadProcessId(h, NULL) != GetCurrentThreadId()) return false;
     DWORD s = 0xFFFFFFFF, e = 0xFFFFFFFF;
     SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
     return s != 0xFFFFFFFF && e != 0xFFFFFFFF && s <= e;
@@ -939,7 +941,7 @@ static bool IsEditFamily(HWND h) {
 
 static HWND FocusHwnd(void) {
     GUITHREADINFO gti; memset(&gti, 0, sizeof(gti)); gti.cbSize = sizeof(gti);
-    return (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) ? gti.hwndFocus : NULL;
+    return (GetGUIThreadInfo(GetCurrentThreadId(), &gti) && gti.hwndFocus) ? gti.hwndFocus : NULL;   // 이 스레드의 포커스 창
 }
 
 // target = 예약 때의 포커스 창(RFC-0008 W1-01). 경로 규칙은 transition.h.
