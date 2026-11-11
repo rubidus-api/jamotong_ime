@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-11-12
+
 ### Changed
 - **설정창을 탭 없이 위에서 아래로 스크롤하는 한 장으로 바꿨다**(오너 요청 2026-11-11). 구역(Layouts · Layout Options · Shortcuts ·
   IME Options · General)을 사각 블록으로 직접 그린다 — 자식 컨트롤이 없어 창 하나·글꼴 하나·펜 하나만 쓴다. 자판 행은 상자를 눌러
