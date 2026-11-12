@@ -313,7 +313,7 @@ has the full table. Add it like any other layout. How the chords are written is 
 # comment — everything after '#' at line start; blank lines are ignored
 Type   = hangul        # static | hangul | chord  (omitted = hangul)
 Name   = my_layout     # shown in the layout list / language bar (up to 63 chars)
-Abbrev = 마            # 1–4 characters: the first two give the language shown on the tray icon (ko, en; ZH → cn, JA → jp), the whole picks its badge (optional)
+Abbrev = 마            # 1–4 characters: the first two are the language on the top line of the tray icon (KO, EN; ZH → CN, JA → JP), the last two the layout letters on the bottom line (optional)
 ```
 
 Optional metadata (v2; every key is optional and a v1 file without them loads
@@ -949,7 +949,7 @@ Code: [MIT License](LICENSE). Hanja reading data is derived from the Unicode Uni
 Database (Unicode License v3; notice bundled in the distribution), the Supreme Court
 personal-name hanja public data (rutopio/Korean-Name-Hanja-Charset, MIT), and word
 mappings from jemdiggity/hanja-wordlist (MIT; Korean↔hanja mappings only, no
-definitions). Icon lettering uses glyphs derived from the
+definitions). The tray icon's letters are a hand-drawn dot font of this project (MIT, `src/icon_font8.h`); the profile icon's lettering uses glyphs derived from the
 [Spleen 5x8](https://github.com/fcambus/spleen) bitmap font
 (Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**); the notice ships
 in `src/icon_font.h` and in [COPYRIGHT.md](COPYRIGHT.md) (also shipped in the zip). No GPL/LGPL/CC BY-SA

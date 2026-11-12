@@ -12,15 +12,16 @@ No GPL, LGPL, or CC BY-SA code or data is used.
 
 ### 1.1 Windows system fonts (referenced by name only)
 
-The language-bar and tray icons draw the current layout's short name at run time with GDI
-`CreateFontW`, naming a font that is already installed with Windows (Dotum first, then the
-system's own substitute). No font file is bundled or redistributed; the font is used only
-to render on screen, as any application uses an operating-system font.
+The language-bar and tray icons no longer use any font: since 2026-11-12 they draw two lines of two
+letters (language above, layout below) from the project's own hand-drawn 7x7 dot font
+(`src/icon_font8.h`, A-Z 0-9 - ?), released under the same MIT
+license as the project. The Windows system fonts named elsewhere in the source (for example the
+settings and candidate windows) are referenced by name only; no font file is bundled or redistributed.
 
 ### 1.2 Spleen 5x8 bitmap glyphs
 
-The icon lettering (the mode icon drawn by `src/langbar.c` and the profile icon
-`src/jamotong.ico`) uses pixel data for 38 glyphs (A-Z, 0-9, `?`, `-`) derived from the Spleen
+The lettering of the profile icon (`src/jamotong.ico`; the tray/language-bar icon now uses the project's
+own dot font, see 1.1) uses pixel data for 38 glyphs (A-Z, 0-9, `?`, `-`) derived from the Spleen
 5x8 bitmap font. Only the glyph bitmaps are included, converted into `src/icon_font.h`;
 the font file itself is not bundled.
 

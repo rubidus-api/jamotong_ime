@@ -1,4 +1,4 @@
-// layout_icon.h — 자판 아이콘 그리기 (2026-10-04). 표지의 짜임은 layout_icon_style.h.
+// layout_icon.h — 자판 아이콘 그리기 (2x2 글자). 글자·색의 짜임은 layout_icon_style.h.
 #pragma once
 #include <windows.h>
 #include "layout_icon_style.h"

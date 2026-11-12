@@ -274,7 +274,7 @@ Backspace·Enter·Delete·Tab·Esc 를 친다. 전체 표는 파일 머리에 �
 # 줄 첫머리 '#' = 주석, 빈 줄 무시
 Type   = hangul        # static | hangul | chord  (생략 시 hangul)
 Name   = my_layout     # 자판 목록/언어바에 표시되는 이름 (최대 63자)
-Abbrev = 마            # 1~4글자: 앞 두 글자가 트레이 아이콘의 언어(ko, en; ZH → cn, JA → jp), 전체로 표지를 고른다 (선택)
+Abbrev = 마            # 1~4글자: 앞 두 글자는 트레이 아이콘 윗줄의 언어(KO, EN; ZH → CN, JA → JP), 뒤 두 글자는 아랫줄의 자판 글자 (선택)
 ```
 
 선택 메타데이터(v2 — 전부 선택이고, 이것들이 없는 v1 파일은 예전 그대로 로드된다):
@@ -853,7 +853,7 @@ make stage      # 위 전부 빌드 + redist/(한자 데이터·자판) 를 dist
 
 코드: [MIT License](LICENSE). 한자 독음 데이터는 Unicode Unihan DB(Unicode License v3, 배포 zip에
 고지 동봉), 대법원 인명용 한자 공공데이터(rutopio/Korean-Name-Hanja-Charset, MIT), 단어 매핑
-(jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. 아이콘 글자는
+(jemdiggity/hanja-wordlist, MIT; 한글↔한자 매핑만, 뜻풀이 제외)에서 파생. 트레이 아이콘의 글자는 이 프로젝트가 직접 그린 점 글꼴(MIT, `src/icon_font8.h`)이고, 프로필 아이콘의 글자는
 비트맵 글꼴 [Spleen 5x8](https://github.com/fcambus/spleen)
 (Copyright (c) 2018-2026, Frederic Cambus; **BSD 2-Clause License**)에서 파생한 글리프를
 사용하며, 고지는 `src/icon_font.h`와 [COPYRIGHT.md](COPYRIGHT.md)(배포 zip에도 동봉)에 있음. GPL/LGPL/CC BY-SA
