@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Changed
+- README(영·한): 후보창 스크린샷을 실제 호스트에서 찍은 것으로 보강(`images/real-popups-*.png` — 한자·중국어 병음·일본어, 밝음·어두움).
+
 ## [0.75.0] - 2026-11-12
 
 ### Changed

@@ -198,8 +198,15 @@ Default keys — every function is configurable and accepts multiple bindings
 
 - **Candidate and composition windows** use the same square blocks and palette (light and dark follow
   Windows): Hanja and symbol lists, Chinese pinyin (horizontal bar), Japanese conversion, and the
-  composition chip. The pictures below are drawn by the IME's own window code on Windows 11
-  (a small demo program stands in for the text app) — not mock-ups.
+  composition chip. The first two pictures are real screenshots: the released 0.75.0 installer on
+  Windows 11, typing into a plain text box (Korean with the Hanja key, Chinese pinyin, Japanese romaji;
+  light and dark). The last two are drawn by the IME's own window code through a small demo program and
+  add the symbol list, the horizontal pinyin bar and the composition chip — not mock-ups.
+
+  <p>
+    <img src="images/real-popups-light.png" alt="Real screenshots, light theme: Hanja list, Chinese pinyin, Japanese conversion" width="660">
+    <img src="images/real-popups-dark.png" alt="Real screenshots, dark theme" width="660">
+  </p>
 
   <p>
     <img src="images/popups-light.png" alt="Candidate windows, light theme: Hanja, symbols, Japanese, Chinese pinyin, composition chip" width="660">
