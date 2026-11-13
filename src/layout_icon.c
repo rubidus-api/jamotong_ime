@@ -5,10 +5,11 @@
 #include <wchar.h>
 #include "icon_font8.h"
 
-// ── 자판 아이콘: 2x2 글자 (2026-11-12 오너 요청 "작을 때 식별이 안 된다 — 위에 언어, 아래에 자판 이름, 가독성 있게") ─────────────
-//   16x16 점 그림 한 장을 만든다: 위 절반(8행) = 밝은 회색 바탕에 언어 두 글자(어두운 글자), 아래 절반 = 자판 색 띠에 자판 두 글자
-//   (흰 글자). 글자는 직접 조형한 7x7 점 글꼴(icon_font8.h, 8x8 칸)이라 100% 트레이(16px)에서 점 하나도 뭉개지지 않는다. 다른 크기
-//   (125% = 20px, 150% = 24px, 200% = 32px …)는 이 그림을 가장 가까운 점으로 늘린다 — 두 칸을 붙여 섞으면 흐려지므로 섞지 않는다.
+// ── 자판 아이콘: 2x2 글자 (2026-11-12 오너 요청 "작을 때 식별이 안 된다 — 위에 언어, 아래에 자판 이름, 가독성 있게";
+//   2026-11-13 오너 요청 "가장 바깥에 1px 패딩, 글자색은 언어·자판마다, 배경은 통일 — 밝은 배경에 어두운 글씨") ─────────────
+//   16x16 점 그림 한 장: 한 가지 밝은 회색 바탕에 위 줄 언어 두 글자(언어 색)·아래 줄 자판 두 글자(자판 색). 글자는 직접 조형한
+//   6x6 점 글꼴(icon_font8.h): 바깥 1점 + 글자 6 + 사이 2 + 글자 6 + 바깥 1 = 16 (세로도 같다) — 글자가 아이콘 가장자리에 닿지 않는다.
+//   다른 크기(125% = 20px, 150% = 24px, 200% = 32px …)는 이 그림을 가장 가까운 점으로 늘린다 — 섞으면 흐려지므로 섞지 않는다.
 //   GDI 글꼴·번짐이 없으니 굵기·모양이 어디서나 같다. 네 모서리 한 점은 비워 둥글게 보인다.
 #define ART 16
 static unsigned Bgra(unsigned rgb) { return 0xFF000000u | (rgb & 0xFFFFFFu); }   // 0xAARRGGBB (DIB 의 32비트 화소)
@@ -27,16 +28,16 @@ static const IconGlyph8 *FindGlyph(wchar_t ch) {
 // 16x16 그림 (0 = 투명)
 static void DrawArt(const LayoutIconStyle *st, unsigned art[ART][ART]) {
     for (int y = 0; y < ART; y++)
-        for (int x = 0; x < ART; x++) art[y][x] = Bgra(y < 8 ? LI_BACKGROUND_RGB : st->rgb);
+        for (int x = 0; x < ART; x++) art[y][x] = Bgra(LI_BACKGROUND_RGB);
     const wchar_t *rows[2] = { st->top, st->bottom };
     for (int r = 0; r < 2; r++)
         for (int i = 0; i < 2 && rows[r][i]; i++) {
             const IconGlyph8 *gl = FindGlyph(rows[r][i]);
             const unsigned char *g = gl->rows;
-            unsigned ink = Bgra(r == 0 ? LI_TEXT_RGB : LI_BAND_TEXT_RGB);
-            for (int y = 0; y < 8; y++)
-                for (int x = 0; x < 8; x++)
-                    if (g[y] & (1u << x)) art[r * 8 + y][i * 8 + x] = ink;
+            unsigned ink = Bgra(r == 0 ? st->langRgb : st->rgb);
+            for (int y = 0; y < 6; y++)
+                for (int x = 0; x < 6; x++)
+                    if (g[y] & (1u << x)) art[1 + r * 8 + y][1 + i * 8 + x] = ink;
         }
     art[0][0] = art[0][ART - 1] = art[ART - 1][0] = art[ART - 1][ART - 1] = 0;
 }

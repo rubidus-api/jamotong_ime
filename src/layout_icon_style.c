@@ -2,7 +2,7 @@
 #include "layout_icon_style.h"
 #include <string.h>
 
-// 실리는 자판: 아래 띠의 색(밑바탕 색 — 흰 글자가 읽히도록 아래에서 어둡게 맞춘다). 같은 자판의 내장판과 파일판은 색을 나눈다.
+// 실리는 자판: 아래 줄 글자색(밝은 바탕에서 읽히도록 Darken 이 어둡게 맞춘다). 같은 자판의 내장판과 파일판은 색을 나눈다.
 static const struct { const wchar_t *abbrev; unsigned rgb; } kKnown[] = {
     { L"KO2S", 0x1F6FD1u }, { L"KO2B", 0x1F6FD1u },   // 두벌식 — 파랑
     { L"KO3F", 0x2E9E4Fu }, { L"KO3B", 0x2E9E4Fu },   // 세벌식 최종 — 초록
@@ -31,12 +31,20 @@ static wchar_t Glyph(wchar_t c) {
     return ((c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-') ? c : L'?';
 }
 
-// 흰 글자와의 대비가 충분하도록 색을 어둡게 한다 (감마 2 근사 휘도: 대비 = 1.05 / (L + 0.05) ≥ 4.5 ⇔ L ≤ 0.1833).
+// 언어마다 글자색 (밝은 바탕 위; Darken 이 대비를 맞춘다). 모르는 언어는 abbrev 앞 두 글자로 고른다.
+static const struct { const wchar_t *lang; unsigned rgb; } kLang[] = {
+    { L"KO", 0x1F5FBFu },   // 한국어 — 파랑
+    { L"EN", 0x3A3A3Au },   // 영어 — 짙은 회색
+    { L"CN", 0xC62828u },   // 중국어 — 빨강
+    { L"JP", 0xB0306Au },   // 일본어 — 자주
+};
+
+// 바탕(LI_BACKGROUND_RGB)과의 대비가 충분하도록 색을 어둡게 한다 (감마 2 근사 휘도: 대비 = (Lbg + 0.05) / (L + 0.05) ≥ 4.5 ⇔ L ≤ LI_MIN_CONTRAST_LUM).
 static unsigned Darken(unsigned rgb) {
     unsigned c[3] = { (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF };
     for (int tries = 0; tries < 40; tries++) {
         double r = c[0] / 255.0, g = c[1] / 255.0, b = c[2] / 255.0;
-        if (0.2126 * r * r + 0.7152 * g * g + 0.0722 * b * b <= 0.1833) break;
+        if (0.2126 * r * r + 0.7152 * g * g + 0.0722 * b * b <= LI_MIN_CONTRAST_LUM) break;
         for (int k = 0; k < 3; k++) c[k] = c[k] * 92 / 100;
     }
     return (c[0] << 16) | (c[1] << 8) | c[2];
@@ -46,7 +54,7 @@ bool LayoutIcon_Style(const wchar_t *abbrev, LayoutIconStyle *out) {
     memset(out, 0, sizeof *out);
     const wchar_t *a = abbrev && abbrev[0] ? abbrev : L"?";
     if (!wcscmp(a, L"--")) {   // 무간섭(직접 입력) 모드
-        wcscpy(out->top, L"--"); wcscpy(out->bottom, L"--"); out->rgb = Darken(0x777777u);
+        wcscpy(out->top, L"--"); wcscpy(out->bottom, L"--"); out->rgb = out->langRgb = Darken(0x777777u);
         return true;
     }
     size_t n = wcslen(a);
@@ -59,6 +67,14 @@ bool LayoutIcon_Style(const wchar_t *abbrev, LayoutIconStyle *out) {
     else if (n == 3) { out->bottom[0] = Glyph(a[1]); out->bottom[1] = Glyph(a[2]); }
     else if (n == 2) { out->bottom[0] = Glyph(a[0]); out->bottom[1] = Glyph(a[1]); }
     else { out->bottom[0] = Glyph(a[0]); }
+    out->langRgb = 0;
+    for (size_t i = 0; i < sizeof kLang / sizeof kLang[0]; i++)
+        if (!wcscmp(out->top, kLang[i].lang)) out->langRgb = Darken(kLang[i].rgb);
+    if (!out->langRgb) {   // 모르는 언어: 위 두 글자로 색을 고른다
+        unsigned hl = 2166136261u;
+        for (const wchar_t *p = out->top; *p; p++) hl = (hl ^ (unsigned)*p) * 16777619u;
+        out->langRgb = Darken(kSpare[(hl >> 3) % (sizeof kSpare / sizeof kSpare[0])]);
+    }
     for (int i = 0; i < LayoutIcon_KnownCount(); i++)
         if (!wcscmp(a, kKnown[i].abbrev)) { out->rgb = Darken(kKnown[i].rgb); return true; }
     // 모르는 자판: abbrev 로 색을 고른다(같은 abbrev 는 늘 같은 색)

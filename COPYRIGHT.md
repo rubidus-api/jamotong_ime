@@ -13,7 +13,7 @@ No GPL, LGPL, or CC BY-SA code or data is used.
 ### 1.1 Windows system fonts (referenced by name only)
 
 The language-bar and tray icons no longer use any font: since 2026-11-12 they draw two lines of two
-letters (language above, layout below) from the project's own hand-drawn 7x7 dot font
+letters (language above, layout below) from the project's own hand-drawn 6x6 dot font
 (`src/icon_font8.h`, A-Z 0-9 - ?), released under the same MIT
 license as the project. The Windows system fonts named elsewhere in the source (for example the
 settings and candidate windows) are referenced by name only; no font file is bundled or redistributed.
