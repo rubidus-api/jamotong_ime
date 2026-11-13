@@ -4,13 +4,14 @@
 #include <stdbool.h>
 #include <wchar.h>
 #include "icon_font8.h"
+#include "icon_resample.h"
 
 // ── 자판 아이콘: 2x2 글자 (2026-11-12 오너 요청 "작을 때 식별이 안 된다 — 위에 언어, 아래에 자판 이름, 가독성 있게";
 //   2026-11-13 오너 요청 "가장 바깥에 1px 패딩, 글자색은 언어·자판마다, 배경은 통일 — 밝은 배경에 어두운 글씨") ─────────────
 //   16x16 점 그림 한 장: 한 가지 밝은 회색 바탕에 위 줄 언어 두 글자(언어 색)·아래 줄 자판 두 글자(자판 색). 글자는 오너가 직접 그린
 //   6x6 점 글꼴(icon_font8.h, 글자 안에 좌우 여백 한 칸씩): 칸을 가로 2 + i*6, 세로 2 + r*6 에 둔다(빈칸2+글자6+글자6+빈칸2).
-//   다른 크기(125% = 20px, 150% = 24px, 200% = 32px …)는 이 그림을 가장 가까운 점으로 늘린다 — 섞으면 흐려지므로 섞지 않는다.
-//   GDI 글꼴·번짐이 없으니 굵기·모양이 어디서나 같다. 네 모서리 한 점은 비워 둥글게 보인다.
+//   16px 가 기준이다. 다른 크기(125% = 20px, 150% = 24px, 200% = 32px …)는 이 그림을 Lanczos-3 로 선형광에서 키운다(icon_resample.c;
+//   2026-11-13 오너 요청 "16px 기준, 나머지는 초고품질 리사이즈 필터"). GDI 글꼴이 없으니 굵기·모양이 어디서나 같다. 네 모서리 한 점은 비워 둥글게 보인다.
 #define ART 16
 static unsigned Bgra(unsigned rgb) { return 0xFF000000u | (rgb & 0xFFFFFFu); }   // 0xAARRGGBB (DIB 의 32비트 화소)
 
@@ -63,8 +64,12 @@ HICON LayoutIcon_Create(const wchar_t *abbrev, int size) {
     HICON icon = NULL;
     if (color && bits && mask) {
         UINT32 *out = (UINT32 *)bits;
-        for (int y = 0; y < sz; y++)
-            for (int x = 0; x < sz; x++) out[y * sz + x] = art[y * ART / sz][x * ART / sz];
+        if (sz == ART) {
+            for (int y = 0; y < ART; y++)
+                for (int x = 0; x < ART; x++) out[y * ART + x] = art[y][x];   // 16px 는 그림 그대로
+        } else {
+            IconResample(&art[0][0], ART, out, sz);   // 그 밖의 크기는 Lanczos-3 (선형광)
+        }
         ICONINFO ii = { 0 };
         ii.fIcon = TRUE; ii.hbmColor = color; ii.hbmMask = mask;
         icon = CreateIconIndirect(&ii);
