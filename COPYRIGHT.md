@@ -20,10 +20,11 @@ settings and candidate windows) are referenced by name only; no font file is bun
 
 ### 1.2 Spleen 5x8 bitmap glyphs
 
-The lettering of the profile icon (`src/jamotong.ico`; the tray/language-bar icon now uses the project's
-own dot font, see 1.1) uses pixel data for 38 glyphs (A-Z, 0-9, `?`, `-`) derived from the Spleen
+Until 0.76.0 the lettering of the profile icon (`src/jamotong.ico`) used pixel data for 38 glyphs (A-Z, 0-9, `?`, `-`) derived from the Spleen
 5x8 bitmap font. Only the glyph bitmaps are included, converted into `src/icon_font.h`;
-the font file itself is not bundled.
+the font file itself is not bundled. Since 0.76.1 no icon uses these glyphs (the profile icon, the tray
+and the language-bar icon all use the project's own dot font, see 1.1); the glyph file stays in the source
+and the notice stays with it.
 
 - Font: Spleen 5x8, version 2.2.0 - https://github.com/fcambus/spleen
 - License: BSD 2-Clause, reproduced in full:
