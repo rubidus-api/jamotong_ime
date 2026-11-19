@@ -355,11 +355,20 @@ static void PlaceCandWindow(void) {
 // OS가 떼어내므로 실제 처리는 창 프로시저에서). 합성 입력(LLKHF_INJECTED — 코드 자판
 // SendInput 포함)은 건드리지 않는다. 탐색 키 외(문자 등)는 통과 → 기존 TSF 싱크 경로가
 // 처리한다(정상 호스트에서는 훅이 먼저 먹으므로 이중 처리 없음 — 집합이 서로소).
+static bool g_hookPassed[256];   // Ctrl/Alt/Win 과 함께 눌려 통과시킨 키 — 그 key-up 도 통과시킨다(앱에 키가 눌린 채 남지 않게)
 static LRESULT CALLBACK CandKbHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && g_hwndCandi) {
         const KBDLLHOOKSTRUCT *k = (const KBDLLHOOKSTRUCT*)lParam;
         if (!(k->flags & LLKHF_INJECTED)) {
             UINT vk = (UINT)k->vkCode;
+            bool isDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+            if (vk < 256 && !isDown && g_hookPassed[vk]) { g_hookPassed[vk] = false; return CallNextHookEx(NULL, nCode, wParam, lParam); }
+            // Ctrl/Alt/Win 과 함께 누른 키는 응용·셸의 단축키(Win+←, Alt+←, Ctrl+Enter …)다 — 막지 않는다
+            if (isDown && ((GetAsyncKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_MENU) & 0x8000) ||
+                           (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000))) {
+                if (vk < 256) g_hookPassed[vk] = true;
+                return CallNextHookEx(NULL, nCode, wParam, lParam);
+            }
             bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
             bool nav = (vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_UP || vk == VK_DOWN ||
                         vk == VK_LEFT || vk == VK_RIGHT || vk == VK_PRIOR || vk == VK_NEXT ||
@@ -663,7 +672,7 @@ static bool HandlePinyinKey(UINT vKey) {
 
 bool CandidateUI_HandleKey(UINT vKey) {
     if (!OwnerThreadGuard("HandleKey")) return false;   // 남의 스레드면 이 키는 응용의 것이다 (B5)
-    if (!g_hwndCandi) return false;
+    if (!g_active) return false;   // 호스트가 그리는 경우(g_hwndCandi == NULL)에도 키는 우리가 처리한다 (IsVisible 과 같은 조건)
     if (g_onSegKey) {   // 일본어 문절 편집 (0.73.0): ←→ 는 문절의 것이라 후보는 ↑↓·사이띄개로 옮긴다
         if (vKey == VK_SHIFT || vKey == VK_LSHIFT || vKey == VK_RSHIFT || vKey == VK_CONTROL || vKey == VK_LCONTROL || vKey == VK_RCONTROL
             || vKey == VK_MENU || vKey == VK_LMENU || vKey == VK_RMENU || vKey == VK_LWIN || vKey == VK_RWIN || vKey == VK_CAPITAL) return true;
@@ -707,7 +716,7 @@ bool CandidateUI_HandleKey(UINT vKey) {
     }
 
     if (vKey == VK_DOWN) {                          // ↑↓ = 페이지 안 선택 이동(끝에서 페이지 넘김)
-        if (g_sel + 1 < PageItemCount()) { g_sel++; UiElem_UpdateCandidate(0x04); InvalidateRect(g_hwndCandi, NULL, TRUE); }
+        if (g_sel + 1 < PageItemCount()) { g_sel++; UiElem_UpdateCandidate(0x04); if (g_hwndCandi) InvalidateRect(g_hwndCandi, NULL, TRUE); }
         else {
             int totalPages = (g_count + g_perPage - 1) / g_perPage;
             if (g_page < totalPages - 1) { g_page++; g_sel = 0; RefreshCandWindow(); }
@@ -715,7 +724,7 @@ bool CandidateUI_HandleKey(UINT vKey) {
         return true;
     }
     if (vKey == VK_UP) {
-        if (g_sel > 0) { g_sel--; UiElem_UpdateCandidate(0x04); InvalidateRect(g_hwndCandi, NULL, TRUE); }
+        if (g_sel > 0) { g_sel--; UiElem_UpdateCandidate(0x04); if (g_hwndCandi) InvalidateRect(g_hwndCandi, NULL, TRUE); }
         else if (g_page > 0) { g_page--; g_sel = PageItemCount() - 1; RefreshCandWindow(); }
         return true;
     }

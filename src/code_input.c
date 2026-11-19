@@ -146,6 +146,15 @@ static LRESULT CALLBACK CodeInputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
         }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
+        case WM_NCDESTROY:
+            // 소유자(포커스 창의 최상위 창)가 먼저 파괴되면 이 창도 끌려간다 — 낡은 핸들이 남으면 다음 Show 가
+            //   "이미 있다"고 보고 아무것도 띄우지 못한다(단축키가 프로세스가 끝날 때까지 죽는다). 후보창과 같다.
+            if (hwnd == g_hwnd) {
+                g_hwnd = NULL;
+                g_hexLen = 0; g_hex[0] = L'\0';
+                UiElem_EndCode();
+            }
+            break;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -257,7 +266,7 @@ void CodeInput_Hide(void) {
 }
 
 void CodeInput_Uninitialize(void) {
-    if (g_hwnd) { DestroyWindow(g_hwnd); g_hwnd = NULL; }
+    if (g_hwnd) { HWND h = g_hwnd; g_hwnd = NULL; DestroyWindow(h); }   // 먼저 비워 WM_NCDESTROY 처리가 끼어들지 않게 한다
     if (g_fontUi)  { DeleteObject(g_fontUi);  g_fontUi = NULL; }
     if (g_fontBig) { DeleteObject(g_fontBig); g_fontBig = NULL; }
 }

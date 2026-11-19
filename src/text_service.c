@@ -883,20 +883,23 @@ static bool HasCtrlAltWin(void) {
 // 한다. 플래그만 보면 두 입력 스레드가 동시에 들어와 둘 다 로드하고, 한쪽이 채우는 중인 표를
 // 다른 쪽이 읽을 수 있다. 이미 있는 설정 락으로 직렬화한다(재진입 가능하다).
 static void EnsureHanjaDicts(void) {
-    static bool s_tried = false;
-    if (s_tried) return;
+    static volatile LONG s_done = 0;       // 로드가 **끝난** 뒤에만 1 (빠른 경로가 만드는 중인 표를 쓰지 않도록)
+    static bool s_tried = false;           // 락 안에서만 읽고 쓴다 (실패도 캐시 — 반복 IO 방지)
+    if (InterlockedCompareExchange(&s_done, 0, 0)) return;
     EnterCriticalSection(&g_configLock);
-    if (s_tried) { LeaveCriticalSection(&g_configLock); return; }   // 기다리는 동안 남이 끝냈다
-    s_tried = true;
-    wchar_t dictPath[MAX_PATH];
-    if (GetModuleFileNameW(g_hInst, dictPath, MAX_PATH)) {
-        wchar_t *pSlash = wcsrchr(dictPath, L'\\');
-        if (pSlash) {
-            wcscpy(pSlash + 1, L"hanja.txt");
-            HanjaDict_Load(dictPath);
-            wcscpy(pSlash + 1, L"hanja_hunum.txt");   // 훈음(뜻·음) 표 — 후보창 표시용
-            HunumDict_Load(dictPath);
+    if (!s_tried) {
+        s_tried = true;
+        wchar_t dictPath[MAX_PATH];
+        if (GetModuleFileNameW(g_hInst, dictPath, MAX_PATH)) {
+            wchar_t *pSlash = wcsrchr(dictPath, L'\\');
+            if (pSlash) {
+                wcscpy(pSlash + 1, L"hanja.txt");
+                HanjaDict_Load(dictPath);
+                wcscpy(pSlash + 1, L"hanja_hunum.txt");   // 훈음(뜻·음) 표 — 후보창 표시용
+                HunumDict_Load(dictPath);
+            }
         }
+        InterlockedExchange(&s_done, 1);
     }
     LeaveCriticalSection(&g_configLock);
 }
@@ -2501,7 +2504,9 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     // 진행 중이던 상태·화면을 접는다 — 자판 전환·무간섭 토글과 **같은 한 곳**을 쓴다 (B3).
     // 후보창은 Cancel(콜백 경유)로 닫혀 pic 참조와 obj->candCtx.obj(raw 서비스 포인터)까지 정리된다 —
     // 열린 채 Deactivate 되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
-    Jamotong_FoldInput(obj);
+    // 확정 전용 호스트(EDIT 컨트롤·터미널)에서 미리보기 칩에만 있던 음절·읽기를 문서에 남긴 뒤 접는다 —
+    //   자판 전환·포커스 이동과 같은 경로다(Transition_Flush*). 접기만 하면 입력기를 바꾸는 순간 마지막 글자가 사라진다.
+    Jamotong_Transition(obj, TRANS_WHY_EXTERNAL, NULL);
     JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리
     CompTarget_Clear(obj);        // W1-09 대상·보류가 쥔 문맥 참조를 놓는다
     Jamotong_PendingClear(obj);

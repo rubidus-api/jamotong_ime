@@ -749,7 +749,10 @@ static bool OursLayoutOptions(const wchar_t *key, size_t klen) {
     for (size_t i = 0; i < klen; i++) if (key[i] == L'.') dot = key + i;
     if (!dot) return false;
     size_t tl = klen - (size_t)(dot + 1 - key);
-    return KeyIs(dot + 1, tl, L"Sentence") || KeyIs(dot + 1, tl, L"Suggest");
+    // Config_SaveToFile 이 쓰는 키 전부 (빠지면 옛 줄이 "모르는 줄"로 남아 저장할 때마다 덧붙고, 마지막 줄이 이겨 설정이 되돌아간다)
+    static const wchar_t *const kLayoutOptKeys[] = { L"Sentence", L"Suggest", L"Punctuation", L"Fuzzy", L"Emoji", L"Tones", L"Bar", L"Keys", NULL };
+    for (int i = 0; kLayoutOptKeys[i]; i++) if (KeyIs(dot + 1, tl, kLayoutOptKeys[i])) return true;
+    return false;
 }
 // keep[0..3] = [Layouts]·[Shortcuts]·[Options]·[LayoutOptions] 안의 모르는 줄, keep[4] = 모르는 절 통째로(머리 줄 포함)
 static void ReadUnknown(const wchar_t *path, KeepList keep[5]) {
