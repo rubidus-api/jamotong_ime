@@ -2506,7 +2506,9 @@ static HRESULT STDMETHODCALLTYPE TIP_Deactivate(ITfTextInputProcessor *pThis) {
     // 열린 채 Deactivate 되면 콜백이 해제된 서비스를 만질 수 있다(RFC-0004 P1-1 UAF).
     // 확정 전용 호스트(EDIT 컨트롤·터미널)에서 미리보기 칩에만 있던 음절·읽기를 문서에 남긴 뒤 접는다 —
     //   자판 전환·포커스 이동과 같은 경로다(Transition_Flush*). 접기만 하면 입력기를 바꾸는 순간 마지막 글자가 사라진다.
-    Jamotong_Transition(obj, TRANS_WHY_EXTERNAL, NULL);
+    Transition_FlushSeq(obj, "deactivate");
+    Transition_FlushComposition(obj, "deactivate");
+    Jamotong_FoldInput(obj);
     JamoComp_Release(obj);   // RFC-0010: 남은 인라인 조합 확정(텍스트 보존) + 참조/캐시 정리
     CompTarget_Clear(obj);        // W1-09 대상·보류가 쥔 문맥 참조를 놓는다
     Jamotong_PendingClear(obj);
