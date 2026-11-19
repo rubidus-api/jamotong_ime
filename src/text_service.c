@@ -639,7 +639,16 @@ static void OnHanjaSelected(int index, const wchar_t *str, void *ctx) {
 
 static void OnHanjaCancelled(void *ctx) {
     JamotongTextService *obj = (JamotongTextService*)ctx;
-    if (obj && obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
+    if (!obj) return;
+    // 교체 불가 호스트(확정 전용 경로)에서는 한자키가 조합 음절을 **문서에 넣지 않고 칩으로 쥔 채** 후보를 띄운다(keepComposing).
+    //   후보를 닫으면 조합은 그대로 이어지지만 칩은 다시 그려지지 않아, 음절이 살아 있는데 화면에서는 사라진 것처럼 보였다.
+    //   Esc·밖을 눌러 닫기·창 이동 모두 이 콜백을 지난다 — 조합이 남아 있으면 칩을 다시 그린다. 조합이 없으면(교체 가능 호스트는
+    //   음절이 이미 문서에 있다, 포커스·자판 전환은 조합을 먼저 비운다) 아무것도 하지 않는다.
+    if (obj->candCtx.pic && obj->fsm.state != STATE_EMPTY) {
+        FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true, 0 };
+        if (redraw.preeditChar) OutputResultSeq(obj, obj->candCtx.pic, redraw, FALSE);
+    }
+    if (obj->candCtx.pic) { obj->candCtx.pic->lpVtbl->Release(obj->candCtx.pic); obj->candCtx.pic = NULL; }
 }
 
 // ── 순차 입력의 후보 (RFC-0016 §6.4) ───────────────────────────────────────────────

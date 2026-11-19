@@ -2932,6 +2932,23 @@ universal repeat detector or blindly substitute another global key-state API.
 > what it prepared for the callbacks, and with the original held nothing is lost. Field-tested
 > 2026-09-21 on Windows 11 (WinForms `TextBox`: select, cancel, block selection, changed
 > selection; Notepad inline: unchanged).
+>
+> **Update (2026-11-19, v0.76.6)**: when the original is held as a live composition, the cancel
+> callback must **redraw the preview chip**. The Hanja key hides nothing by itself, but a host that
+> takes the commit-only route shows the syllable only as the chip, and nothing redraws it when the
+> list closes — the syllable is still in the FSM (the next jamo extends it: `가`+`ㄱ` → `각`) but
+> looks lost. Redraw from the FSM's current preedit in the cancel callback (skip it when the FSM is
+> empty: commit-then-replace hosts already have the syllable in the document, and a focus or layout
+> switch empties the FSM before it cancels the list). Esc, a click outside and a light dismiss all pass
+> through that one callback.
+
+> **Update (2026-11-19, v0.76.6)**: when the original is held as a live composition, the cancel
+> callback must **redraw the preview chip**. A host on the commit-only route shows the syllable only
+> as the chip, and nothing redraws it when the list closes — the syllable is still in the FSM (the
+> next jamo extends it: `가`+`ㄱ` → `각`) but looks lost. Redraw from the FSM's current preedit in
+> the cancel callback; skip it when the FSM is empty (commit-then-replace hosts already have the
+> syllable in the document, and a focus or layout switch empties the FSM before it cancels the
+> list). Esc, a click outside and a light dismiss all pass through that one callback.
 
 ### 13.7 Required reset choke point + a captured target window
 
