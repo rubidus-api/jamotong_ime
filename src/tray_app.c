@@ -152,10 +152,11 @@ static void ApplyStrings(const wchar_t *commit, const wchar_t *preedit) {
     if (g_compLen > 0) SendMessageW(g_hTarget, EM_SETSEL, g_compStart, g_compStart + g_compLen);
     else { int c = g_compStart; SendMessageW(g_hTarget, EM_SETSEL, c, c); }
 }
-static void ApplyResult(wchar_t commit, wchar_t preedit) {
-    wchar_t c[2] = { commit, 0 }, p[2] = { preedit, 0 };
+static void ApplyResult3(wchar_t commit, wchar_t tail, wchar_t preedit) {
+    wchar_t c[3] = { commit, commit ? tail : 0, 0 }, p[2] = { preedit, 0 };
     ApplyStrings(c, p);
 }
+static void ApplyResult(wchar_t commit, wchar_t preedit) { ApplyResult3(commit, 0, preedit); }
 
 // 키다운 처리(테스트 모드). true=소비(에디트 기본처리 생략), false=에디트에 위임.
 // 오토마타가 쓸 자판: 시험칸에서 "이 파일로 시험" 중이면 그 파일 자판, 아니면 IME 의 현재 자판.
@@ -212,7 +213,7 @@ static bool AutomataKeyDown(UINT vk, LPARAM lParam) {
             if (kc > 0 && kc < 128) lr = hl ? hl->keymap[(int)kc] : Layout_MapKeyToJamo(kc, L->kbdVariant);
             if (lr.type != JAMO_NONE) {
                 FsmResult r = Fsm_ProcessKey(&g_fsm, kc, L->kbdVariant, hl);
-                ApplyResult(r.commitChar, r.preeditChar);
+                ApplyResult3(r.commitChar, r.commitTail, r.preeditChar);
                 return true;
             }
             if (!IsModifierOrLock(vk) && g_fsm.state != STATE_EMPTY) {

@@ -19,6 +19,7 @@
 // 옛한글 겹자음이 끼어 있다. 아래 표는 배열이 공개된 자판 파일(세벌식 최종·3-2012)에서 글쇠와
 // 낱자를 맞대 확인한 값만 담는다. 표에 없는 코드는 옮기지 않고 세어서 알려 준다.
 #include "ngs_import.h"
+#include "utf8_write.h"
 #include "version.h"
 #include <windows.h>
 #include <stdarg.h>
@@ -193,38 +194,6 @@ static bool NameBefore(const unsigned char *d, size_t off, wchar_t *out, size_t 
     return false;
 }
 
-// 넓은 글을 UTF-8 로 적는다 — 자판 파일은 UTF-8 로 읽힌다(klay_src.c). fprintf("%ls") 는
-// 한글 이름에서 C 로캘에 걸려 멈추므로 쓰지 않고, 직접 옮긴다.
-static bool W8(FILE *f, const wchar_t *fmt, ...) {
-    wchar_t w[512];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vswprintf(w, 512, fmt, ap);
-    va_end(ap);
-    if (n < 0) return false;
-    char u8[2048];
-    size_t o = 0;
-    for (int i = 0; i < n && o + 4 < sizeof u8; i++) {
-        unsigned c = (unsigned)w[i];
-        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n && (unsigned)w[i+1] >= 0xDC00 && (unsigned)w[i+1] <= 0xDFFF) {
-            c = 0x10000 + ((c - 0xD800) << 10) + ((unsigned)w[++i] - 0xDC00);
-        }
-        if (c < 0x80) u8[o++] = (char)c;
-        else if (c < 0x800) { u8[o++] = (char)(0xC0 | (c >> 6)); u8[o++] = (char)(0x80 | (c & 0x3F)); }
-        else if (c < 0x10000) {
-            u8[o++] = (char)(0xE0 | (c >> 12));
-            u8[o++] = (char)(0x80 | ((c >> 6) & 0x3F));
-            u8[o++] = (char)(0x80 | (c & 0x3F));
-        } else {
-            u8[o++] = (char)(0xF0 | (c >> 18));
-            u8[o++] = (char)(0x80 | ((c >> 12) & 0x3F));
-            u8[o++] = (char)(0x80 | ((c >> 6) & 0x3F));
-            u8[o++] = (char)(0x80 | (c & 0x3F));
-        }
-    }
-    return fwrite(u8, 1, o, f) == o;
-}
-
 bool NgsImport_Run(const wchar_t *srcPath, const wchar_t *outPath, NgsImportResult *res) {
     NgsImportResult dummy;
     if (!res) res = &dummy;
@@ -359,13 +328,13 @@ bool NgsImport_Run(const wchar_t *srcPath, const wchar_t *outPath, NgsImportResu
     for (const wchar_t *s = srcPath; *s; s++) if (*s == L'\\' || *s == L'/') sbase = s + 1;
 
     bool ok = true;
-    ok = ok && W8(f, L"rem 날개셋 자판 파일에서 옮김 (jamotong --import-ngs %ls).\n", sbase);
-    ok = ok && W8(f, L"rem   옮긴 것은 글쇠 표뿐이다 — 오토마타·옵션·수식의 조건은 들어오지 않는다.\n");
+    ok = ok && Utf8_Fprintf(f, L"rem 날개셋 자판 파일에서 옮김 (jamotong --import-ngs %ls).\n", sbase);
+    ok = ok && Utf8_Fprintf(f, L"rem   옮긴 것은 글쇠 표뿐이다 — 오토마타·옵션·수식의 조건은 들어오지 않는다.\n");
     if (nGJong || nGMid)
-        ok = ok && W8(f, L"rem   한 글쇠가 여러 자리의 낱자를 내는 자판은 **자리**로 옮겼다:\n"
+        ok = ok && Utf8_Fprintf(f, L"rem   한 글쇠가 여러 자리의 낱자를 내는 자판은 **자리**로 옮겼다:\n"
                          L"rem   종성 자리면 종성, 중성 자리면 중성, 아니면 초성. 원래 조건이 그러한지는\n"
                          L"rem   날개셋 파일만으로는 알 수 없으니, 쳐 보고 확인하는 것이 좋다.\n");
-    ok = ok && W8(f, L"\nlayout name \"%ls\" .\n", res->name);
+    ok = ok && Utf8_Fprintf(f, L"\nlayout name \"%ls\" .\n", res->name);
     {   // 아이콘: 위 = 언어(한글 오토마타면 KO, 아니면 EN), 아래 = 이름의 마지막 영숫자 둘 (3-2014 → 14, P2 → P2)
         wchar_t tail[3] = L"NG";
         int got = 0;
@@ -375,25 +344,25 @@ bool NgsImport_Run(const wchar_t *srcPath, const wchar_t *outPath, NgsImportResu
             if ((ch >= L'A' && ch <= L'Z') || (ch >= L'0' && ch <= L'9')) { tail[1 - got] = ch; got++; }
         }
         if (got == 1) { tail[0] = tail[1]; tail[1] = L'\0'; }   // 하나뿐이면 세 글자 (KO3)
-        ok = ok && W8(f, L"layout abbrev \"%ls%ls\" .\n", res->hangul ? L"KO" : L"EN", tail);
+        ok = ok && Utf8_Fprintf(f, L"layout abbrev \"%ls%ls\" .\n", res->hangul ? L"KO" : L"EN", tail);
     }
-    ok = ok && W8(f, L"layout format 4 .\n");
-    ok = ok && W8(f, L"engine %ls .\n\n", res->hangul ? L"hangul" : L"none");
+    ok = ok && Utf8_Fprintf(f, L"layout format 4 .\n");
+    ok = ok && Utf8_Fprintf(f, L"engine %ls .\n\n", res->hangul ? L"hangul" : L"none");
 
-    if (nGJong) ok = ok && W8(f, L"guard jongslot be cho and jung and not jong .\n");
-    if (nGMid)  ok = ok && W8(f, L"guard midslot  be cho and not jung .\n");
-    if (nGJong || nGMid) ok = ok && W8(f, L"\n");
+    if (nGJong) ok = ok && Utf8_Fprintf(f, L"guard jongslot be cho and jung and not jong .\n");
+    if (nGMid)  ok = ok && Utf8_Fprintf(f, L"guard midslot  be cho and not jung .\n");
+    if (nGJong || nGMid) ok = ok && Utf8_Fprintf(f, L"\n");
 
     #define WRITE_MAP(kindStr, tab, n, guardStr) do { \
         if ((n) > 0 && ok) { \
-            ok = ok && W8(f, L"map %ls%ls do\n", kindStr, guardStr); \
+            ok = ok && Utf8_Fprintf(f, L"map %ls%ls do\n", kindStr, guardStr); \
             for (int i = 0; i < (n) && ok; i++) { \
-                ok = W8(f, L"  \"%ls%lc\" \"%lc\" .%ls", \
+                ok = Utf8_Fprintf(f, L"  \"%ls%lc\" \"%lc\" .%ls", \
                         ((tab)[i].key == L'"' || (tab)[i].key == L'\\') ? L"\\" : L"", \
                         (tab)[i].key, (tab)[i].val, ((i % 6) == 5) ? L"\n" : L""); \
             } \
-            if (ok && ((n) % 6) != 0) ok = W8(f, L"\n"); \
-            ok = ok && W8(f, L"end\n\n"); \
+            if (ok && ((n) % 6) != 0) ok = Utf8_Fprintf(f, L"\n"); \
+            ok = ok && Utf8_Fprintf(f, L"end\n\n"); \
         } \
     } while (0)
 
@@ -416,11 +385,11 @@ bool NgsImport_Run(const wchar_t *srcPath, const wchar_t *outPath, NgsImportResu
             {L"ㅗ",L"ㅏ",L"ㅘ"},{L"ㅗ",L"ㅐ",L"ㅙ"},{L"ㅗ",L"ㅣ",L"ㅚ"},{L"ㅜ",L"ㅓ",L"ㅝ"},
             {L"ㅜ",L"ㅔ",L"ㅞ"},{L"ㅜ",L"ㅣ",L"ㅟ"},{L"ㅡ",L"ㅣ",L"ㅢ"},
         };
-        ok = ok && W8(f, L"rem 겹받침·겹모음은 표준 현대 한글 규칙 (날개셋 파일에는 들어 있지 않다)\n");
+        ok = ok && Utf8_Fprintf(f, L"rem 겹받침·겹모음은 표준 현대 한글 규칙 (날개셋 파일에는 들어 있지 않다)\n");
         for (size_t i = 0; i < sizeof kCombJong / sizeof kCombJong[0] && ok; i++)
-            ok = W8(f, L"combine jong \"%ls\" \"%ls\" be \"%ls\" .\n", kCombJong[i][0], kCombJong[i][1], kCombJong[i][2]);
+            ok = Utf8_Fprintf(f, L"combine jong \"%ls\" \"%ls\" be \"%ls\" .\n", kCombJong[i][0], kCombJong[i][1], kCombJong[i][2]);
         for (size_t i = 0; i < sizeof kCombMid / sizeof kCombMid[0] && ok; i++)
-            ok = W8(f, L"combine mid \"%ls\" \"%ls\" be \"%ls\" .\n", kCombMid[i][0], kCombMid[i][1], kCombMid[i][2]);
+            ok = Utf8_Fprintf(f, L"combine mid \"%ls\" \"%ls\" be \"%ls\" .\n", kCombMid[i][0], kCombMid[i][1], kCombMid[i][2]);
     }
 
     lstrcpynW(res->unknownList, unk, 120);

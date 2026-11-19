@@ -16,6 +16,7 @@ typedef struct InlineEditSession {
     ITfContext *ctx;
     CompOp op;
     wchar_t commit;    // COMP_OP_UPDATE: 확정 음절 (0=없음)
+    wchar_t commit2;   // COMP_OP_UPDATE: 그 뒤에 이어지는 확정 글자 (홀 종성 자모, 0=없음)
     wchar_t preedit;   // COMP_OP_UPDATE: 조합 중 음절 (0=없음)
 } InlineEditSession;
 
@@ -165,10 +166,11 @@ static HRESULT DoInlineWork(InlineEditSession *es, TfEditCookie ec) {
         return FAILED(hr) ? hr : endHr;
     }
 
-    // COMP_OP_UPDATE: whole = [commit][preedit] (각 0 또는 1자 — FsmResult 계약)
-    wchar_t whole[3];
+    // COMP_OP_UPDATE: whole = [commit][commit2][preedit] (각 0 또는 1자 — FsmResult 계약)
+    wchar_t whole[4];
     LONG n = 0;
     if (es->commit) whole[n++] = es->commit;
+    if (es->commit && es->commit2) whole[n++] = es->commit2;
     if (es->preedit) whole[n++] = es->preedit;
     whole[n] = L'\0';
 
@@ -249,13 +251,13 @@ static ITfEditSessionVtbl g_InlineSessionVtbl = {
 
 // 동기 요청 + 세션 내부 hr 전파 (RFC-0004 P2-2 — 요청 hr만 반환하면 내부 실패가 숨는다).
 static HRESULT RequestInline(JamotongTextService *svc, ITfContext *ctx, CompOp op,
-                             wchar_t commit, wchar_t preedit) {
+                             wchar_t commit, wchar_t commit2, wchar_t preedit) {
     InlineEditSession *es = (InlineEditSession*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*es));
     if (!es) return E_OUTOFMEMORY;
     es->lpVtbl = &g_InlineSessionVtbl;
     es->refCount = 1;
     es->svc = svc; es->ctx = ctx;
-    es->op = op; es->commit = commit; es->preedit = preedit;
+    es->op = op; es->commit = commit; es->commit2 = commit2; es->preedit = preedit;
     svc->lpVtblTIP->AddRef((ITfTextInputProcessor*)svc);
     ctx->lpVtbl->AddRef(ctx);
 
@@ -353,7 +355,7 @@ JamoPathKind JamoComp_PathForContext(JamotongTextService *svc, ITfContext *pic) 
 }
 
 HRESULT JamoComp_Apply(JamotongTextService *svc, ITfContext *pic, FsmResult res) {
-    HRESULT hr = RequestInline(svc, pic, COMP_OP_UPDATE, res.commitChar, res.preeditChar);
+    HRESULT hr = RequestInline(svc, pic, COMP_OP_UPDATE, res.commitChar, res.commitTail, res.preeditChar);
     if (FAILED(hr)) {
         JamoDiag("COMP apply failed hr=0x%08lX -> cancel+demote", (unsigned long)hr);
         JamoComp_Cancel(svc);   // 문서에 남았을 수 있는 조합 텍스트 제거 시도 (없으면 no-op)
@@ -371,7 +373,7 @@ void JamoComp_Finalize(JamotongTextService *svc) {
     if (!svc->pComposition || !svc->pCompContext) return;
     ITfContext *ctx = svc->pCompContext;
     ctx->lpVtbl->AddRef(ctx);   // 세션 도중 ForgetComposition이 pCompContext를 놓아도 안전
-    HRESULT hr = RequestInline(svc, ctx, COMP_OP_FINALIZE, 0, 0);
+    HRESULT hr = RequestInline(svc, ctx, COMP_OP_FINALIZE, 0, 0, 0);
     if (FAILED(hr)) ForgetComposition(svc);   // 세션 불가(컨텍스트 소멸 등) → 로컬 참조만 정리
     ctx->lpVtbl->Release(ctx);
 }
@@ -380,7 +382,7 @@ void JamoComp_Cancel(JamotongTextService *svc) {
     if (!svc->pComposition || !svc->pCompContext) return;
     ITfContext *ctx = svc->pCompContext;
     ctx->lpVtbl->AddRef(ctx);
-    HRESULT hr = RequestInline(svc, ctx, COMP_OP_CANCEL, 0, 0);
+    HRESULT hr = RequestInline(svc, ctx, COMP_OP_CANCEL, 0, 0, 0);
     if (FAILED(hr)) ForgetComposition(svc);
     ctx->lpVtbl->Release(ctx);
 }

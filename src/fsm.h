@@ -31,6 +31,7 @@ typedef struct {
     wchar_t commitChar; // 완성되어 애플리케이션으로 넘길 글자 (0이면 없음)
     wchar_t preeditChar; // 현재 조합 중인 글자 (0이면 없음)
     bool eaten;         // IME가 이 키 입력을 소비했는지 여부
+    wchar_t commitTail; // commitChar 바로 뒤에 이어 넘길 글자 (0이면 없음): 합쳐지지 않는 종성 키가 홀 자모로 나갈 때. commitChar != 0 일 때만 쓴다
 } FsmResult;
 
 // 오토마타 컨텍스트

@@ -171,7 +171,7 @@ HRESULT RequestEditSessionDataEx(JamotongTextService *pService, ITfContext *pCon
 
 HRESULT RequestEditSession(JamotongTextService *pService, ITfContext *pContext, FsmResult fsmRes) {
     EditSessionData data = {0};
-    if (fsmRes.commitChar) data.committed[0] = fsmRes.commitChar;
+    if (fsmRes.commitChar) { data.committed[0] = fsmRes.commitChar; if (fsmRes.commitTail) data.committed[1] = fsmRes.commitTail; }
     if (fsmRes.preeditChar) data.composing[0] = fsmRes.preeditChar;
     return RequestEditSessionData(pService, pContext, &data);
 }

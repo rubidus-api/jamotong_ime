@@ -105,7 +105,7 @@ static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
     (void)isFlush;
     bool ok = true;
     if (res.commitChar) {                 // 확정 음절 → EDIT=EM_REPLACESEL / 비-EDIT=TSF
-        wchar_t cs[2] = { res.commitChar, L'\0' };
+        wchar_t cs[3] = { res.commitChar, res.commitTail, L'\0' };   // 끝(NUL)이 commitTail 의 0 과 같아 한 글자도 그대로다
         ok = CommitText(obj, pic, cs);
     } else {
         // 조합만(삽입 없음): 캐럿 rect 캡처만 (오버레이용) — 실패해도 문서는 그대로이므로
@@ -131,7 +131,7 @@ static bool OutputResult(JamotongTextService *obj, ITfContext *pic, FsmResult re
                 raw.left == obj->prevChipRect.left && raw.top == obj->prevChipRect.top) {
                 // 실패한 커밋(가득 찬 칸 등 — EM_REPLACESEL 이 무시됨)은 캐럿을 옮기지 않았으므로 세지 않는다.
                 //   세면 칸이 가득 찬 동안 칩이 커밋마다 한 칸씩 오른쪽으로 밀려났다(실기 2026-09-30, D4).
-                if (res.commitChar && ok) obj->chipPendingAdv += (raw.bottom - raw.top);
+                if (res.commitChar && ok) obj->chipPendingAdv += (raw.bottom - raw.top) * (res.commitTail ? 2 : 1);
             } else {
                 obj->chipPendingAdv = 0;
             }
@@ -288,7 +288,7 @@ static void Jamotong_Transition(JamotongTextService *obj, TransWhy why, ITfConte
             SeqResult r = SeqKb_Flush(&obj->seqKb, (const SeqLayout*)cur->pSeqLayout);
             if (r.committed[0]) SeqApply(obj, pic, &r);
         } else if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             OutputResultSeq(obj, pic, res, TRUE);   // 키 이벤트 안 — 동기 세션 허용
         }
     } else {
@@ -1131,7 +1131,7 @@ static void HangulSymbolSink(void *ctx, const wchar_t *sym) {
         if (!OutputResultSeq(obj, s->pic, res, FALSE)) {
             obj->fsm = fsmBefore;
             JamoDiag("TXN rollback sym=U+%04X", (unsigned)*p);
-            FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true };
+            FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true , 0};
             OutputResultSeq(obj, s->pic, redraw, FALSE);
         }
     }
@@ -1147,11 +1147,11 @@ static bool HangulKeySink(void *ctx, int vk, int mods) {
         wchar_t pe = 0;
         if (obj->config.options.jamoDelete) Fsm_Backspace(&obj->fsm, &pe);
         else Fsm_Init(&obj->fsm);
-        FsmResult res = {0, pe, true};
+        FsmResult res = {0, pe, true, 0};
         OutputResultSeq(obj, c->pic, res, FALSE);
         return true;
     }
-    FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+    FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
     OutputResultSeq(obj, c->pic, res, TRUE);
     return false;
 }
@@ -1161,7 +1161,7 @@ static void HangulTextSink(void *ctx, const wchar_t *text) {
     SeqSymbolCtx *c = (SeqSymbolCtx *)ctx;
     if (!c || !c->obj || !c->pic || !text || !text[0]) return;
     if (c->obj->fsm.state != STATE_EMPTY) {
-        FsmResult res = {Fsm_Flush(&c->obj->fsm), 0, false};
+        FsmResult res = {Fsm_Flush(&c->obj->fsm), 0, false, 0};
         OutputResultSeq(c->obj, c->pic, res, TRUE);
     }
     CommitText(c->obj, c->pic, text);
@@ -1332,7 +1332,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnTestKeyDown(ITfKeyEventSink *pThis, ITfCo
     //   flush는 동기 편집세션이라 통과 전에 완료되고, 부작용은 조기 확정뿐이라 안전.)
     if (HasCtrlAltWin()) {
         if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             JamoDiag("TK  vk=%02X ctrl/alt/win flush-in-test commit=U+%04X", (unsigned)wParam, (unsigned)res.commitChar);
             OutputResultSeq(obj, pic, res, TRUE);   // 음절 확정 (통과 전에 동기 완료)
         }
@@ -1562,7 +1562,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 무간섭 모드 켜기 (설정 가능한 단축키, 기본 없음 — 우클릭 메뉴로도 토글).
     if (Config_IsShortcut(&obj->config, SC_FN_PASSTHROUGH, skVk, skMods)) {
         if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             OutputResultSeq(obj, pic, res, TRUE);   // 조합 중이면 먼저 확정
         }
         Jamotong_SetPassthrough(obj, TRUE);
@@ -1575,7 +1575,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 코드 입력 트리거 (설정 가능한 단축키, 기본 Ctrl+Alt+U) — 조합 중이면 먼저 확정하고 캐럿 근처에 팝업.
     if (Config_IsShortcut(&obj->config, SC_FN_CODE, skVk, skMods)) {
         if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             OutputResultSeq(obj, pic, res, TRUE);
         }
         EnsureHanjaDicts();   // RFC-0008 W2-10: 코드 입력 줄의 훈음은 사전이 있어야 보인다 (한자를 먼저 안 썼어도)
@@ -1635,7 +1635,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             special = true;
             if (canReplace) {
                 Fsm_Init(&obj->fsm);
-                FsmResult res = {ch, 0, false};
+                FsmResult res = {ch, 0, false, 0};
                 // RFC-0010: 인라인 조합 활성이면 자모가 이미 문서에 있다 — 확정만(재삽입 금지)
                 OutputResultSeq(obj, pic, res, TRUE);   // 문서에 자모 커밋
                 replaceLen = 1;
@@ -1649,7 +1649,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             searchStr[0] = syl; searchStr[1] = L'\0';
             if (canReplace) {
                 Fsm_Init(&obj->fsm);
-                FsmResult res = {syl, 0, false};
+                FsmResult res = {syl, 0, false, 0};
                 // RFC-0010: 인라인 조합 활성이면 음절이 이미 문서에 있다 — 확정만(재삽입 금지)
                 OutputResultSeq(obj, pic, res, TRUE);   // 문서에 음절 커밋
                 replaceLen = 1;
@@ -1762,7 +1762,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
     // 자모로 오입력되던 실기 재앙(2026-07-08, ㅊ/ㅍ) 재발 방지.
     if (HasCtrlAltWin()) {
         if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             OutputResultSeq(obj, pic, res, TRUE);   // 현재 음절 확정
         }
         goto kd_done;   // pfEaten=FALSE 유지 → 앱이 단축키 직접 처리
@@ -1973,7 +1973,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
             ChordResult cr = Chord_KeyDown(&obj->chord, hl, (UINT)wParam, keyChar);
             if (cr.eaten) {
                 if (pfEaten) *pfEaten = TRUE;
-                if (cr.composing) { FsmResult res = {0, cr.composing, true}; OutputResult(obj, pic, res, FALSE); }
+                if (cr.composing) { FsmResult res = {0, cr.composing, true, 0}; OutputResult(obj, pic, res, FALSE); }
                 goto kd_done;
             }
             // 자모 아님 → 아래 공통 처리로 진행하지 않고 통과 (space 등은 앱으로)
@@ -1985,7 +1985,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 } else {
                     Fsm_Init(&obj->fsm);                     // 음절 단위: 조합 전체 삭제
                 }
-                FsmResult res = {0, pe, true};               // pe==0 이면 조합 비움
+                FsmResult res = {0, pe, true, 0};               // pe==0 이면 조합 비움
                 OutputResultSeq(obj, pic, res, FALSE);
                 if (pfEaten) *pfEaten = TRUE;
                 goto kd_done;
@@ -2027,7 +2027,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                         // 출력은 커밋이 실패해도 새 조합(실패한 키의 preedit)을 이미 그렸다 —
                         // 복원된 상태로 다시 그린다. 안 그러면 화면('나')과 FSM('간')이 어긋나
                         // 다음 키가 보이는 것과 다르게 먹는다(실기 2026-09-21, EDIT 가득 찬 칸).
-                        FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true };
+                        FsmResult redraw = { 0, Fsm_PeekPreedit(&obj->fsm), true , 0};
                         OutputResultSeq(obj, pic, redraw, FALSE);
                     }
                 }
@@ -2057,7 +2057,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
                 }
                 // 그 외 비자모 키: 조합만 확정하고, 원래 키는 실제 이벤트로 재전달 → 앱이 네이티브 처리.
                 // (편집세션 텍스트 삽입은 터미널(PuTTY 등)엔 안 통함. 방향키 이동·엔터·터미널 모두 지원.)
-                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};   // 초성만/중성만 부분 상태도 올바르게 확정
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};   // 초성만/중성만 부분 상태도 올바르게 확정
                 JamoDiag("FLUSH commit=U+%04X then resend vk=%02X (delayed)", (unsigned)res.commitChar, (unsigned)wParam);
                 OutputResultSeq(obj, pic, res, TRUE);   // 어절 경계 → 현재 음절 확정
                 ScheduleKeyResend(obj, wParam, lParam);   // 지연 재전달 — CUAS 전달 경합 방지 (AkelPad 엔터 소실)
@@ -2068,7 +2068,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyDown(ITfKeyEventSink *pThis, ITfContex
         // Passthrough or other layouts
         // If there is an active FSM composition (shouldn't happen here, but safe to flush)
         if (obj->fsm.state != STATE_EMPTY) {
-            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+            FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
             OutputResultSeq(obj, pic, res, TRUE);
         }
     }
@@ -2100,7 +2100,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnKeyUp(ITfKeyEventSink *pThis, ITfContext 
         ChordResult cr = Chord_KeyUp(&obj->chord, (UINT)wParam);
         if (cr.eaten) {
             if (pfEaten) *pfEaten = TRUE;
-            if (cr.commit) { FsmResult res = {cr.commit, 0, true}; OutputResult(obj, pic, res, FALSE); }
+            if (cr.commit) { FsmResult res = {cr.commit, 0, true, 0}; OutputResult(obj, pic, res, FALSE); }
         }
         return S_OK;
     }
@@ -2153,7 +2153,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
             break;
         case SC_FN_CODE: {
             if (obj->fsm.state != STATE_EMPTY) {
-                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
                 OutputResultSeq(obj, pic, res, TRUE);
             }
             EnsureHanjaDicts();   // W2-10 (preserved key 경로도 같다)
@@ -2162,7 +2162,7 @@ static HRESULT STDMETHODCALLTYPE KES_OnPreservedKey(ITfKeyEventSink *pThis, ITfC
         }
         case SC_FN_PASSTHROUGH: {
             if (obj->fsm.state != STATE_EMPTY) {
-                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false};
+                FsmResult res = {Fsm_Flush(&obj->fsm), 0, false, 0};
                 OutputResultSeq(obj, pic, res, TRUE);
             }
             Jamotong_SetPassthrough(obj, obj->passthrough ? FALSE : TRUE);   // 토글 (sink 경로는 켜기 전용 + 해제 전용이 나뉘어 있음)

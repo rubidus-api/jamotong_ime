@@ -308,24 +308,39 @@ static void DeleteTree(const wchar_t *dir) {
     }
     if (!RemoveDirectoryW(dir)) Later(dir);
 }
-// 우리가 설치 때 두는 파일의 이름 — 정확한 이름이나 "접두 + 허용 확장자"만 (사용자가 고른 폴더에서 남의 파일을 지우지 않는다)
+// 우리가 설치 때 두는 파일의 이름. 두 갈래다 (리뷰 2026-11-19: README·LICENSE·install.bat 같은 흔한 이름을 남의 폴더에서 지웠다):
+//   OurFileSure    — 이름만으로 우리 것이 분명한 것(jamotong* 프로그램·자료). 어느 폴더에서든 지운다.
+//   OurFileShipped — 배포 zip 이 함께 두는 흔한 이름(LICENSE, README.md, example*.jmt …). **우리 폴더로 볼 수 있을 때만** 지운다(DedicatedFolder).
+// 정확한 이름이나 "접두 + 허용 확장자"만 — 사용자가 고른 폴더에서 남의 파일을 지우지 않는다.
 static bool HasExt(const wchar_t *n, const wchar_t *const *exts) {
     const wchar_t *e = wcsrchr(n, L'.');
     if (!e) return false;
     for (int i = 0; exts[i]; i++) if (!_wcsicmp(e, exts[i])) return true;
     return false;
 }
-static bool OurFile(const wchar_t *n) {
+static bool OurFileSure(const wchar_t *n) {
+    static const wchar_t *const prog[] = { L".dll", L".exe", L".msi", L".ico", NULL };
+    static const wchar_t *const data[] = { L".jmb", L".jmt", L".jdb", L".jdc", L".jdt", L".txt", NULL };
+    return !_wcsnicmp(n, L"jamotong", 8) && (HasExt(n, prog) || HasExt(n, data) || wcsstr(n, L".old."));   // jamotong.dll, jamotong32.dll, *.old.<n>
+}
+static bool OurFileShipped(const wchar_t *n) {
     static const wchar_t *const exact[] = { L"COPYRIGHT.md", L"LICENSE", L"README.md", L"README.ko.md", L"UNICODE-LICENSE.txt",
                                             L"jmt-format.md", L"jmt-format.ko.md", L"hanja.txt", L"hanja_hunum.txt",
                                             L"install.bat", L"uninstall.bat", NULL };
     for (int i = 0; exact[i]; i++) if (!_wcsicmp(n, exact[i])) return true;
-    static const wchar_t *const prog[] = { L".dll", L".exe", L".msi", L".ico", NULL };
     static const wchar_t *const data[] = { L".jmb", L".jmt", L".jdb", L".jdc", L".jdt", L".txt", NULL };
-    if (!_wcsnicmp(n, L"jamotong", 8) && (HasExt(n, prog) || HasExt(n, data) || wcsstr(n, L".old."))) return true;   // jamotong.dll, jamotong32.dll, *.old.<n>
     static const wchar_t *const dataPre[] = { L"layout-ko-", L"example", L"chinese", L"japanese", L"romaji-kana", L"pinyin-keys", NULL };
     for (int i = 0; dataPre[i]; i++) if (!_wcsnicmp(n, dataPre[i], wcslen(dataPre[i])) && HasExt(n, data)) return true;
     return false;
+}
+// 폴더 이름(마지막 칸)이 jamotong 으로 시작하는가 — 배포 zip 은 jamotong-<판>\ 폴더로 풀리고 설치 폴더도 Jamotong 이다.
+//   C:\Tools·소스 저장소의 dist·Downloads 처럼 남과 나눠 쓰는 폴더는 해당하지 않는다.
+static bool DedicatedFolder(const wchar_t *dir) {
+    size_t n = wcslen(dir);
+    while (n > 0 && (dir[n - 1] == L'\\' || dir[n - 1] == L'/')) n--;
+    size_t b = n;
+    while (b > 0 && dir[b - 1] != L'\\' && dir[b - 1] != L'/') b--;
+    return n - b >= 8 && !_wcsnicmp(dir + b, L"jamotong", 8);
 }
 // 설치기가 쓰는 기본 위치 — 여기서만 폴더를 통째로 지운다
 static bool IsKnownRoot(const wchar_t *dir) {
@@ -353,7 +368,9 @@ static bool UnderProgramFiles(const wchar_t *path) {
 static void CleanFolder(const wchar_t *dir) {
     if (IsKnownRoot(dir)) { DeleteTree(dir); return; }
     if (IsReparse(dir)) return;   // 연결 지점은 따라가지 않는다
-    // 사용자가 고른 폴더(예: Downloads, 소스 폴더): 우리 파일만 지우고 하위 폴더는 건드리지 않는다
+    // 사용자가 고른 폴더(예: Downloads, 소스 폴더): 우리 파일만 지우고 하위 폴더는 건드리지 않는다.
+    //   흔한 이름(README·LICENSE …)은 폴더 이름이 jamotong* 일 때만 — 아니면 남기고 적어 둔다.
+    bool dedicated = DedicatedFolder(dir);
     wchar_t pat[MAX_PATH * 2 + 4];
     _snwprintf(pat, MAX_PATH * 2 + 4, L"%ls\\*", dir);
     WIN32_FIND_DATAW fd;
@@ -361,7 +378,9 @@ static void CleanFolder(const wchar_t *dir) {
     if (f == INVALID_HANDLE_VALUE) return;
     do {
         if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
-        if (!OurFile(fd.cFileName)) continue;
+        bool sure = OurFileSure(fd.cFileName);
+        if (!sure && !OurFileShipped(fd.cFileName)) continue;
+        if (!sure && !dedicated) { Log(L"  left in place (a common name in a folder not named jamotong*): %ls\\%ls", dir, fd.cFileName); continue; }
         wchar_t p[MAX_PATH * 2];
         _snwprintf(p, MAX_PATH * 2, L"%ls\\%ls", dir, fd.cFileName);
         SetFileAttributesW(p, FILE_ATTRIBUTE_NORMAL);

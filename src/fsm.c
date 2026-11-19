@@ -60,7 +60,7 @@ FsmResult Fsm_ProcessSymbol(FsmContext *ctx, wchar_t sym, const HangulLayout *hl
 }
 
 static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, const HangulLayout *hl) {
-    FsmResult res = {0, 0, false};
+    FsmResult res = {0, 0, false, 0};
     // 직접 종성 자판(세벌식, Composition = sebeol 파일)은 2벌식식 도깨비불(초성↔종성 문맥 전환)을 쓰지 않는다.
     //   RFC-0016 P2: 파일 자판도 Composition = dubeol 이면 내장 두벌식과 같은 전이를 탄다 (전엔 파일 = 늘 직접 종성).
     bool directJong = hl ? (hl->composition != HL_DUBEOL) : (variant == KBD_SEBEOL);
@@ -98,8 +98,9 @@ static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, 
             } else if (layoutRes.type == JAMO_JUNG) {
                 ctx->state = STATE_CHO_JUNG; ctx->jung = layoutRes.index;
                 res.preeditChar = ComposeHangul(ctx->cho, ctx->jung, -1);
-            } else {   // JAMO_JONG: 초성만 있는데 종성 → 초성 확정 (남은 종성 소비)
+            } else {   // JAMO_JONG: 초성만 있는데 종성 → 초성 확정, 그 종성은 홀 자모로 (STATE_EMPTY 와 같다)
                 res.commitChar = Layout_ChoToCompatJamo(ctx->cho);
+                res.commitTail = Layout_JongToCompatJamo(layoutRes.index);
                 Fsm_Init(ctx);
             }
             break;
@@ -118,8 +119,9 @@ static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, 
                     res.commitChar = Layout_JungToCompatJamo(ctx->jung);
                     ctx->jung = layoutRes.index; res.preeditChar = Layout_JungToCompatJamo(ctx->jung);
                 }
-            } else {   // JAMO_JONG: 중성만 + 종성 → 중성 확정
+            } else {   // JAMO_JONG: 중성만 + 종성 → 중성 확정, 그 종성은 홀 자모로
                 res.commitChar = Layout_JungToCompatJamo(ctx->jung);
+                res.commitTail = Layout_JongToCompatJamo(layoutRes.index);
                 Fsm_Init(ctx);
             }
             break;
@@ -180,8 +182,9 @@ static FsmResult fsm_step(FsmContext *ctx, LayoutResult layoutRes, int variant, 
                 int comb = fsm_combineJongPair(ctx->jong, layoutRes.index, hl);
                 if (comb != -1) {
                     ctx->jong = comb; res.preeditChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
-                } else {
+                } else {   // 합쳐지지 않는다 → 지금 음절을 확정하고, 이 종성 키는 홀 자모로 낸다 (예전엔 키가 먹히고 글자가 사라졌다)
                     res.commitChar = ComposeHangul(ctx->cho, ctx->jung, ctx->jong);
+                    res.commitTail = Layout_JongToCompatJamo(layoutRes.index);
                     Fsm_Init(ctx);
                 }
             }

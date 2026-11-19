@@ -6,6 +6,7 @@
 //     02    1    0    1    0021   -1   -1   -1      ← 스캔코드 VK Cap 면들…
 //   면 값: `-1` 없음, 네 자리 16진(코드포인트), 글자 하나, `%%` 합자, 끝의 `@` 는 데드키.
 #include "klc_import.h"
+#include "utf8_write.h"
 #include "klay.h"
 #include "version.h"
 #include <windows.h>
@@ -150,9 +151,9 @@ bool KlcImport_Run(const wchar_t *srcPath, const wchar_t *outPath, KlcImportResu
     fprintf(f, "FormatVersion    = 3\n");
     fprintf(f, "Type             = static\n");
     // 지금 이 도구의 판을 적는다 — 앞선 판을 요구해 제 손으로 만든 파일을 못 읽는 일이 없게.
-    fprintf(f, "RequiresJamotong = %ls\n", JAMOTONG_VERSION);
-    fprintf(f, "Name             = %ls\n", res->name);
-    fprintf(f, "# Converted from %ls by jamotong --import-klc.\n", sbase);
+    Utf8_Fprintf(f, L"RequiresJamotong = %ls\n", JAMOTONG_VERSION);
+    Utf8_Fprintf(f, L"Name             = %ls\n", res->name);
+    Utf8_Fprintf(f, L"# Converted from %ls by jamotong --import-klc.\n", sbase);
     fprintf(f, "# Dead keys, ligatures and the AltGr face are not carried over.\n");
     // 읽기 쉽게 여덟 글쇠씩 한 줄로 (좌변·우변 길이가 같아야 한다)
     wchar_t lhs[16], rhs[16];
@@ -163,11 +164,11 @@ bool KlcImport_Run(const wchar_t *srcPath, const wchar_t *outPath, KlcImportResu
         lhs[n] = (wchar_t)i; rhs[n] = out[i]; n++;
         if (n == 8) {
             lhs[n] = rhs[n] = L'\0';
-            wrote = fprintf(f, "Map %ls = %ls\n", lhs, rhs) > 0;
+            wrote = Utf8_Fprintf(f, L"Map %ls = %ls\n", lhs, rhs);
             n = 0;
         }
     }
-    if (wrote && n > 0) { lhs[n] = rhs[n] = L'\0'; wrote = fprintf(f, "Map %ls = %ls\n", lhs, rhs) > 0; }
+    if (wrote && n > 0) { lhs[n] = rhs[n] = L'\0'; wrote = Utf8_Fprintf(f, L"Map %ls = %ls\n", lhs, rhs); }
     if (fclose(f) != 0 || !wrote) { Fail(res, L"cannot write the layout file"); _wremove(outPath); return false; }
     return true;
 }

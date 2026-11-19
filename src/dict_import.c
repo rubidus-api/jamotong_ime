@@ -2,33 +2,13 @@
 //   자료 자체는 배포하지 않는다 — 사용자가 고른 파일을 형식만 바꿔 준다 (RFC-0016 §6.4).
 #include "dict_import.h"
 #include "jdict.h"
+#include "utf8_write.h"
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define IMP_MAX_LINE 4096
-
-// 와이드 문자열 → UTF-8 (헤더 줄용). fprintf("%ls") 는 C 로케일에서 ASCII 밖 글자를 못 바꿔 줄이 거기서 끊기고 '\n' 이 사라진다.
-//   wchar_t 가 16비트(Windows, 서러게이트 쌍)든 32비트(호스트 시험)든 같게 동작한다.
-static void ToUtf8(const wchar_t *w, char *out, size_t cap) {
-    size_t o = 0;
-    for (size_t i = 0; w[i]; i++) {
-        unsigned long c = (unsigned long)w[i];
-        if (sizeof(wchar_t) == 2 && c >= 0xD800 && c < 0xDC00 && w[i + 1] >= 0xDC00 && w[i + 1] < 0xE000) {
-            c = 0x10000 + ((c - 0xD800) << 10) + ((unsigned long)w[i + 1] - 0xDC00); i++;
-        }
-        if (c >= 0xD800 && c < 0xE000) c = 0xFFFD;   // 짝 없는 서러게이트
-        char b[4]; size_t n;
-        if (c < 0x80) { b[0] = (char)c; n = 1; }
-        else if (c < 0x800) { b[0] = (char)(0xC0 | (c >> 6)); b[1] = (char)(0x80 | (c & 0x3F)); n = 2; }
-        else if (c < 0x10000) { b[0] = (char)(0xE0 | (c >> 12)); b[1] = (char)(0x80 | ((c >> 6) & 0x3F)); b[2] = (char)(0x80 | (c & 0x3F)); n = 3; }
-        else { b[0] = (char)(0xF0 | (c >> 18)); b[1] = (char)(0x80 | ((c >> 12) & 0x3F)); b[2] = (char)(0x80 | ((c >> 6) & 0x3F)); b[3] = (char)(0x80 | (c & 0x3F)); n = 4; }
-        if (o + n + 1 > cap) break;
-        memcpy(out + o, b, n); o += n;
-    }
-    out[o] = 0;
-}
 
 // 바이트 문자열 복사 (CRT 마다 이름이 달라 여기서 한 번 만든다)
 static char *DupStr(const char *s) {
@@ -209,9 +189,9 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             OneLine(meta && meta->name ? meta->name : L"imported", nameLine, 128);
             OneLine(meta && meta->license ? meta->license : L"", licLine, 256);
             char nameU[512], licU[1024], baseU[1024];
-            ToUtf8(nameLine[0] ? nameLine : L"imported", nameU, sizeof nameU);
-            ToUtf8(licLine, licU, sizeof licU);
-            ToUtf8(base, baseU, sizeof baseU);
+            Utf8_FromWide(nameLine[0] ? nameLine : L"imported", nameU, sizeof nameU);
+            Utf8_FromWide(licLine, licU, sizeof licU);
+            Utf8_FromWide(base, baseU, sizeof baseU);
             fprintf(out, "JamotongData 1\nType = candidates\n");
             fprintf(out, "Name = %s\n", nameU);
             if (licLine[0]) fprintf(out, "License = %s\n", licU);

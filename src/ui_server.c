@@ -47,6 +47,10 @@ typedef struct {
 } UiPending;
 static UiPending g_pend = { .perPage = 9 };
 static CRITICAL_SECTION g_lock;
+// 후보를 지금 그리게 한 연결(호스트 프로세스)의 번호 (0 = 없음, g_lock 으로만 만진다). 여러 호스트가 한꺼번에 붙어 있어도
+// 화면에는 마지막으로 SHOW 한 쪽 것 하나만 있고, 다른 연결의 UPDATE·HIDE·끊김은 그것을 건드리지 못한다.
+static LONG g_owner = 0;
+#define UISRV_MAX_CLIENTS 16
 #define ANCHOR_LIMIT 1000000   // 화면 좌표로 터무니없는 값은 계산이 넘치기 전에 자른다
 
 static int ClampAnchor(INT32 v) { return v < -ANCHOR_LIMIT ? -ANCHOR_LIMIT : (v > ANCHOR_LIMIT ? ANCHOR_LIMIT : (int)v); }
@@ -224,18 +228,22 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 // 파이프에서 받은 한 메시지를 상태에 반영한다. 신뢰 경계를 넘어온 값이라 전부 걸러 쓴다.
-static void ApplyMessage(const unsigned char *buf, DWORD len) {
+static void ApplyMessage(const unsigned char *buf, DWORD len, LONG conn) {
     if (len < sizeof(JamoUiMsgHeader)) return;
     const JamoUiMsgHeader *h = (const JamoUiMsgHeader*)buf;
     if (h->version != JAMO_UIIPC_VERSION) return;   // 모르는 판이면 조용히 무시
 
     if (h->msg == JAMO_UIMSG_HIDE) {
-        EnterCriticalSection(&g_lock); g_pend.count = 0; LeaveCriticalSection(&g_lock);
-        if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);
+        EnterCriticalSection(&g_lock);
+        bool mine = g_owner == conn;
+        if (mine) { g_pend.count = 0; g_owner = 0; }
+        LeaveCriticalSection(&g_lock);
+        if (mine && g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);   // 남의 화면은 숨기지 않는다
         return;
     }
     if (h->msg == JAMO_UIMSG_UPDATE) {
         EnterCriticalSection(&g_lock);
+        if (g_owner != conn) { LeaveCriticalSection(&g_lock); return; }   // 지금 화면의 주인이 아니다
         if (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) g_pend.perPage = (int)h->perPage;
         if (h->selection < (UINT32)g_pend.count) g_pend.sel = (int)h->selection;   // 부호 없는 비교 — 큰 값이 음수가 되지 않게
         LeaveCriticalSection(&g_lock);
@@ -256,6 +264,7 @@ static void ApplyMessage(const unsigned char *buf, DWORD len) {
         memcpy(g_pend.lines[i], src, JAMO_UIIPC_MAX_CANDLEN * sizeof(wchar_t));
         g_pend.lines[i][JAMO_UIIPC_MAX_CANDLEN - 1] = L'\0';   // 종료 보장(보낸 쪽을 믿지 않는다)
     }
+    g_owner = conn;   // 이 연결이 화면을 가져간다
     g_pend.count = (int)count;
     g_pend.perPage = (h->perPage > 0 && h->perPage <= JAMO_UIIPC_MAX_CAND) ? (int)h->perPage : 9;
     g_pend.sel = (h->selection < count) ? (int)h->selection : 0;
@@ -271,7 +280,35 @@ static void ApplyMessage(const unsigned char *buf, DWORD len) {
     if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_SHOW, 0, 0);
 }
 
-// 파이프 대기 루프 (자기 스레드). 한 번에 한 클라이언트, 끊기면 다시 만든다.
+// 연결 하나를 읽는다 (연결마다 스레드) — 호스트 프로세스가 사는 동안 파이프를 쥐고 있으므로 한 연결이 다른 연결을 막지 않게 한다.
+typedef struct { HANDLE pipe; LONG id; } UiClientCtx;
+static volatile LONG g_clients = 0;
+static LONG g_nextConn = 0;
+static DWORD WINAPI ClientThread(LPVOID param) {
+    UiClientCtx *c = (UiClientCtx*)param;
+    unsigned char *buf = (unsigned char*)malloc(64 * 1024);
+    if (buf) {
+        for (;;) {
+            DWORD got = 0;
+            if (!ReadFile(c->pipe, buf, 64 * 1024, &got, NULL) || got == 0) break;
+            ApplyMessage(buf, got, c->id);
+        }
+        free(buf);
+    }
+    // 이 클라이언트(호스트 프로세스)가 사라졌다 — 그 화면이었다면 치운다. 다른 연결의 화면은 그대로 둔다.
+    EnterCriticalSection(&g_lock);
+    bool mine = g_owner == c->id;
+    if (mine) { g_pend.count = 0; g_owner = 0; }
+    LeaveCriticalSection(&g_lock);
+    if (mine && g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);
+    DisconnectNamedPipe(c->pipe);
+    CloseHandle(c->pipe);
+    free(c);
+    InterlockedDecrement(&g_clients);
+    return 0;
+}
+
+// 파이프 대기 루프 (자기 스레드). 연결을 받을 때마다 다음 대기 인스턴스를 만들고, 연결은 각자 스레드에서 읽는다.
 static DWORD WINAPI PipeThread(LPVOID param) {
     (void)param;
     DWORD sid = 0;
@@ -293,27 +330,35 @@ static DWORD WINAPI PipeThread(LPVOID param) {
         sa.nLength = sizeof(sa); sa.lpSecurityDescriptor = &sd; sa.bInheritHandle = FALSE;
     }
 
-    unsigned char *buf = (unsigned char*)malloc(64 * 1024);
-    if (!buf) return 1;
-
+    bool first = true;
     for (;;) {
-        HANDLE pipe = CreateNamedPipeW(name, PIPE_ACCESS_INBOUND,
-                                       PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                                       1, 0, 64 * 1024, 0, &sa);
-        if (pipe == INVALID_HANDLE_VALUE) { Sleep(1000); continue; }
+        // 이름의 첫 인스턴스는 FIRST_PIPE_INSTANCE 로 만든다 — 이미 누가 그 이름을 쥐고 있으면(헬퍼보다 먼저 만든 다른 프로세스)
+        //   실패한다. 그 파이프에 후보·코드 입력 글자를 흘리지 않는다. 뒤따르는 인스턴스에는 이 플래그를 주지 않는다(주면 거부된다).
+        DWORD openMode = PIPE_ACCESS_INBOUND | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
+        HANDLE pipe = CreateNamedPipeW(name, openMode,
+                                       PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                                       PIPE_UNLIMITED_INSTANCES, 0, 64 * 1024, 0, &sa);
+        if (pipe == INVALID_HANDLE_VALUE) {
+            if (first && GetLastError() == ERROR_ACCESS_DENIED) {   // 이름이 이미 남의 것
+                if (g_hwnd) PostMessageW(g_hwnd, WM_CLOSE, 0, 0);   // 물러난다 — 호스트는 폴백(순환 변환)으로 간다
+                return 1;
+            }
+            Sleep(1000); continue;
+        }
+        first = false;
         if (!ConnectNamedPipe(pipe, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) {
             CloseHandle(pipe); continue;
         }
-        for (;;) {
-            DWORD got = 0;
-            if (!ReadFile(pipe, buf, 64 * 1024, &got, NULL) || got == 0) break;
-            ApplyMessage(buf, got);
+        UiClientCtx *c = (UiClientCtx*)malloc(sizeof *c);
+        if (!c || InterlockedIncrement(&g_clients) > UISRV_MAX_CLIENTS) {   // 너무 많다 — 이 연결은 돌려보낸다
+            if (c) InterlockedDecrement(&g_clients);
+            free(c);
+            DisconnectNamedPipe(pipe); CloseHandle(pipe); continue;
         }
-        // 클라이언트(호스트 프로세스)가 사라졌다 — 창을 치우고 다음 연결을 기다린다.
-        EnterCriticalSection(&g_lock); g_pend.count = 0; LeaveCriticalSection(&g_lock);
-        if (g_hwnd) PostMessageW(g_hwnd, WM_UISRV_HIDE, 0, 0);
-        DisconnectNamedPipe(pipe);
-        CloseHandle(pipe);
+        c->pipe = pipe; c->id = InterlockedIncrement(&g_nextConn);
+        HANDLE th = CreateThread(NULL, 0, ClientThread, c, 0, NULL);
+        if (!th) { InterlockedDecrement(&g_clients); free(c); DisconnectNamedPipe(pipe); CloseHandle(pipe); continue; }
+        CloseHandle(th);
     }
 }
 

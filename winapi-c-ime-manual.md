@@ -436,6 +436,15 @@ failure path: unadvise every step that succeeded, release every acquired interfa
 clear `clientId`, `threadMgr`, cookies, and transient state. Returning `S_OK` after a failed
 `QueryInterface` or `AdviseKeyEventSink` creates an “active” TIP that can never receive keys.
 
+**Deactivate is a composition boundary, not only a cleanup.** In a commit-only host (an EDIT
+control, a terminal) the syllable being composed exists only in your FSM and the preview chip —
+the document has not seen it. Switching to another input method (`Ctrl+Shift`, `Win+Space`)
+deactivates the TIP *without* a focus change, so a Deactivate that merely resets the FSM throws the
+last syllable (or a pending Japanese/Chinese reading) away. Run the same flush you run on focus
+loss and on a layout switch **first** (put the pending text into the remembered target, or hold it
+for that target), then fold the state. Keep one fold function and call the flush before it from
+every boundary (2026-11-19).
+
 Registration deserves the same treatment. `DllRegisterServer` writes the COM class, then the
 TSF profile, then the categories; if a later step fails, remove the earlier ones in reverse
 order before returning the error — otherwise the class is registered but no profile exists,
@@ -584,6 +593,12 @@ Jamotong's model (MSI since 0.60.0, folder choice since 0.61.0; field notes from
   locked leftovers (`RunOnce`), make it delete only `*.old.*` and an *empty* folder
   (`del ... & rd <dir>` without `/s`), and have the installer delete that entry — a
   `rd /s /q` scheduled before a reinstall wipes the new install at the next sign-in.
+- **A clean-up tool must not delete generic names in a folder it does not own.** A zip
+  registration can sit in `C:\Tools` or a source checkout's `dist`. Split the file list in two:
+  names that are unmistakably yours (`jamotong*.dll/.exe/…`) are removed anywhere, while the
+  generic names the zip ships (`README.md`, `LICENSE`, `install.bat`, `example*.jmt`, …) are
+  removed only when the folder itself is named for the product (the zip unpacks to
+  `jamotong-<version>\`); otherwise leave them and write them to the log.
 - **After the registered path moves**, the input indicator keeps showing its cached icon (or a
   plain language label) until Explorer restarts or the user signs in again.
 
@@ -694,6 +709,14 @@ The IME's "composition logic" is a pure state machine, independent of TSF. TSF i
 - **Dokkaebibul (final-consonant carry-over)**: while composing `옥`, input `ㅜ` →
   `commit=오, preedit=구`. The commit can **differ from the previous preedit**
   (important in §7.2).
+- **A final-consonant key that cannot combine must not vanish.** In a layout with separate final
+  keys (Sebeolsik), `각` + final `ㄴ` does not form a double final: commit `각` and emit the `ㄴ`
+  as a standalone jamo (what the same key does in `EMPTY`). The same holds for a lone initial or
+  a lone vowel followed by a final key. Returning "eaten" with nothing emitted loses a keystroke
+  silently. Because one result can now carry two finalized characters, the result is
+  `{commitChar, commitTail, preeditChar}` and every consumer must append the tail right after
+  `commitChar` (document insert, inline composition `[commit][tail][preedit]`, the tray test box).
+  Pin it in the native test: `각`+`ㄴ`, `ㄱ`+`ㄴ`, `ㅏ`+`ㄴ` (2026-11-19).
 - Dubeolsik final-consonant decisions, double finals, and carry-over are implemented via
   Unicode Hangul syllable (0xAC00~) composition/decomposition arithmetic.
 
@@ -1077,6 +1100,11 @@ not use it as a capability probe.
   hanja** through the same host-specific `CommitText` routing used for ordinary finalized text
   (§13.1) + reset the FSM. Do not bypass that routing by assuming
   `InsertTextAtSelection` works in every host.
+- **Load the dictionary once, and say "ready" only when it is.** The lazy loader sets its
+  "tried" flag under a lock, but a lock-free fast path that returns on that flag lets a second
+  input thread read tables the first is still building (or has just freed to rebuild). Keep two
+  things: a *tried* flag read and written under the lock, and a *done* flag set (interlocked) only
+  **after** loading, which the fast path checks (2026-11-19).
 - Make the candidate window a popup that never steals focus, and route keys through the
   IME (while the window is up, eat all keys and forward them to its handler).
 - Word-level conversion by reading already-typed text and replacing it is host-dependent.
@@ -1273,6 +1301,30 @@ How to apply it to IME popups (candidate list, code input, composition chip; 202
   reports `HCF_HIGHCONTRASTON`, draw with `COLOR_WINDOW`/`COLOR_WINDOWTEXT`/`COLOR_GRAYTEXT`
   and `COLOR_HIGHLIGHT`/`COLOR_HIGHLIGHTTEXT`; read it at paint time so a theme switch applies
   on the next paint.
+
+### ★Field lessons from the 2026-11-19 review
+
+- **A global low-level keyboard hook must not swallow modified keys.** A candidate window that
+  installs `WH_KEYBOARD_LL` to catch `Esc`/`Enter`/arrows/`1`-`9` tests only the virtual key. While
+  a popup is open that blocks `Win+Left`, `Win+1`, `Alt+Left`, `Ctrl+Enter` and posts the bare key
+  to the popup as navigation. Test Ctrl/Alt/Win first and let those keys through, and also let the
+  **key-up** of every key you passed through — blocking only the key-up leaves the key "held" in
+  the target.
+- **An owned popup dies with its owner — clear your handle in `WM_NCDESTROY`.** The popup is owned
+  by the focus window's top-level ancestor; close that window and the popup is destroyed with it,
+  but the cached `HWND` stays non-NULL. The next "show" sees a window "exists", skips creation,
+  and shows nothing — the shortcut is dead until the process restarts. Handle `WM_NCDESTROY`
+  (set the handle to NULL, end the UI element); when you destroy the window yourself, clear the
+  handle first so the handler does not run twice.
+- **A candidate list the host draws still needs your key routing.** When `BeginUIElement` says
+  "do not draw", you create no window, but the IME must still route digits/`Enter`/`Esc`. Keep
+  `IsVisible` and `HandleKey` on the same condition ("session active"), not "my window exists",
+  and never call `InvalidateRect(NULL, ...)` for a window you did not create — a NULL window
+  invalidates the whole screen.
+- **Never write non-ASCII text with `fprintf("%ls")`.** In the C locale the wide-to-multibyte
+  conversion fails at the first Hangul/kana character, the line is cut, and its `\n` is lost, so
+  the next line is glued on. Convert to UTF-8 yourself (one shared helper, surrogate pairs
+  included) and write bytes.
 
 ## 11. Minimal checklist
 
@@ -3119,6 +3171,19 @@ fallbacks — for a failed `CreateWindowEx`, or by a setting (`UwpOwnWindow=0`) 
 **Every** popup needs the owner, not just the one you fixed: Jamotong's code-point popup was still
 created unowned, and in the search box it stayed invisible while it swallowed every key (measured
 2026-10-01, fixed in 0.61.1). A popup that eats keys must never be the one that failed to show.
+**Shape of the helper pipe (2026-11-19).** Do not create it with `nMaxInstances = 1`: a host keeps
+its handle for its whole life, so the second UWP host gets `ERROR_PIPE_BUSY` and falls back to key
+cycling for good. Create `PIPE_UNLIMITED_INSTANCES`, one acceptor that makes the next waiting
+instance after each connection, and one reader thread per connection (cap it). Give **only the very
+first** instance `FILE_FLAG_FIRST_PIPE_INSTANCE` (later ones must not carry it — it fails with
+`ERROR_ACCESS_DENIED`); if that first creation is denied, another process already owns the name —
+exit instead of serving through it. The display has one owner: the connection that last sent `SHOW`;
+`UPDATE`, `HIDE` and a disconnect from any other connection are ignored, so one host closing cannot
+hide another host's list. On the client, `ERROR_PIPE_BUSY` means "between instances" — one short
+`WaitNamedPipe` (about 150 ms, never in a loop on the key path) and one retry, then the cooldown;
+open with `SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS` so a server that is not the helper cannot
+impersonate the client. Keep the channel one-way (`PIPE_ACCESS_INBOUND`).
+
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 
 The same boundary causes a quieter accident. Keep your settings file under `%APPDATA%` and it will

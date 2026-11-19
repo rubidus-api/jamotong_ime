@@ -29,7 +29,13 @@ static bool EnsureConnected(void) {
     _snwprintf(name, 128, JAMO_UIIPC_PIPE_FMT, (unsigned long)sid);
     name[127] = L'\0';
 
-    HANDLE h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    // 서버가 가장하지 못하게(ANONYMOUS) 연다 — 우리는 쓰기만 하고 서버에 신원을 줄 까닭이 없다.
+    DWORD flags = SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS;
+    HANDLE h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, flags, NULL);
+    if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY) {
+        // 서버가 다른 연결을 받아 다음 대기 인스턴스를 만드는 짧은 틈이다. 키 경로를 오래 막지 않도록 한 번, 짧게만 기다린다.
+        if (WaitNamedPipeW(name, 150)) h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, flags, NULL);
+    }
     if (h == INVALID_HANDLE_VALUE) {
         JamoDiag("UICLI connect fail err=%lu", GetLastError());
         g_retryAfter = GetTickCount64() + JAMO_UICLI_COOLDOWN_MS;   // 헬퍼가 아직 없다
