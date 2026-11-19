@@ -151,14 +151,14 @@ bool KlcImport_Run(const wchar_t *srcPath, const wchar_t *outPath, KlcImportResu
     fprintf(f, "FormatVersion    = 3\n");
     fprintf(f, "Type             = static\n");
     // 지금 이 도구의 판을 적는다 — 앞선 판을 요구해 제 손으로 만든 파일을 못 읽는 일이 없게.
-    Utf8_Fprintf(f, L"RequiresJamotong = %ls\n", JAMOTONG_VERSION);
-    Utf8_Fprintf(f, L"Name             = %ls\n", res->name);
-    Utf8_Fprintf(f, L"# Converted from %ls by jamotong --import-klc.\n", sbase);
+    bool hdr = Utf8_Fprintf(f, L"RequiresJamotong = %ls\n", JAMOTONG_VERSION);
+    hdr = Utf8_Fprintf(f, L"Name             = %ls\n", res->name) && hdr;
+    hdr = Utf8_Fprintf(f, L"# Converted from %ls by jamotong --import-klc.\n", sbase) && hdr;
     fprintf(f, "# Dead keys, ligatures and the AltGr face are not carried over.\n");
     // 읽기 쉽게 여덟 글쇠씩 한 줄로 (좌변·우변 길이가 같아야 한다)
     wchar_t lhs[16], rhs[16];
     int n = 0;
-    bool wrote = true;
+    bool wrote = hdr;   // 머리 줄이 안 써졌으면 가져오기는 실패다 (조용히 머리 없는 파일을 남기지 않는다)
     for (int i = 0; i < 256 && wrote; i++) {
         if (!out[i] || out[i] == (wchar_t)i) continue;   // 같은 글자면 적을 것이 없다
         lhs[n] = (wchar_t)i; rhs[n] = out[i]; n++;

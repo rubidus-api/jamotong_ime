@@ -188,7 +188,7 @@ bool DictImport_Run(const wchar_t *srcPath, const wchar_t *outPath, int limit,
             wchar_t nameLine[128], licLine[256];
             OneLine(meta && meta->name ? meta->name : L"imported", nameLine, 128);
             OneLine(meta && meta->license ? meta->license : L"", licLine, 256);
-            char nameU[512], licU[1024], baseU[1024];
+            char nameU[512], licU[1024], baseU[1100];
             Utf8_FromWide(nameLine[0] ? nameLine : L"imported", nameU, sizeof nameU);
             Utf8_FromWide(licLine, licU, sizeof licU);
             Utf8_FromWide(base, baseU, sizeof baseU);

@@ -9,5 +9,5 @@
 
 // w 를 UTF-8 로 out 에 쓴다 (cap 안에서 글자 단위로 자르고, 항상 NUL 로 끝낸다). 짝 없는 서러게이트는 U+FFFD.
 void Utf8_FromWide(const wchar_t *w, char *out, size_t cap);
-// vswprintf 로 만든 한 덩어리(최대 511 글자)를 UTF-8 로 f 에 쓴다. 다 썼으면 true.
+// vswprintf 로 만든 한 줄(길이 제한 없음 — 버퍼를 키운다)을 UTF-8 로 f 에 쓴다. 다 썼으면 true, 아니면 false(호출부가 확인한다).
 bool Utf8_Fprintf(FILE *f, const wchar_t *fmt, ...);

@@ -597,8 +597,11 @@ Jamotong's model (MSI since 0.60.0, folder choice since 0.61.0; field notes from
   registration can sit in `C:\Tools` or a source checkout's `dist`. Split the file list in two:
   names that are unmistakably yours (`jamotong*.dll/.exe/…`) are removed anywhere, while the
   generic names the zip ships (`README.md`, `LICENSE`, `install.bat`, `example*.jmt`, …) are
-  removed only when the folder itself is named for the product (the zip unpacks to
-  `jamotong-<version>\`); otherwise leave them and write them to the log.
+  removed only when the folder's name has the product's exact shape (`Jamotong`, or the zip's
+  `jamotong-<version>\` where the version is digits, dots and dashes only) **and** the program
+  itself is in it. A prefix test ("starts with jamotong") also matches `jamotong_ime` or
+  `jamotong-notes` — a source checkout or a notes folder. Do not treat `*.txt` as unmistakable
+  either (`jamotong-todo.txt` is someone's note). Otherwise leave the files and write them to the log.
 - **After the registered path moves**, the input indicator keeps showing its cached icon (or a
   plain language label) until Explorer restarts or the user signs in again.
 
@@ -716,7 +719,9 @@ The IME's "composition logic" is a pure state machine, independent of TSF. TSF i
   silently. Because one result can now carry two finalized characters, the result is
   `{commitChar, commitTail, preeditChar}` and every consumer must append the tail right after
   `commitChar` (document insert, inline composition `[commit][tail][preedit]`, the tray test box).
-  Pin it in the native test: `각`+`ㄴ`, `ㄱ`+`ㄴ`, `ㅏ`+`ㄴ` (2026-11-19).
+  On the inline-composition path, shift **both** committed characters out of the composition range
+  (`ShiftStart` by 2 when there is a tail): a tail left inside the range is ended with it and keeps
+  the composition underline. Pin it in the native test: `각`+`ㄴ`, `ㄱ`+`ㄴ`, `ㅏ`+`ㄴ` (2026-11-19).
 - Dubeolsik final-consonant decisions, double finals, and carry-over are implemented via
   Unicode Hangul syllable (0xAC00~) composition/decomposition arithmetic.
 
@@ -3180,9 +3185,23 @@ first** instance `FILE_FLAG_FIRST_PIPE_INSTANCE` (later ones must not carry it �
 exit instead of serving through it. The display has one owner: the connection that last sent `SHOW`;
 `UPDATE`, `HIDE` and a disconnect from any other connection are ignored, so one host closing cannot
 hide another host's list. On the client, `ERROR_PIPE_BUSY` means "between instances" — one short
-`WaitNamedPipe` (about 150 ms, never in a loop on the key path) and one retry, then the cooldown;
+`WaitNamedPipe` (about 20 ms — the gap is microseconds — never in a loop on the key path) and one
+retry, then the cooldown;
 open with `SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS` so a server that is not the helper cannot
 impersonate the client. Keep the channel one-way (`PIPE_ACCESS_INBOUND`).
+
+Four details that only show up under several hosts (2026-11-19, second review): (1) **A `HIDE` is
+posted after the lock is released**, so it can sit behind another connection's `SHOW` in the window's
+queue; the window's `HIDE` handler must re-check, under the lock, whether a list is pending and do
+nothing if so. (2) **A client must not hold the pipe while nothing is shown** — a host that keeps
+it for its whole life (and there are many such hosts) uses up the helper's connection slots; close
+it after sending `HIDE` and reconnect on the next `SHOW`. (3) Because the server ignores `UPDATE`
+from a connection that does not own the screen, and the one-way channel gives the client no
+"rejected" signal, **send an update as the whole `SHOW` again** (keep the last message, change the
+selection, resend — at most 4 KB): it also takes the screen back after another host used and
+hid it. (4) Size the per-connection read buffer for the **largest legal message** (header plus 64
+candidates ≈ 4 KB, assert it at compile time) and drop connections that exceed it; use a small thread
+stack and a cap of a few dozen connections.
 
 ### 14.8 ★Gotcha: an AppContainer cannot read `%APPDATA%`
 

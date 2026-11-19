@@ -11,6 +11,10 @@
 #include <string.h>
 
 static HANDLE    g_pipe = INVALID_HANDLE_VALUE;
+// 마지막으로 보낸 SHOW 메시지 (리뷰 2026-11-19 #4). 서버는 화면을 마지막으로 SHOW 한 연결의 것으로만 둔다 — 다른 호스트가 그 사이에
+//   화면을 가져갔다 숨겼다면 우리 UPDATE 만으로는 목록을 다시 띄울 수 없다. 그래서 갱신도 SHOW 전체로 보낸다(최대 4KB).
+static unsigned char g_last[sizeof(JamoUiMsgHeader) + (size_t)JAMO_UIIPC_MAX_CAND * JAMO_UIIPC_MAX_CANDLEN * sizeof(wchar_t)];
+static DWORD     g_lastLen = 0;
 static ULONGLONG g_retryAfter = 0;   // 실패하면 잠깐 쉬었다 다시 — 헬퍼는 도중에 재시작될 수 있다
 #define JAMO_UICLI_COOLDOWN_MS 3000
 
@@ -33,8 +37,9 @@ static bool EnsureConnected(void) {
     DWORD flags = SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS;
     HANDLE h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, flags, NULL);
     if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PIPE_BUSY) {
-        // 서버가 다른 연결을 받아 다음 대기 인스턴스를 만드는 짧은 틈이다. 키 경로를 오래 막지 않도록 한 번, 짧게만 기다린다.
-        if (WaitNamedPipeW(name, 150)) h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, flags, NULL);
+        // 서버가 다른 연결을 받아 다음 대기 인스턴스를 만드는 짧은 틈이다(마이크로초~밀리초). 키 경로를 막지 않도록 한 번, 아주 짧게만
+        //   기다린다 — 그래도 안 되면 바로 쉬는 시간으로 가므로 막힘은 3초에 한 번, 20ms 이하다.
+        if (WaitNamedPipeW(name, 20)) h = CreateFileW(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, flags, NULL);
     }
     if (h == INVALID_HANDLE_VALUE) {
         JamoDiag("UICLI connect fail err=%lu", GetLastError());
@@ -104,12 +109,19 @@ bool UiClient_Show(const wchar_t *const *lines, int count, int perPage, int sele
         }
     }
     bool ok = WriteAll(buf, (DWORD)total);
+    if (ok && total <= sizeof g_last) { memcpy(g_last, buf, total); g_lastLen = (DWORD)total; }
     free(buf);
     JamoDiag("UICLI show count=%d ok=%d", count, (int)ok);
     return ok;
 }
 
 bool UiClient_Update(int selection, int perPage) {
+    if (g_lastLen >= sizeof(JamoUiMsgHeader)) {   // 목록 전체를 다시 보내 화면을 (다시) 가져온다
+        JamoUiMsgHeader *lh = (JamoUiMsgHeader*)g_last;
+        lh->selection = (UINT32)(selection >= 0 ? selection : 0);
+        lh->perPage = (UINT32)(perPage > 0 ? perPage : 9);
+        return WriteAll(g_last, g_lastLen);
+    }
     JamoUiMsgHeader h;
     memset(&h, 0, sizeof(h));
     h.version = JAMO_UIIPC_VERSION;
@@ -120,15 +132,20 @@ bool UiClient_Update(int selection, int perPage) {
 }
 
 void UiClient_Hide(void) {
-    if (g_pipe == INVALID_HANDLE_VALUE) return;   // 연결한 적 없으면 할 일 없음
+    if (g_pipe == INVALID_HANDLE_VALUE) { g_lastLen = 0; return; }   // 연결한 적 없으면 할 일 없음
     JamoUiMsgHeader h;
     memset(&h, 0, sizeof(h));
     h.version = JAMO_UIIPC_VERSION;
     h.msg = JAMO_UIMSG_HIDE;
     WriteAll(&h, sizeof(h));
+    // 목록이 없는 동안은 연결을 쥐지 않는다 (리뷰 2026-11-19 #6): 호스트가 파이프를 평생 쥐면 오래 사는 호스트가 헬퍼의 연결 자리를
+    //   모두 차지한다. 다음 SHOW 가 새로 연결한다(로컬 파이프라 싸다).
+    ClosePipe();
+    g_lastLen = 0;
 }
 
 void UiClient_Reset(void) {
     ClosePipe();
+    g_lastLen = 0;
     g_retryAfter = 0;
 }

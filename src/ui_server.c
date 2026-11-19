@@ -50,7 +50,11 @@ static CRITICAL_SECTION g_lock;
 // 후보를 지금 그리게 한 연결(호스트 프로세스)의 번호 (0 = 없음, g_lock 으로만 만진다). 여러 호스트가 한꺼번에 붙어 있어도
 // 화면에는 마지막으로 SHOW 한 쪽 것 하나만 있고, 다른 연결의 UPDATE·HIDE·끊김은 그것을 건드리지 못한다.
 static LONG g_owner = 0;
-#define UISRV_MAX_CLIENTS 16
+#define UISRV_MAX_CLIENTS 64
+#define UISRV_READ_MAX    8192    // 한 메시지의 최대: 머리 100바이트 + 후보 64개 x 64바이트 = 4196. 그보다 큰 것은 믿지 않고 연결을 끊는다
+#define UISRV_STACK       (64 * 1024)
+_Static_assert(sizeof(JamoUiMsgHeader) + (size_t)JAMO_UIIPC_MAX_CAND * JAMO_UIIPC_MAX_CANDLEN * sizeof(WCHAR) <= UISRV_READ_MAX,
+               "the biggest legal SHOW message must fit the read buffer");
 #define ANCHOR_LIMIT 1000000   // 화면 좌표로 터무니없는 값은 계산이 넘치기 전에 자른다
 
 static int ClampAnchor(INT32 v) { return v < -ANCHOR_LIMIT ? -ANCHOR_LIMIT : (v > ANCHOR_LIMIT ? ANCHOR_LIMIT : (int)v); }
@@ -221,7 +225,15 @@ static LRESULT CALLBACK SrvWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_UISRV_SHOW:   SyncFromPending(); PlaceWindow(); return 0;
         case WM_UISRV_UPDATE: SyncFromPending(); PlaceWindow(); return 0;
-        case WM_UISRV_HIDE:   g_count = 0; ShowWindow(hwnd, SW_HIDE); return 0;
+        case WM_UISRV_HIDE: {
+            // HIDE 는 락을 푼 뒤에 게시되므로, 그 사이 다른 연결의 SHOW 가 이미 받아 둔 목록을 담고 있을 수 있다 —
+            //   그 SHOW 메시지가 뒤따라 온다. 지금 받아 둔 목록이 있으면 숨기지 않는다 (리뷰 2026-11-19 #1).
+            EnterCriticalSection(&g_lock);
+            bool live = g_pend.count > 0;
+            LeaveCriticalSection(&g_lock);
+            if (live) return 0;
+            g_count = 0; ShowWindow(hwnd, SW_HIDE); return 0;
+        }
         case WM_DESTROY:      PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -286,11 +298,11 @@ static volatile LONG g_clients = 0;
 static LONG g_nextConn = 0;
 static DWORD WINAPI ClientThread(LPVOID param) {
     UiClientCtx *c = (UiClientCtx*)param;
-    unsigned char *buf = (unsigned char*)malloc(64 * 1024);
+    unsigned char *buf = (unsigned char*)malloc(UISRV_READ_MAX);
     if (buf) {
         for (;;) {
             DWORD got = 0;
-            if (!ReadFile(c->pipe, buf, 64 * 1024, &got, NULL) || got == 0) break;
+            if (!ReadFile(c->pipe, buf, UISRV_READ_MAX, &got, NULL) || got == 0) break;
             ApplyMessage(buf, got, c->id);
         }
         free(buf);
@@ -356,7 +368,7 @@ static DWORD WINAPI PipeThread(LPVOID param) {
             DisconnectNamedPipe(pipe); CloseHandle(pipe); continue;
         }
         c->pipe = pipe; c->id = InterlockedIncrement(&g_nextConn);
-        HANDLE th = CreateThread(NULL, 0, ClientThread, c, 0, NULL);
+        HANDLE th = CreateThread(NULL, UISRV_STACK, ClientThread, c, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
         if (!th) { InterlockedDecrement(&g_clients); free(c); DisconnectNamedPipe(pipe); CloseHandle(pipe); continue; }
         CloseHandle(th);
     }

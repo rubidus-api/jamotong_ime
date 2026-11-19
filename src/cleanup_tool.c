@@ -320,7 +320,7 @@ static bool HasExt(const wchar_t *n, const wchar_t *const *exts) {
 }
 static bool OurFileSure(const wchar_t *n) {
     static const wchar_t *const prog[] = { L".dll", L".exe", L".msi", L".ico", NULL };
-    static const wchar_t *const data[] = { L".jmb", L".jmt", L".jdb", L".jdc", L".jdt", L".txt", NULL };
+    static const wchar_t *const data[] = { L".jmb", L".jmt", L".jdb", L".jdc", L".jdt", NULL };   // .txt 는 뺀다: jamotong-todo.txt 같은 남의 메모일 수 있다
     return !_wcsnicmp(n, L"jamotong", 8) && (HasExt(n, prog) || HasExt(n, data) || wcsstr(n, L".old."));   // jamotong.dll, jamotong32.dll, *.old.<n>
 }
 static bool OurFileShipped(const wchar_t *n) {
@@ -333,14 +333,20 @@ static bool OurFileShipped(const wchar_t *n) {
     for (int i = 0; dataPre[i]; i++) if (!_wcsnicmp(n, dataPre[i], wcslen(dataPre[i])) && HasExt(n, data)) return true;
     return false;
 }
-// 폴더 이름(마지막 칸)이 jamotong 으로 시작하는가 — 배포 zip 은 jamotong-<판>\ 폴더로 풀리고 설치 폴더도 Jamotong 이다.
-//   C:\Tools·소스 저장소의 dist·Downloads 처럼 남과 나눠 쓰는 폴더는 해당하지 않는다.
-static bool DedicatedFolder(const wchar_t *dir) {
+// 폴더 이름(마지막 칸)이 우리 폴더의 꼴인가 — 설치 폴더 `Jamotong`, 또는 배포 zip 이 풀리는 `jamotong-<판>` (판 = 숫자·점·줄뿐: 261119, 0.76.4).
+//   `jamotong_ime`·`jamotong-notes` 처럼 이름만 비슷한 소스 저장소·메모 폴더는 아니다. (리뷰 2026-11-19 #3)
+static bool DedicatedName(const wchar_t *dir) {
     size_t n = wcslen(dir);
     while (n > 0 && (dir[n - 1] == L'\\' || dir[n - 1] == L'/')) n--;
     size_t b = n;
     while (b > 0 && dir[b - 1] != L'\\' && dir[b - 1] != L'/') b--;
-    return n - b >= 8 && !_wcsnicmp(dir + b, L"jamotong", 8);
+    const wchar_t *nm = dir + b; size_t len = n - b;
+    if (len < 8 || _wcsnicmp(nm, L"jamotong", 8) != 0) return false;
+    if (len == 8) return true;                       // Jamotong
+    if (nm[8] != L'-' || len == 9) return false;     // jamotong-<판>
+    for (size_t i = 9; i < len; i++)
+        if (!((nm[i] >= L'0' && nm[i] <= L'9') || nm[i] == L'.' || nm[i] == L'-')) return false;
+    return true;
 }
 // 설치기가 쓰는 기본 위치 — 여기서만 폴더를 통째로 지운다
 static bool IsKnownRoot(const wchar_t *dir) {
@@ -362,6 +368,17 @@ static bool UnderProgramFiles(const wchar_t *path) {
         if (SHGetFolderPathW(NULL, known[k], NULL, 0, base) != S_OK) continue;
         size_t n = wcslen(base);
         if (!_wcsnicmp(path, base, n) && path[n] == L'\\') return true;
+    }
+    return false;
+}
+// 이름이 우리 꼴이고, 우리 프로그램이 실제로 그 안에 있는가 (이름이 `jamotong` 인 소스 저장소 뿌리 같은 곳을 거른다).
+static bool DedicatedFolder(const wchar_t *dir) {
+    if (!DedicatedName(dir)) return false;
+    static const wchar_t *const marks[] = { L"jamotong.dll", L"jamotong32.dll", L"jamotong.exe", NULL };
+    for (int i = 0; marks[i]; i++) {
+        wchar_t p[MAX_PATH * 2];
+        _snwprintf(p, MAX_PATH * 2, L"%ls\\%ls", dir, marks[i]);
+        if (GetFileAttributesW(p) != INVALID_FILE_ATTRIBUTES) return true;
     }
     return false;
 }

@@ -203,7 +203,7 @@ static HRESULT DoInlineWork(InlineEditSession *es, TfEditCookie ec) {
     if (FAILED(hr)) return hr;
 
     if (es->commit) {
-        hr = CommitPrefix(es, ec, 1);
+        hr = CommitPrefix(es, ec, es->commit2 ? 2 : 1);   // 확정 글자가 둘이면(합쳐지지 않는 종성 키) 둘 다 조합 범위 밖으로 민다
         if (SUCCEEDED(hr) && !es->preedit) {
             HRESULT endHr = svc->pComposition->lpVtbl->EndComposition(svc->pComposition, ec);
             (void)endHr;   // 확정은 이미 성립 — End 실패로 되돌리지 않는다
